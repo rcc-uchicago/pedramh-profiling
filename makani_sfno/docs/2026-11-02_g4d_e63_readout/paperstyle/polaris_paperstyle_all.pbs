@@ -1,0 +1,49 @@
+#!/bin/bash -l
+#PBS -N paperstyle_all
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# The whole paper-style comparison (prereg.md) as ONE debug job: the debug queue allows one waiting job per user,
+# held dependents included. Each step is the existing script, run unchanged with its own env block:
+#   1. background, CPUs: E3SM truth 2035-2043  (fiveyear/polaris_truth_series.pbs; TRUTH_SERIES_ALL_OK)
+#   2. foreground, GPUs: re-roll G4D16/36/43, 8 runs each, EMA v15/v35/v42  (polaris/polaris_climate_run.pbs;
+#      CLIMATE_RUN_OK)
+#   3. analysis + gates, deletes the re-roll NetCDFs only after PAPERSTYLE_OK  (polaris_paperstyle.pbs)
+# If the walltime ends before step 3, steps 1-2's outputs persist; re-run step 3 alone with -v RR=<dir>.
+# Submit from eval-protocol/makani_sfno/.   PASS = PAPERSTYLE_ALL_OK
+# ============================================================================
+S=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_paperstyle_2026-11-04
+F=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/fiveyear
+C=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_mn_scaling/e3sm_mn_scaling/f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4/training_checkpoints
+RUN=f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4
+RR=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_paperstyle_2026-11-04
+cd "${PBS_O_WORKDIR}" || exit 2
+echo "=== paperstyle_all: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} ==="
+
+YEARS="2035 2036 2037 2038 2039 2040 2041 2042 2043" bash -l "${F}/polaris_truth_series.pbs" \
+    > "${S}/truth_2035_2043.log" 2>&1 &
+TP=$!
+echo "truth 2035-2043 started pid ${TP} ($(date +%T))"
+
+ARMS="G4D16 G4D36 G4D43" OUT_ROOT="${RR}" \
+    RUNDIR_G4D16="${RUN}" CKPT_G4D16="${C}/ckpt_mp0_v15.tar" WEIGHTS_G4D16=ema \
+    RUNDIR_G4D36="${RUN}" CKPT_G4D36="${C}/ckpt_mp0_v35.tar" WEIGHTS_G4D36=ema \
+    RUNDIR_G4D43="${RUN}" CKPT_G4D43="${C}/ckpt_mp0_v42.tar" WEIGHTS_G4D43=ema \
+    bash -l polaris/polaris_climate_run.pbs > "${S}/rr_climate.log" 2>&1
+echo "re-roll done ($(date +%T)): $(grep -E '^(CLIMATE_RUN_OK|ERROR)' "${S}/rr_climate.log" | tail -1)"
+
+wait "${TP}"
+echo "truth done ($(date +%T)): $(grep -E '^(TRUTH_SERIES_ALL_OK|ERROR)' "${S}/truth_2035_2043.log" | tail -1)"
+grep -q '^CLIMATE_RUN_OK' "${S}/rr_climate.log" || { echo "ERROR PAPERSTYLE_ALL_REROLL_FAILED"; exit 1; }
+grep -q '^TRUTH_SERIES_ALL_OK' "${S}/truth_2035_2043.log" || { echo "ERROR PAPERSTYLE_ALL_TRUTH_FAILED"; exit 1; }
+
+RR="${RR}" bash -l "${S}/polaris_paperstyle.pbs" > "${S}/paperstyle.log" 2>&1
+tail -45 "${S}/paperstyle.log"
+grep -q '^PAPERSTYLE_OK' "${S}/paperstyle.log" && echo "PAPERSTYLE_ALL_OK" || { echo "ERROR PAPERSTYLE_ALL_ANALYSIS_FAILED"; exit 1; }
+echo "=== paperstyle_all done $(date -Iseconds) ==="

@@ -1,0 +1,5 @@
+  0/1459
+  500/1459
+  1000/1459
+gate: none (no window_truth/truth_2040.npz)
+TRUTH_SERIES_OK year=2040 frames=1459 channels=99 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/fiveyear/truth/truth_series_2040.npz

@@ -1,0 +1,598 @@
+{
+ "run": "emitall",
+ "spec": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_paperstyle_2026-11-04/claims_paperstyle.json",
+ "campaign": "G4D paper-style",
+ "register": "chat 2026-11-04",
+ "quote_source": "Claude's report 2026-11-04",
+ "date_utc": "2026-11-04T21:48:06Z",
+ "receipts": [
+  {
+   "alias": "r",
+   "path": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_paperstyle_2026-11-04/results.json",
+   "mtime_utc": "2026-11-04T20:06:58Z",
+   "status": "loaded"
+  },
+  {
+   "alias": "s",
+   "path": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_paperstyle_2026-11-04/figures/paperstyle_figures_summary.json",
+   "mtime_utc": "2026-11-04T21:47:32Z",
+   "status": "loaded"
+  }
+ ],
+ "headlines_emitted": 57,
+ "matches": 57,
+ "findings_count": 0,
+ "FINDINGS": [],
+ "table": [
+  {
+   "section": "paperstyle",
+   "label": "G4D16 PRECT R_median",
+   "mode": "printed",
+   "quoted": "1.50",
+   "note": "",
+   "emitted": 1.4968939912415982,
+   "emitted_printed": "1.50",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 PRECT R_median",
+   "mode": "printed",
+   "quoted": "1.39",
+   "note": "",
+   "emitted": 1.3895401300758645,
+   "emitted_printed": "1.39",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 PRECT R_median",
+   "mode": "printed",
+   "quoted": "1.47",
+   "note": "",
+   "emitted": 1.4701481594646435,
+   "emitted_printed": "1.47",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 FSNTOA R_median",
+   "mode": "printed",
+   "quoted": "1.80",
+   "note": "",
+   "emitted": 1.804306680877681,
+   "emitted_printed": "1.80",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 FSNTOA R_median",
+   "mode": "printed",
+   "quoted": "1.67",
+   "note": "",
+   "emitted": 1.6733831638776142,
+   "emitted_printed": "1.67",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 FSNTOA R_median",
+   "mode": "printed",
+   "quoted": "1.77",
+   "note": "",
+   "emitted": 1.7687864528019692,
+   "emitted_printed": "1.77",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 PRECT R10_of_median",
+   "mode": "printed",
+   "quoted": "1.87",
+   "note": "",
+   "emitted": 1.865846521563444,
+   "emitted_printed": "1.87",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 PRECT R10_of_median",
+   "mode": "printed",
+   "quoted": "1.69",
+   "note": "",
+   "emitted": 1.6916393073532257,
+   "emitted_printed": "1.69",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 PRECT R10_of_median",
+   "mode": "printed",
+   "quoted": "1.82",
+   "note": "",
+   "emitted": 1.8228195800886486,
+   "emitted_printed": "1.82",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 FSNTOA R10_of_median",
+   "mode": "printed",
+   "quoted": "2.35",
+   "note": "",
+   "emitted": 2.347561542818349,
+   "emitted_printed": "2.35",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 FSNTOA R10_of_median",
+   "mode": "printed",
+   "quoted": "2.14",
+   "note": "",
+   "emitted": 2.144859535330486,
+   "emitted_printed": "2.14",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 FSNTOA R10_of_median",
+   "mode": "printed",
+   "quoted": "2.29",
+   "note": "",
+   "emitted": 2.2928608835320876,
+   "emitted_printed": "2.29",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 PS R_median",
+   "mode": "printed",
+   "quoted": "23.8",
+   "note": "",
+   "emitted": 23.787462718340308,
+   "emitted_printed": "23.8",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 PS R_median",
+   "mode": "printed",
+   "quoted": "19.3",
+   "note": "",
+   "emitted": 19.252427425689866,
+   "emitted_printed": "19.3",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 PS R_median",
+   "mode": "printed",
+   "quoted": "19.4",
+   "note": "",
+   "emitted": 19.445488991618177,
+   "emitted_printed": "19.4",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 Z3_l12 R_median",
+   "mode": "printed",
+   "quoted": "18.0",
+   "note": "",
+   "emitted": 18.029328851195594,
+   "emitted_printed": "18.0",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 Z3_l12 R_median",
+   "mode": "printed",
+   "quoted": "14.5",
+   "note": "",
+   "emitted": 14.511099569270371,
+   "emitted_printed": "14.5",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 Z3_l12 R_median",
+   "mode": "printed",
+   "quoted": "14.4",
+   "note": "",
+   "emitted": 14.366845509685174,
+   "emitted_printed": "14.4",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 TREFHT R_median",
+   "mode": "printed",
+   "quoted": "3.42",
+   "note": "",
+   "emitted": 3.420935811192065,
+   "emitted_printed": "3.42",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 TREFHT R_median",
+   "mode": "printed",
+   "quoted": "3.26",
+   "note": "",
+   "emitted": 3.2593130903086704,
+   "emitted_printed": "3.26",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 TREFHT R_median",
+   "mode": "printed",
+   "quoted": "3.20",
+   "note": "",
+   "emitted": 3.195572829390307,
+   "emitted_printed": "3.20",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 PS rmse_median",
+   "mode": "printed",
+   "quoted": "12.3",
+   "note": "",
+   "emitted": 12.312012590216977,
+   "emitted_printed": "12.3",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 PS rmse_median",
+   "mode": "printed",
+   "quoted": "10.0",
+   "note": "",
+   "emitted": 9.964750409238714,
+   "emitted_printed": "10.0",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 PS rmse_median",
+   "mode": "printed",
+   "quoted": "10.1",
+   "note": "",
+   "emitted": 10.064676006959722,
+   "emitted_printed": "10.1",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 Z3_l12 rmse_median",
+   "mode": "printed",
+   "quoted": "77",
+   "note": "",
+   "emitted": 77.09048423940183,
+   "emitted_printed": "77",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 Z3_l12 rmse_median",
+   "mode": "printed",
+   "quoted": "62",
+   "note": "",
+   "emitted": 62.04710679327617,
+   "emitted_printed": "62",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 Z3_l12 rmse_median",
+   "mode": "printed",
+   "quoted": "61",
+   "note": "",
+   "emitted": 61.43029984506939,
+   "emitted_printed": "61",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 PRECT rmse_median",
+   "mode": "printed",
+   "quoted": "0.41",
+   "note": "",
+   "emitted": 0.4121251270897145,
+   "emitted_printed": "0.41",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 PRECT rmse_median",
+   "mode": "printed",
+   "quoted": "0.38",
+   "note": "",
+   "emitted": 0.3825684424244217,
+   "emitted_printed": "0.38",
+   "status": "MATCH"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 PRECT rmse_median",
+   "mode": "printed",
+   "quoted": "0.40",
+   "note": "",
+   "emitted": 0.40476145979951783,
+   "emitted_printed": "0.40",
+   "status": "MATCH"
+  },
+  {
+   "section": "floor",
+   "label": "floor PRECT",
+   "mode": "printed",
+   "quoted": "0.28",
+   "note": "",
+   "emitted": 0.2753201826589453,
+   "emitted_printed": "0.28",
+   "status": "MATCH"
+  },
+  {
+   "section": "floor",
+   "label": "floor PS",
+   "mode": "printed",
+   "quoted": "0.52",
+   "note": "",
+   "emitted": 0.5175841045343741,
+   "emitted_printed": "0.52",
+   "status": "MATCH"
+  },
+  {
+   "section": "floor",
+   "label": "floor Z3_l12",
+   "mode": "printed",
+   "quoted": "4.3",
+   "note": "",
+   "emitted": 4.275837712854722,
+   "emitted_printed": "4.3",
+   "status": "MATCH"
+  },
+  {
+   "section": "floor",
+   "label": "floor FSNTOA",
+   "mode": "printed",
+   "quoted": "2.3",
+   "note": "",
+   "emitted": 2.3374535134456154,
+   "emitted_printed": "2.3",
+   "status": "MATCH"
+  },
+  {
+   "section": "allch",
+   "label": "all-channel mean R G4D16",
+   "mode": "printed",
+   "quoted": "122",
+   "note": "",
+   "emitted": 121.80513328996454,
+   "emitted_printed": "122",
+   "status": "MATCH"
+  },
+  {
+   "section": "allch",
+   "label": "all-channel mean R G4D36",
+   "mode": "printed",
+   "quoted": "99",
+   "note": "",
+   "emitted": 99.16081677547284,
+   "emitted_printed": "99",
+   "status": "MATCH"
+  },
+  {
+   "section": "allch",
+   "label": "all-channel mean R G4D43",
+   "mode": "printed",
+   "quoted": "98",
+   "note": "",
+   "emitted": 97.57393952107944,
+   "emitted_printed": "98",
+   "status": "MATCH"
+  },
+  {
+   "section": "paper",
+   "label": "paper ratio PRECT",
+   "mode": "printed",
+   "quoted": "1.76",
+   "note": "",
+   "emitted": 1.7619047619047619,
+   "emitted_printed": "1.76",
+   "status": "MATCH"
+  },
+  {
+   "section": "paper",
+   "label": "paper ratio FSNTOA",
+   "mode": "printed",
+   "quoted": "2.56",
+   "note": "",
+   "emitted": 2.5582822085889574,
+   "emitted_printed": "2.56",
+   "status": "MATCH"
+  },
+  {
+   "section": "floor",
+   "label": "max floor-check ratio",
+   "mode": "printed",
+   "quoted": "1.16",
+   "note": "",
+   "emitted": 1.1613704938371736,
+   "emitted_printed": "1.16",
+   "status": "MATCH"
+  },
+  {
+   "section": "floor",
+   "label": "min floor-check ratio",
+   "mode": "printed",
+   "quoted": "1.03",
+   "note": "",
+   "emitted": 1.0315710629944144,
+   "emitted_printed": "1.03",
+   "status": "MATCH"
+  },
+  {
+   "section": "trend",
+   "label": "E3SM TREFHT gmean 2040-44 minus 2045-49 (abs)",
+   "mode": "printed",
+   "quoted": "0.03",
+   "note": "",
+   "emitted": 0.02812878088432613,
+   "emitted_printed": "0.03",
+   "status": "MATCH"
+  },
+  {
+   "section": "trend",
+   "label": "E3SM TREFHT gmean 2035-39 minus 2040-44 (abs)",
+   "mode": "printed",
+   "quoted": "0.04",
+   "note": "",
+   "emitted": 0.04132165532988477,
+   "emitted_printed": "0.04",
+   "status": "MATCH"
+  },
+  {
+   "section": "paper",
+   "label": "min R PS/Z3 over arms",
+   "mode": "printed",
+   "quoted": "14",
+   "note": "",
+   "emitted": 14.366845509685174,
+   "emitted_printed": "14",
+   "status": "MATCH"
+  },
+  {
+   "section": "paper",
+   "label": "max R PS/Z3 over arms",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 23.787462718340308,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "channels",
+   "label": "median over channels G4D16",
+   "mode": "printed",
+   "quoted": "1.68",
+   "note": "",
+   "emitted": 1.6758090476175092,
+   "emitted_printed": "1.68",
+   "status": "MATCH"
+  },
+  {
+   "section": "channels",
+   "label": "median over channels G4D36",
+   "mode": "printed",
+   "quoted": "1.66",
+   "note": "",
+   "emitted": 1.6601724778857356,
+   "emitted_printed": "1.66",
+   "status": "MATCH"
+  },
+  {
+   "section": "channels",
+   "label": "median over channels G4D43",
+   "mode": "printed",
+   "quoted": "1.74",
+   "note": "",
+   "emitted": 1.736607954489068,
+   "emitted_printed": "1.74",
+   "status": "MATCH"
+  },
+  {
+   "section": "channels",
+   "label": "PSL min",
+   "mode": "printed",
+   "quoted": "1.9",
+   "note": "",
+   "emitted": 1.937637439655249,
+   "emitted_printed": "1.9",
+   "status": "MATCH"
+  },
+  {
+   "section": "channels",
+   "label": "PSL max",
+   "mode": "printed",
+   "quoted": "2.2",
+   "note": "",
+   "emitted": 2.185968097162937,
+   "emitted_printed": "2.2",
+   "status": "MATCH"
+  },
+  {
+   "section": "channels",
+   "label": "Z3_l17 min",
+   "mode": "printed",
+   "quoted": "9124",
+   "note": "",
+   "emitted": 9124.360988001867,
+   "emitted_printed": "9124",
+   "status": "MATCH"
+  },
+  {
+   "section": "channels",
+   "label": "Z3_l17 max",
+   "mode": "printed",
+   "quoted": "11422",
+   "note": "",
+   "emitted": 11421.60213008846,
+   "emitted_printed": "11422",
+   "status": "MATCH"
+  },
+  {
+   "section": "channels",
+   "label": "mean excl Z3_l15-17 min",
+   "mode": "printed",
+   "quoted": "2.8",
+   "note": "",
+   "emitted": 2.7934724102074107,
+   "emitted_printed": "2.8",
+   "status": "MATCH"
+  },
+  {
+   "section": "channels",
+   "label": "mean excl Z3_l15-17 max",
+   "mode": "printed",
+   "quoted": "3.2",
+   "note": "",
+   "emitted": 3.216561804825955,
+   "emitted_printed": "3.2",
+   "status": "MATCH"
+  },
+  {
+   "section": "channels",
+   "label": "channel mean G4D16",
+   "mode": "printed",
+   "quoted": "122",
+   "note": "",
+   "emitted": 121.7427498592342,
+   "emitted_printed": "122",
+   "status": "MATCH"
+  },
+  {
+   "section": "channels",
+   "label": "channel mean G4D36",
+   "mode": "printed",
+   "quoted": "99",
+   "note": "",
+   "emitted": 99.17979466272831,
+   "emitted_printed": "99",
+   "status": "MATCH"
+  },
+  {
+   "section": "channels",
+   "label": "channel mean G4D43",
+   "mode": "printed",
+   "quoted": "98",
+   "note": "",
+   "emitted": 97.54440184912559,
+   "emitted_printed": "98",
+   "status": "MATCH"
+  }
+ ]
+}

@@ -1,0 +1,358 @@
+{
+ "campaign": "G4D paper-style",
+ "register": "chat 2026-11-04",
+ "quote_source": "Claude's report 2026-11-04",
+ "base": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_paperstyle_2026-11-04",
+ "receipts": {
+  "r": {
+   "path": "results.json"
+  },
+  "s": {
+   "path": "figures/paperstyle_figures_summary.json"
+  }
+ },
+ "claims": [
+  {
+   "section": "paperstyle",
+   "label": "G4D16 PRECT R_median",
+   "quoted": "1.50",
+   "expr": "f('r','/arms/G4D16/channels/PRECT/R_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 PRECT R_median",
+   "quoted": "1.39",
+   "expr": "f('r','/arms/G4D36/channels/PRECT/R_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 PRECT R_median",
+   "quoted": "1.47",
+   "expr": "f('r','/arms/G4D43/channels/PRECT/R_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 FSNTOA R_median",
+   "quoted": "1.80",
+   "expr": "f('r','/arms/G4D16/channels/FSNTOA/R_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 FSNTOA R_median",
+   "quoted": "1.67",
+   "expr": "f('r','/arms/G4D36/channels/FSNTOA/R_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 FSNTOA R_median",
+   "quoted": "1.77",
+   "expr": "f('r','/arms/G4D43/channels/FSNTOA/R_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 PRECT R10_of_median",
+   "quoted": "1.87",
+   "expr": "f('r','/arms/G4D16/channels/PRECT/R10_of_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 PRECT R10_of_median",
+   "quoted": "1.69",
+   "expr": "f('r','/arms/G4D36/channels/PRECT/R10_of_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 PRECT R10_of_median",
+   "quoted": "1.82",
+   "expr": "f('r','/arms/G4D43/channels/PRECT/R10_of_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 FSNTOA R10_of_median",
+   "quoted": "2.35",
+   "expr": "f('r','/arms/G4D16/channels/FSNTOA/R10_of_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 FSNTOA R10_of_median",
+   "quoted": "2.14",
+   "expr": "f('r','/arms/G4D36/channels/FSNTOA/R10_of_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 FSNTOA R10_of_median",
+   "quoted": "2.29",
+   "expr": "f('r','/arms/G4D43/channels/FSNTOA/R10_of_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 PS R_median",
+   "quoted": "23.8",
+   "expr": "f('r','/arms/G4D16/channels/PS/R_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 PS R_median",
+   "quoted": "19.3",
+   "expr": "f('r','/arms/G4D36/channels/PS/R_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 PS R_median",
+   "quoted": "19.4",
+   "expr": "f('r','/arms/G4D43/channels/PS/R_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 Z3_l12 R_median",
+   "quoted": "18.0",
+   "expr": "f('r','/arms/G4D16/channels/Z3_l12/R_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 Z3_l12 R_median",
+   "quoted": "14.5",
+   "expr": "f('r','/arms/G4D36/channels/Z3_l12/R_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 Z3_l12 R_median",
+   "quoted": "14.4",
+   "expr": "f('r','/arms/G4D43/channels/Z3_l12/R_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 TREFHT R_median",
+   "quoted": "3.42",
+   "expr": "f('r','/arms/G4D16/channels/TREFHT/R_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 TREFHT R_median",
+   "quoted": "3.26",
+   "expr": "f('r','/arms/G4D36/channels/TREFHT/R_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 TREFHT R_median",
+   "quoted": "3.20",
+   "expr": "f('r','/arms/G4D43/channels/TREFHT/R_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 PS rmse_median",
+   "quoted": "12.3",
+   "expr": "f('r','/arms/G4D16/channels/PS/rmse_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 PS rmse_median",
+   "quoted": "10.0",
+   "expr": "f('r','/arms/G4D36/channels/PS/rmse_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 PS rmse_median",
+   "quoted": "10.1",
+   "expr": "f('r','/arms/G4D43/channels/PS/rmse_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 Z3_l12 rmse_median",
+   "quoted": "77",
+   "expr": "f('r','/arms/G4D16/channels/Z3_l12/rmse_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 Z3_l12 rmse_median",
+   "quoted": "62",
+   "expr": "f('r','/arms/G4D36/channels/Z3_l12/rmse_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 Z3_l12 rmse_median",
+   "quoted": "61",
+   "expr": "f('r','/arms/G4D43/channels/Z3_l12/rmse_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D16 PRECT rmse_median",
+   "quoted": "0.41",
+   "expr": "f('r','/arms/G4D16/channels/PRECT/rmse_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D36 PRECT rmse_median",
+   "quoted": "0.38",
+   "expr": "f('r','/arms/G4D36/channels/PRECT/rmse_median')"
+  },
+  {
+   "section": "paperstyle",
+   "label": "G4D43 PRECT rmse_median",
+   "quoted": "0.40",
+   "expr": "f('r','/arms/G4D43/channels/PRECT/rmse_median')"
+  },
+  {
+   "section": "floor",
+   "label": "floor PRECT",
+   "quoted": "0.28",
+   "expr": "f('r','/floor/PRECT/F')"
+  },
+  {
+   "section": "floor",
+   "label": "floor PS",
+   "quoted": "0.52",
+   "expr": "f('r','/floor/PS/F')"
+  },
+  {
+   "section": "floor",
+   "label": "floor Z3_l12",
+   "quoted": "4.3",
+   "expr": "f('r','/floor/Z3_l12/F')"
+  },
+  {
+   "section": "floor",
+   "label": "floor FSNTOA",
+   "quoted": "2.3",
+   "expr": "f('r','/floor/FSNTOA/F')"
+  },
+  {
+   "section": "allch",
+   "label": "all-channel mean R G4D16",
+   "quoted": "122",
+   "expr": "f('r','/arms/G4D16/all_channel_mean_R/median')"
+  },
+  {
+   "section": "allch",
+   "label": "all-channel mean R G4D36",
+   "quoted": "99",
+   "expr": "f('r','/arms/G4D36/all_channel_mean_R/median')"
+  },
+  {
+   "section": "allch",
+   "label": "all-channel mean R G4D43",
+   "quoted": "98",
+   "expr": "f('r','/arms/G4D43/all_channel_mean_R/median')"
+  },
+  {
+   "section": "paper",
+   "label": "paper ratio PRECT",
+   "quoted": "1.76",
+   "expr": "f('r','/paper/PRECT/paper_ratio')"
+  },
+  {
+   "section": "paper",
+   "label": "paper ratio FSNTOA",
+   "quoted": "2.56",
+   "expr": "f('r','/paper/FSNTOA/paper_ratio')"
+  },
+  {
+   "section": "floor",
+   "label": "max floor-check ratio",
+   "quoted": "1.16",
+   "expr": "max(vals('r','/floor/*/F_check_over_F'))"
+  },
+  {
+   "section": "floor",
+   "label": "min floor-check ratio",
+   "quoted": "1.03",
+   "expr": "min(vals('r','/floor/*/F_check_over_F'))"
+  },
+  {
+   "section": "trend",
+   "label": "E3SM TREFHT gmean 2040-44 minus 2045-49 (abs)",
+   "quoted": "0.03",
+   "expr": "abs(f('r','/trend_check/TREFHT/gmean_2040_44_minus_2045_49'))"
+  },
+  {
+   "section": "trend",
+   "label": "E3SM TREFHT gmean 2035-39 minus 2040-44 (abs)",
+   "quoted": "0.04",
+   "expr": "abs(f('r','/trend_check/TREFHT/gmean_2035_39_minus_2040_44'))"
+  },
+  {
+   "section": "paper",
+   "label": "min R PS/Z3 over arms",
+   "quoted": "14",
+   "expr": "min(vals('r','/arms/{G4D16|G4D36|G4D43}/channels/{PS|Z3_l12}/R_median'))"
+  },
+  {
+   "section": "paper",
+   "label": "max R PS/Z3 over arms",
+   "quoted": "24",
+   "expr": "max(vals('r','/arms/{G4D16|G4D36|G4D43}/channels/{PS|Z3_l12}/R_median'))"
+  },
+  {
+   "section": "channels",
+   "label": "median over channels G4D16",
+   "quoted": "1.68",
+   "expr": "f('s','/G4D16/channel_median_of_R')"
+  },
+  {
+   "section": "channels",
+   "label": "median over channels G4D36",
+   "quoted": "1.66",
+   "expr": "f('s','/G4D36/channel_median_of_R')"
+  },
+  {
+   "section": "channels",
+   "label": "median over channels G4D43",
+   "quoted": "1.74",
+   "expr": "f('s','/G4D43/channel_median_of_R')"
+  },
+  {
+   "section": "channels",
+   "label": "PSL min",
+   "quoted": "1.9",
+   "expr": "min(vals('s','/{G4D16|G4D36|G4D43}/R/PSL'))"
+  },
+  {
+   "section": "channels",
+   "label": "PSL max",
+   "quoted": "2.2",
+   "expr": "max(vals('s','/{G4D16|G4D36|G4D43}/R/PSL'))"
+  },
+  {
+   "section": "channels",
+   "label": "Z3_l17 min",
+   "quoted": "9124",
+   "expr": "min(vals('s','/{G4D16|G4D36|G4D43}/R/Z3_l17'))"
+  },
+  {
+   "section": "channels",
+   "label": "Z3_l17 max",
+   "quoted": "11422",
+   "expr": "max(vals('s','/{G4D16|G4D36|G4D43}/R/Z3_l17'))"
+  },
+  {
+   "section": "channels",
+   "label": "mean excl Z3_l15-17 min",
+   "quoted": "2.8",
+   "expr": "min(vals('s','/{G4D16|G4D36|G4D43}/channel_mean_excl_Z3_l15_l17'))"
+  },
+  {
+   "section": "channels",
+   "label": "mean excl Z3_l15-17 max",
+   "quoted": "3.2",
+   "expr": "max(vals('s','/{G4D16|G4D36|G4D43}/channel_mean_excl_Z3_l15_l17'))"
+  },
+  {
+   "section": "channels",
+   "label": "channel mean G4D16",
+   "quoted": "122",
+   "expr": "f('s','/G4D16/channel_mean_of_R')"
+  },
+  {
+   "section": "channels",
+   "label": "channel mean G4D36",
+   "quoted": "99",
+   "expr": "f('s','/G4D36/channel_mean_of_R')"
+  },
+  {
+   "section": "channels",
+   "label": "channel mean G4D43",
+   "quoted": "98",
+   "expr": "f('s','/G4D43/channel_mean_of_R')"
+  }
+ ]
+}

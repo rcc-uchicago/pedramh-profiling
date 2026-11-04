@@ -1,0 +1,23 @@
+#!/bin/bash -l
+#PBS -N paperstyle_plot
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:20:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Figures for the paper-style comparison (plot_paperstyle.py), from the npz paperstyle.py wrote. CPU only.
+# Submit from eval-protocol/makani_sfno/ (env_block.sh).   PASS = PAPERSTYLE_PLOT_OK
+# ============================================================================
+# shellcheck disable=SC1091
+source /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/maps/env_block.sh
+S=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_paperstyle_2026-11-04
+echo "=== paperstyle_plot: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} ==="
+CUDA_VISIBLE_DEVICES="" "${PY}" "${S}/plot_paperstyle.py"
+rc=$?
+[ ${rc} -eq 0 ] || echo "ERROR PAPERSTYLE_PLOT_FAILED rc=${rc}"
+echo "=== paperstyle_plot done $(date -Iseconds) ==="
+exit ${rc}

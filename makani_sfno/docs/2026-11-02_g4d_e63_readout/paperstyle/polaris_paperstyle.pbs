@@ -1,0 +1,32 @@
+#!/bin/bash -l
+#PBS -N paperstyle
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:45:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# G4D scored like Duncan et al. 2024 (prereg.md): self-test, then paperstyle.py on the re-roll's members
+# (gates: the re-run is the scored run; E3SM truth years complete), then delete the re-roll's NetCDFs only after
+# PAPERSTYLE_OK. CPU only.   -v RR=<climate_protocol_<re-roll job> dir>
+# Submit from eval-protocol/makani_sfno/ (env_block.sh).   PASS = PAPERSTYLE_OK
+# ============================================================================
+# shellcheck disable=SC1091
+source /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/maps/env_block.sh
+S=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_paperstyle_2026-11-04
+RR="${RR:?set -v RR=<re-roll climate_protocol dir>}"
+echo "=== paperstyle: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} rr=${RR} ==="
+echo "prereg sha256 $(sha256sum "${S}/prereg.md" | cut -c1-16)"
+export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2
+set -o pipefail
+t=$(CUDA_VISIBLE_DEVICES="" "${PY}" "${S}/paperstyle.py" --selftest 2>&1 | tail -1)
+[ "${t}" = "PAPERSTYLE_SELFTEST_OK" ] || { echo "ERROR PAPERSTYLE_SELFTEST: ${t}"; exit 1; }
+echo "${t}"
+CUDA_VISIBLE_DEVICES="" "${PY}" "${S}/paperstyle.py" --rr-dir "${RR}" --delete-nc
+rc=$?
+[ ${rc} -eq 0 ] || echo "ERROR PAPERSTYLE_FAILED rc=${rc}"
+echo "=== paperstyle done $(date -Iseconds) ==="
+exit ${rc}

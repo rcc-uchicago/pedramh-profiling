@@ -1,0 +1,8 @@
+=== paperstyle_plot: 2026-11-04T21:53:04+00:00 host=x3002c0s1b1n0 PBS_JOBID=7814264.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov ===
+gate: R recomputed from the stored maps vs results.json, max rel 3.31e-08 (limit 1e-05)
+wrote paperstyle_ratios.png
+wrote paperstyle_maps.png
+wrote paperstyle_channels.png
+wrote paperstyle_figures.csv (345 rows)
+PAPERSTYLE_PLOT_OK figures=3
+=== paperstyle_plot done 2026-11-04T21:53:12+00:00 ===

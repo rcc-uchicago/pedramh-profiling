@@ -1,0 +1,12 @@
+=== truth_series: 2026-11-04T19:44:05+00:00 host=x3003c0s31b1n0 PBS_JOBID=7813936.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov years='2035 2036 2037 2038 2039 2040 2041 2042 2043' ===
+  2035 rc=0: gate: none (no window_truth/truth_2035.npz)
+  2036 rc=0: gate: none (no window_truth/truth_2036.npz)
+  2037 rc=0: gate: none (no window_truth/truth_2037.npz)
+  2038 rc=0: gate: none (no window_truth/truth_2038.npz)
+  2039 rc=0: gate: none (no window_truth/truth_2039.npz)
+  2040 rc=0: gate: none (no window_truth/truth_2040.npz)
+  2041 rc=0: gate: none (no window_truth/truth_2041.npz)
+  2042 rc=0: gate: none (no window_truth/truth_2042.npz)
+  2043 rc=0: gate: none (no window_truth/truth_2043.npz)
+TRUTH_SERIES_ALL_OK years='2035 2036 2037 2038 2039 2040 2041 2042 2043'
+=== truth_series done 2026-11-04T20:06:27+00:00 ===

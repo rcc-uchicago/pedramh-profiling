@@ -1,0 +1,14 @@
+=== paperstyle_plot: 2026-11-04T21:40:01+00:00 host=x3001c0s19b0n0 PBS_JOBID=7814245.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov ===
+gate: R vs results.json, max rel 5.44e-07
+Traceback (most recent call last):
+  File "/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_paperstyle_2026-11-04/plot_paperstyle.py", line 256, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_paperstyle_2026-11-04/plot_paperstyle.py", line 242, in main
+    res = gate(names, runs)
+          ^^^^^^^^^^^^^^^^^
+  File "/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_paperstyle_2026-11-04/plot_paperstyle.py", line 82, in gate
+    raise ValueError("R_MISMATCH %.2e" % worst)
+ValueError: R_MISMATCH 5.44e-07
+ERROR PAPERSTYLE_PLOT_FAILED rc=1
+=== paperstyle_plot done 2026-11-04T21:40:05+00:00 ===

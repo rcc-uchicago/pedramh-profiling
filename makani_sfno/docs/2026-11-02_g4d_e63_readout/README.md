@@ -115,6 +115,25 @@ Four more views of the same five-year runs, covering the whole run, 2045–2049,
   happened after the pick (G4D16) and the stop decision, so no choice was made on it. For these five checkpoints,
   though, it is no longer an unseen hold-out.
 
+## Compared with the E3SM ACE paper (`paperstyle/`, 2026-11-04)
+
+G4D re-scored with the metric of Duncan et al. (2024), *ACE on E3SMv2's atmosphere*. The measure is one run's
+long-term-mean error divided by E3SM's own natural variability, i.e. how far apart two periods of E3SM itself are.
+About 1 means indistinguishable. `paperstyle/README.md` has the method, gates and caveats; it was pre-registered.
+- **Setup.** G4D16, G4D36 and G4D43; 8 runs each, scored alone over 2045–2049. The yardstick is E3SM 2040–2044
+  against 2045–2049.
+- **On the paper's own variables, G4D is below ACE's ratio:**
+  - precipitation 1.39–1.50 against the paper's 1.76;
+  - reflected sunlight 1.67–1.80 against 2.56;
+  - an approximate 10-year equivalent gives 1.69–1.87 and 2.14–2.35.
+- **Across all 99 channels** the typical ratio (the median) is 1.66–1.74.
+- **The outliers are surface pressure (19–24) and geopotential height,** rising toward the surface.
+  - The error sits over Antarctica, Greenland, the Tibetan Plateau and the polar rows.
+  - Sea-level pressure is 1.9–2.2, so this is not a global circulation error.
+- **Score A's yardstick** (the spread between our own runs) is about 10× E3SM's natural variability for surface
+  pressure. That is why score A did not show this.
+- Figures: `paperstyle/figures/paperstyle_{ratios,maps,channels}.png`.
+
 ## How the numbers were checked
 
 - **Extraction gates.**

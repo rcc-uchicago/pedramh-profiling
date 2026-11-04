@@ -1,0 +1,51 @@
+=== paperstyle_all: 2026-11-04T19:44:03+00:00 host=x3003c0s31b1n0 PBS_JOBID=7813936.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov ===
+truth 2035-2043 started pid 120321 (19:44:03)
+re-roll done (20:05:12): CLIMATE_RUN_OK arms='G4D16 G4D36 G4D43' members=8 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_paperstyle_2026-11-04
+truth done (20:06:27): TRUTH_SERIES_ALL_OK years='2035 2036 2037 2038 2039 2040 2041 2042 2043'
+  FSNTOA  F 2.337 W/m2  F' 2.446  ratio 1.05
+  PS      F 0.5176 hPa  F' 0.589  ratio 1.14
+  TREFHT  F 0.2289 K  F' 0.2658  ratio 1.16
+  U10     F 0.1344 m/s  F' 0.1386  ratio 1.03
+  Z3_l12  F 4.276 m  F' 4.638  ratio 1.08
+  U_l17   F 0.2237 m/s  F' 0.2591  ratio 1.16
+  T_l17   F 0.2278 K  F' 0.2629  ratio 1.15
+Trend check (E3SM global-mean window difference vs half the floor):
+  TREFHT  +0.02813 / -0.04132 K (half floor 0.1144)
+  PS      +0.004831 / -3.191e-05 hPa (half floor 0.2588)
+
+G4D16  (gates: 0.0e+00, 0.0e+00)  all-channel mean R 121.81 [120.09, 122.90]
+  PRECT   RMSE 0.4121 mm/day [0.3797, 0.4449]  bias +0.0259  R 1.50 [1.38, 1.62]  R10~1.87
+  FSNTOA  RMSE 4.217 W/m2 [3.905, 4.356]  bias -0.521  R 1.80 [1.67, 1.86]  R10~2.35
+  PS      RMSE 12.31 hPa [12.23, 12.5]  bias -0.00194  R 23.79 [23.62, 24.15]  R10~33.63
+  TREFHT  RMSE 0.7829 K [0.7474, 0.7931]  bias -0.0319  R 3.42 [3.27, 3.47]  R10~4.73
+  U10     RMSE 0.2376 m/s [0.2203, 0.2529]  bias +0.0391  R 1.77 [1.64, 1.88]  R10~2.29
+  Z3_l12  RMSE 77.09 m [75.65, 77.66]  bias -0.761  R 18.03 [17.69, 18.16]  R10~25.48
+  U_l17   RMSE 0.3648 m/s [0.3493, 0.421]  bias +0.0344  R 1.63 [1.56, 1.88]  R10~2.08
+  T_l17   RMSE 0.781 K [0.744, 0.7909]  bias -0.05  R 3.43 [3.27, 3.47]  R10~4.74
+G4D36  (gates: 0.0e+00, 0.0e+00)  all-channel mean R 99.16 [97.94, 101.04]
+  PRECT   RMSE 0.3826 mm/day [0.3616, 0.4035]  bias +0.0185  R 1.39 [1.31, 1.47]  R10~1.69
+  FSNTOA  RMSE 3.911 W/m2 [3.716, 4.173]  bias -0.644  R 1.67 [1.59, 1.79]  R10~2.14
+  PS      RMSE 9.965 hPa [9.848, 10.14]  bias +0.0105  R 19.25 [19.03, 19.59]  R10~27.21
+  TREFHT  RMSE 0.7459 K [0.721, 0.7644]  bias +0.0239  R 3.26 [3.15, 3.34]  R10~4.50
+  U10     RMSE 0.2403 m/s [0.2261, 0.2675]  bias +0.0427  R 1.79 [1.68, 1.99]  R10~2.32
+  Z3_l12  RMSE 62.05 m [61.23, 63.23]  bias +0.962  R 14.51 [14.32, 14.79]  R10~20.50
+  U_l17   RMSE 0.4031 m/s [0.3596, 0.4465]  bias +0.023  R 1.80 [1.61, 2.00]  R10~2.34
+  T_l17   RMSE 0.7405 K [0.7151, 0.7565]  bias +0.0148  R 3.25 [3.14, 3.32]  R10~4.49
+G4D43  (gates: 0.0e+00, 0.0e+00)  all-channel mean R 97.57 [96.53, 99.17]
+  PRECT   RMSE 0.4048 mm/day [0.3709, 0.4316]  bias -0.0139  R 1.47 [1.35, 1.57]  R10~1.82
+  FSNTOA  RMSE 4.134 W/m2 [3.977, 4.282]  bias -0.368  R 1.77 [1.70, 1.83]  R10~2.29
+  PS      RMSE 10.06 hPa [9.937, 10.21]  bias +0.000876  R 19.45 [19.20, 19.72]  R10~27.48
+  TREFHT  RMSE 0.7314 K [0.7154, 0.7601]  bias -0.0475  R 3.20 [3.13, 3.32]  R10~4.41
+  U10     RMSE 0.2644 m/s [0.2358, 0.2705]  bias +0.019  R 1.97 [1.76, 2.01]  R10~2.60
+  Z3_l12  RMSE 61.43 m [60.54, 62.54]  bias -1.38  R 14.37 [14.16, 14.63]  R10~20.29
+  U_l17   RMSE 0.4457 m/s [0.3895, 0.4824]  bias +0.0704  R 1.99 [1.74, 2.16]  R10~2.64
+  T_l17   RMSE 0.7269 K [0.7084, 0.7547]  bias -0.0462  R 3.19 [3.11, 3.31]  R10~4.40
+
+Against the paper (ACE-EAMv2, 10-yr):
+  precipitation: paper ratio 1.76 (0.37 / 0.21); G4D16 below the paper; G4D36 below the paper; G4D43 below the paper
+  reflected SW at TOA (RSW): paper ratio 2.56 (4.17 / 1.63); G4D16 below the paper; G4D36 below the paper; G4D43 below the paper
+freed /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_paperstyle_2026-11-04: 38.7 GB
+PAPERSTYLE_OK arms=3
+=== paperstyle done 2026-11-04T20:07:06+00:00 ===
+PAPERSTYLE_ALL_OK
+=== paperstyle_all done 2026-11-04T20:07:06+00:00 ===
