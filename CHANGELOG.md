@@ -126,6 +126,11 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   arithmetic (≈5 GFLOP textbook). The cuFFT kernels run at ≈1.3 TB/s, close to the HBM limit, but
   `loop_add_multiply_fusion_1` (3.27 ms, 39.5%) is far below it. Nsight Compute on that kernel is the next solver
   lead. Next: read 7813332 (`PHASES_OK` ×3), score Part V.
+  - **The largest solver kernel is the whole AB3 update** (notes Part IV addendum, from `hlo_ref.txt`). It moves
+    ≈1.27 GB in 3.27 ms (≈390 GB/s, vs ≈1.3 TB/s for cuFFT). Three parts of it cannot change the answer: pyqg's
+    filter (sqrt + f64 exp per coefficient; exactly 1 at `filterfac=0`), a dense 134 MB F̂ read every step
+    (24 nonzero modes), and a probable zero background-gradient term (unverified). Candidate: a lean step in o1.2
+    behind a bitwise gate, estimated headroom ≤ ≈2.5 ms/step; ncu on the fusion first.
 - **2026-11-03** — **SQG online-training profiling ran on Polaris (jobs A/B/C, n = 2 each, `debug`, 1 A100 per
   job)** (branch `sqg-polaris-profiling`; write-up `SQG/polaris/polaris_sqg_notes.md`; summaries in
   `SQG/analysis/results/polaris_*`). Code findings only, with no cross-GPU ratios:

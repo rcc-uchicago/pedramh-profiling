@@ -410,6 +410,25 @@ than §4.1's fp32 tolerance.
    levels 0 → 1 → 2 through the switch.
 5. **Do not adopt `channels_last` (+38.5%) or `cudnn.benchmark` (−0.3%) for the UViT.** Both are measured n = 2.
 
+**Addendum (2026-11-04): what the largest solver kernel computes.** `loop_add_multiply_fusion.1` (3.27 ms, 39.5%
+of kernel time; body `%fused_add_multiply` in `hlo_ref.txt`) is the whole AB3 update in one pass. It assembles the
+tendency T = −(i k_x (uθ)^ + i k_y (vθ)^ + a k_x-dependent linear term) + F̂, and writes T (the next history entry)
+and θ̂ + dt₁T + dt₂T₋₁ + dt₃T₋₂, multiplied by filter × decay. It reads 7 full c128 fields and 1 f64 field and writes
+2: ≈1.27 GB in 3.27 ms, **≈390 GB/s**. The cuFFT and `wrapped_multiply` kernels move their data at ≈1.3 TB/s on
+the same A100. Three parts of the fusion cannot change the result:
+- pyqg's exponential filter is evaluated every step: `sqrt`, compare with 0.65π, and float64 `exp` of
+  −filterfac·(k·dx − 0.65π)⁴ for all 8.4 M coefficients. With `filterfac=0.0` it is exactly 1. XLA cannot fold it,
+  because exp(−0·x) is not 1 for x = ±inf/NaN.
+- F̂ is read as a dense 134 MB complex array every step. 24 of its 8.4 M entries are nonzero.
+- The k_x-dependent linear term (`param_10 · sqrt(param_9) · qh`) has the shape of pyqg's background-gradient term
+  −i k_x Q_y ψ̂, which is zero for β = 0, U = 0. **Its values are not verified.**
+
+Removing an exact ×1 or +0 leaves every value unchanged, apart from the sign of zeros, which the checkpoints'
+`qh_sha256` would see. So a lean step function in o1.2 (the way the harness builds `inner_fixed`; `A-SQG_data.py`
+stays hash-pinned) is a candidate for the **bitwise** gate. Estimate, not measured: only the necessary ≈0.94 GB at
+FFT-like bandwidth would take ≈0.7–0.8 ms, i.e. up to ≈2.5 ms/step (≈27%) of headroom. Nsight Compute on the fusion
+should come first, to see why it sits at ≈390 GB/s (15 operands, c128 arithmetic, f64 sqrt/exp).
+
 Two facts that are not code changes, recorded for the model owners:
 - **Batch 32 does not fit a 40 GB GPU for the UViT training step** (job 7809340). Activation checkpointing would
   restore it without changing the math. **Gate:** §4.1 loss trajectory, eager fp32 ≤ 1e-5.
