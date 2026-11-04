@@ -420,3 +420,57 @@ Two facts that are not code changes, recorded for the model owners:
 The optional NUMA-bound arm of B (§3.6) was **not run**. B shows the step is GPU-bound: the solver keeps the GPU
 99% busy, and the host-side data step is 0.3% of the ML step. A CPU/memory binding can only move host-side time,
 and there is almost none to move.
+
+---
+
+# Part V — Per-phase sync audit (job D, 2026-11-04)
+
+Jobs A and B counted syncs for the solver alone, divided over all its steps. Neither attributed the syncs, DtoH
+copies and launches of the **whole** optimizer step to the phase that issued them. Job D does, on B's loop.
+
+## Tooling
+
+- **`profile_overlap.py`, `SQG_NVTX=1`:** NVTX ranges around every phase, on the thread that runs it.
+  `step` > `advance` > `flush` | `dispatch` > `solver`, `coarse`; `step` > `sample`, `forward`, `backward`
+  (zero_grad + backward), `clip`, `optimizer`, `loss_item`, `harness_sync`. In the thread arms the main thread has
+  `join` and `flush`, and the worker has `dispatch` > `solver`, `coarse` and `wait`. `harness_sync` is the CUDA-event
+  wait that times B's step. o1.2 has no such call. Two flags are added: `--arms` (a subset of the seven) and `--nsys`
+  (one arm; the pipeline is drained after the warm-up, then `cudaProfilerStart`/`Stop` bracket the timed steps).
+  With none of the three set, the code path and JSON are B's.
+- **`summarize_nsys_phases.py`** (stdlib `sqlite3`) reads the capture's SQLite export. It assigns every CUDA API call
+  to the stack of harness ranges (NVTX domain 0) open on its own thread. The kernels and copies the call issued follow
+  it by `correlationId`. Each sync and DtoH also gets the innermost range of any *other* domain. Under JAX that is
+  XLA's per-op `Thunk:#…hlo_op=…#` annotation, so **the HLO op that asked for the sync is named**. API calls are
+  classed as sync (`*{Stream,Event,Ctx,Device}Synchronize`: the host blocks), stream wait (GPU-side, non-blocking),
+  poll, launch ("slow" > 100 µs on the host = launch-queue back-pressure) or memcpy. Everything is per `step` range.
+- **`test_summarize_nsys_phases.py`:** a synthetic two-step capture. It checks nesting, per-thread stacks, the
+  XLA-domain issuer, that a `step` range in another domain is not a step, correlation of GPU work, nsys's copy and
+  memory-kind enums, slow launches and syncs outside any step. `PHASES_TEST_OK` on polaris-login (2026-11-04).
+- **Validated on job A's real capture** (`profile_solver_7809412/nsys_ref.sqlite`, `--step-regex _optstep_`).
+  Per 480-step optimizer-equivalent it finds **480.0 `cuStreamSynchronize`** (4,410 of 4,492 ms blocked, 98.2%) and
+  **480.0 DtoH of 4 B into pinned memory**. Both are issued inside **`conditional.277.0 (while/body/cond)`**, the
+  `lax.switch`. It also finds 11,112 launches (none > 100 µs), 4,416 DtoD copies and 30.6 stream waits. These equal
+  A's `nsys stats` totals divided by 5 (2,400 syncs, 55,560 launches, 22,080 DtoD, 153 waits), so the parser
+  reproduces A1 and names the op behind it.
+- **`profile_phases_polaris.pbs`** runs one nsys capture per arm (default `serial_ref serial_fixed thread_ref`;
+  batch 16; 3 warm-up + 6 captured steps), exports SQLite, and runs the parser. PASS = one `PHASES_OK` per arm.
+
+## Predictions (written before job D; batch 16, 12 pairs per step)
+
+1. **`serial_ref`, `solver`:** 480 syncs + 480 DtoH (4 B, pinned) per step, all issued by `conditional.*`, as in A.
+   No slow launches.
+2. **`serial_ref`, `flush`:** 24 DtoH per step: 2 per pair (`bx[j].copy_`, `by[j].copy_`) × 12 pairs, of
+   262,144 B each into **pageable** memory. Each is followed by a host sync, because `Tensor.copy_` into pageable
+   CPU memory is synchronous: 24 syncs per step. The JAX → torch hand-off (`torch.from_dlpack`) appears as stream
+   waits, not syncs.
+3. **ML phases:** `loss_item` has 2 DtoH + 2 syncs per step. `sample` has 2 HtoD from pageable memory and 0 syncs.
+   `forward`, `backward`, `clip` and `optimizer` have 0 syncs (torch 2.3 foreach AdamW keeps its step counts on the
+   CPU, and `clip_grad_norm_` never reads the norm on the host).
+4. **`serial_fixed`:** 0 syncs in `solver`. Slow launches appear in `dispatch` from the second call on (A1's
+   back-pressure). The host wait moves into `flush`, whose first DtoH has to wait for the last solver call.
+5. **`thread_ref`:** the 480 solver syncs move to the worker thread. The main thread keeps only `flush`,
+   `loss_item` and `harness_sync`: ≤ 24 + 2 + 1 syncs per step.
+
+## Results
+
+*(to be filled in when job D lands)*
