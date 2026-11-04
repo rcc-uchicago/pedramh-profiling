@@ -114,6 +114,14 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-04** — **SQG solver-optimization round 1 submitted: debug job 7814300.** Built by two Opus seeds and
+  reviewed by a Fable principal scientist (user's design; user policy: bitwise not required, a tolerance fixed
+  before the run decides). Six variants: seed 1 float64 JAX `lean` / `lean_u1` / `lean_split` (drop exact ×1/+0
+  terms, 3-slot AB3 ring, unroll-1 and split tricks against the AB3 fusion's over-fetch); seed 2 `lean64` (u, v from
+  one forward C2C FFT, 2-slot ring), `mixed` (float32 nonlinear term), `lean32`. Gates: ≤ 1e-12 (f64) / ≤ 1e-5 (f32)
+  after 1 step from a random and a synthetic CFL-0.3 state. Report-only: per-|k|-band errors and a float32 baseline
+  of the original step. Predictions in `SQG/analysis/opt/PREDICTIONS_round1.md`; results →
+  `SQG/analysis/results/polaris_opt_round1_7814300/`.
 - **2026-11-04** — **SQG: the 5 full-field copies per solver step are traced** (job A capture, each copy attributed to
   its issuing XLA thunk). 2/step are the AB3 history rotation inside the AB3 update graph (pyqg_jax
   `AB3Stepper.apply_updates`, steppers.py:501, under `lax.scan`'s one-buffer-per-slot carry). 3/step are the three
