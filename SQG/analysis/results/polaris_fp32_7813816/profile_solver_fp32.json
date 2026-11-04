@@ -1,0 +1,61 @@
+{
+ "device": "cuda:0",
+ "device_kind": "NVIDIA A100-SXM4-40GB",
+ "jax": "0.4.28",
+ "init": "random",
+ "import_s": 27.49,
+ "stride": 40,
+ "calls_per_optstep": 12,
+ "checks": {
+  "builder_bitwise_vs_GD_inner_40_steps": true,
+  "f32_state_dtypes": [
+   "complex64"
+  ],
+  "f32_hlo_full_size_f64_or_c128_arrays": 0
+ },
+ "hlo": {
+  "f64_ref": {
+   "fft": 5,
+   "conditional": 1,
+   "while": 1,
+   "copy": 21,
+   "fusion": 35
+  },
+  "f32_ref": {
+   "fft": 5,
+   "conditional": 1,
+   "while": 1,
+   "copy": 21,
+   "fusion": 31
+  }
+ },
+ "cost_one_step": {
+  "f64_ref": {
+   "flops": 67978846208.0,
+   "bytes accessed": 4229726208.0,
+   "effective_GBps": 455.0
+  },
+  "f32_ref": {
+   "flops": 68020809728.0,
+   "bytes accessed": 2014085248.0,
+   "effective_GBps": 557.8
+  }
+ },
+ "ms_per_step": {
+  "f64_ref": 9.2954,
+  "f32_ref": 3.6105
+ },
+ "ms_per_step_with_coarse": {
+  "f64_ref": 9.3213,
+  "f32_ref": 3.6267
+ },
+ "optstep_solver_s": {
+  "f64_ref": 4.474,
+  "f32_ref": 1.741
+ },
+ "f64_over_f32": 2.575,
+ "jax_memory_GiB": {
+  "bytes_in_use": 2.16,
+  "peak_bytes_in_use": 3.8
+ }
+}

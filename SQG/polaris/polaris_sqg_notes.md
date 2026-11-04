@@ -564,4 +564,43 @@ profiles 3 steady-state launches at production clocks (`--clock-control none`). 
 
 ## Results
 
-*(to be filled in when jobs E and F land)*
+### Job E (7813816, `debug`, x3002c0s1b1n0, 2026-11-04 19:31–19:37)
+
+`FP32_OK bench` and `NSYS_SUMMARY_OK` × 2. Checks: the builder is bitwise equal to `GD.inner` (40 steps); the f32 state
+is `complex64`; the f32 HLO has 0 full-size f64/c128 arrays. Summaries: `SQG/analysis/results/polaris_fp32_7813816/`.
+
+| | float64 (production) | float32 |
+|---|---|---|
+| ms per solver step | 9.2954 | **3.6105** (f64/f32 = **2.575**) |
+| solver per optimizer step (480 steps + 12 coarse) | 4.474 s | **1.741 s** |
+| XLA bytes accessed per step | 4.23 GB | 2.01 GB |
+| HLO per 40-step call (fft / conditional / copy / fusion) | 5 / 1 / 21 / 35 | 5 / 1 / 21 / 31 |
+| nsys kernels per step; GPU busy | 33.1; 9.29 of 9.37 ms | 24.1; 3.60 of 3.67 ms |
+
+Per-kernel time per solver step, from nsys:
+
+| kernel | f64 | f32 | ratio |
+|---|---|---|---|
+| AB3 fusion `loop_add_multiply_fusion_1` | 3,288 µs | **650 µs** | **5.1×** |
+| cuFFT, all kernels | ≈3.06 ms (10 `regular_fft_factor` + c2r + r2c) | ≈1.5 ms (5 `regular_fft_factor<4096>` + `vector_fft_symm_c2r` + r2c) | ≈2× |
+| û, v̂ build (`loop_multiply_fusion[_9]`) | 642 µs | 290 µs | 2.2× |
+| u·θ, v·θ (`wrapped_multiply_1` × 2) | 616 µs | 310 µs | 2.0× |
+| inverse-FFT 1/N² (`scal_kernel_val` × 3) | 594 µs | 314 µs | 1.9× |
+
+What it says:
+- **Every kernel scales with its bytes (≈2×) except the AB3 fusion, which is 5.1× faster in float32.** In float32
+  it moves half of ≈1.27 GB in 650 µs, i.e. ≈1 TB/s, close to the cuFFT kernels. In float64 it runs at ≈390 GB/s.
+  So the float64 fusion carries ≈2 ms per step of float64-specific cost, beyond its data.
+- Both fusions still evaluate the switched-off filter: `sqrt` × 2 and `exponential` × 1 in f64, `sqrt` × 3 and
+  `exponential` × 1 in f32. On an A100, float32 square roots and exponentials have special-function hardware;
+  float64 ones are software sequences. That, or register pressure from 15 complex128 operands, are the candidates.
+  Job F's FP64-pipe, occupancy and stall numbers separate them.
+- In float32 the FFTs become the largest family (≈42%) and run near bandwidth.
+
+**Scorecard (Part VI):** 1 confirmed (both checks pass). 2 **refuted**: f64/f32 = 2.575, above the predicted
+1.6–2.0, because the AB3 fusion gains 5.1×. 3 half confirmed: bytes halve (4.23 → 2.01 GB), but the AB3 fusion
+is no longer the largest kernel family in f32 (the cuFFT `regular_fft_factor` is: 31.8% vs 21.0%).
+
+### Job F (7814044, submitted 2026-11-04)
+
+*(to be filled in when it lands)*

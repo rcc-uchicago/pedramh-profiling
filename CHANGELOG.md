@@ -114,6 +114,12 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-04** — **SQG job E 7813816 PASS: a float32 solver step is 2.6× faster (9.30 → 3.61 ms; 4.47 → 1.74 s of
+  solver per optimizer step).** Checks pass: the builder is bitwise equal to `GD.inner`, and there is no hidden f64 in
+  the f32 HLO. Every kernel scales ≈2× with its bytes (cuFFT 3,059 → 1,512 µs/step) **except the AB3 fusion: 3,288 →
+  650 µs (5.1×)**. So ≈2 ms/step of the f64 fusion is float64-specific, not data. Both precisions still evaluate the
+  no-op filter's sqrt/exp, which is software-emulated in f64. Job F (Nsight Compute, **7814044**, submitted)
+  separates that from register pressure. Prediction 2 (1.6–2.0×) refuted; notes Part VI. Float32 is timing only.
 - **2026-11-04** — **SQG: a STRIDE-400 online run reportedly overfit** (user report; run details not seen here).
   This contradicts the decorrelation entry's advice to sample online pairs at Δt/10–Δt/4. In o1.2, `STRIDE` also sets
   the data *quantity*: pairs per segment 4,901 → 491, the start buffer (4 segments) 19,604 → 1,964 pairs, fresh pairs
