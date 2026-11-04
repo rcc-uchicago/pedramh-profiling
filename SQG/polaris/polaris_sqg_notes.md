@@ -622,3 +622,47 @@ is no longer the largest kernel family in f32 (the cuFFT `regular_fft_factor` is
 ### Job F (7814044, submitted 2026-11-04)
 
 *(to be filled in when it lands)*
+
+---
+
+# Part VII — FFT libraries and pseudo-spectral techniques from other fields (literature, 2026-11-04)
+
+Our float64 step (job E nsys): cuFFT 3.06 ms, inverse-FFT input copies 0.59, history-rotation copies 0.39, AB3 fusion
+3.29, û/v̂ build 0.64, u·θ/v·θ products 0.62, inverse-FFT 1/N² `scal` 0.59. The FFT itself is about a third.
+
+- **XLA's fusion barrier at cuFFT is a known limit, and others removed it.** gyaradax (plasma gyrokinetics in
+  JAX, arXiv 2604.06085, read in full) says: "the FFTs are dispatched as opaque calls to cuFFT, which acts as a hard
+  fusion barrier". They replaced the pipeline with 3 cuFFT launches using LTO callbacks (`cufftXtSetJITCallback`)
+  behind the XLA FFI:
+  - inverse-FFT load callback: spectral derivative, Bessel J₀, scaling;
+  - forward-FFT load callback: the Poisson bracket in flight, with no gradient arrays in HBM;
+  - forward-FFT store callback: writes only the kept modes, skipping the 59% dealiased.
+  They also packed two real inverse FFTs into one C2C ("Z2Z packing", 4 → 2), which needed a Hermitian
+  symmetrisation fix. Table 2 (B300, steps/s): JAX DP 12.49, JAX mixed 30.89, CUDA DP 16.6, CUDA mixed 60.54, i.e.
+  CUDA/JAX = 1.33× in DP and 4.85× (mixed CUDA vs DP JAX). Not bitwise; validated statistically, as a chaotic
+  solver must be.
+- **pyspectral** (GPU pseudo-spectral NS, CuPy + hand-written CUDA) reports 99% of an "FFT roofline": every FFT at
+  standalone cuFFT speed, plus the minimum pointwise bytes. It is 2.5× faster than JAX-CFD at 8192², fp32. Its
+  techniques: fused kernels, writing the next FFT's input directly, in-place plans, a 1-D integrating-factor table,
+  CUDA graphs, R2C. Its Basdevant 4-FFT trick is for 2-D NS vorticity. It does not carry over to SQG as far as we
+  can see, because θ is not a local derivative of the velocity (θ̂ = |k|ψ̂), so 5 FFTs stay.
+- **cuFFT docs** (§2.4): "Out-of-place complex-to-real FFT will always overwrite input buffer". That is the source of
+  our 3 inverse-FFT copies. LTO callbacks need CUDA ≥ 12.6u2 and nvJitLink/NVRTC, support all types and precisions
+  (§2.9), and "may be called more than once per element for complex-to-real". C2C inverse transforms (gyaradax's
+  packing) do not overwrite their input.
+- **VkFFT** (MIT; CUDA backend; FP64; R2C/C2R; native zero-padding; convolutions). Independent A100 FP64 C2C tests
+  (TurboFFT, arXiv 2405.02520) find it ~11% slower than cuFFT on average (+3% to −51%). pyvkfft reports it faster than
+  cuFFT for 2-D N > 1024 on a V100 but not on an A40. No JAX binding. It would need our own 4096² Z2D/D2Z benchmark; it
+  is not a clear win.
+- **nvmath-python**: cuFFT with prolog/epilog written as Python functions compiled to LTO-IR. Operands from NumPy,
+  CuPy and PyTorch (JAX not stated; DLPack via CuPy). Also exposes cuFFTDx device FFTs. A prototyping route for
+  callbacks without C++.
+- **Pruning / implicit dealiasing.** Bowman & Roberts' implicit (and Murasko & Bowman's hybrid) dealiasing is
+  ≈2× vs explicit padding in 2-D/3-D, but CPU-only (FFTW++); a 2026 paper calls a GPU version "a priority". Skipping
+  all-zero rows on the GPU is mixed: SPECULA reports −20–40% (2-D), gNUFFTW little benefit. In a 4096² rfft half-plane
+  with |k| ≤ 1365, about 35% of modes are kept, so the store-skip part comes with callbacks.
+
+**Implication (estimates, to be measured).** With every pointwise op fused into the FFT loads and stores, the step
+approaches its FFT roofline: ≈3.1–3.5 ms in float64 (now 9.3) and ≈1.5–1.8 ms in float32 (now 3.6). That route is not
+bitwise (operation order, FMA contraction), so it needs gyaradax-style statistical validation. Mixed precision
+(float32 FFTs and products, float64 state and AB3), as gyaradax does, sits between float64 and float32.
