@@ -619,9 +619,33 @@ What it says:
 1.6–2.0, because the AB3 fusion gains 5.1×. 3 half confirmed: bytes halve (4.23 → 2.01 GB), but the AB3 fusion
 is no longer the largest kernel family in f32 (the cuFFT `regular_fft_factor` is: 31.8% vs 21.0%).
 
-### Job F (7814044, submitted 2026-11-04)
+### Job F (7814044, `debug`, x3005c0s13b0n0, 2026-11-04 20:09–20:12; ncu 2025.3.0, `--set full`, production clocks)
 
-*(to be filled in when it lands)*
+`NCU_TEST_OK`, `NCU_HARNESS_OK` × 4, `NCU_SUMMARY_OK`. 3 steady-state launches per kernel. Summaries:
+`SQG/analysis/results/polaris_ab3_ncu_7814044/`.
+
+| kernel | µs | DRAM read / write | GB/s (% of 1,555 peak) | SM % | FP64 pipe % | regs; occupancy th/ach | L1 / L2 hit | grid × block |
+|---|---|---|---|---|---|---|---|---|
+| AB3 fusion `loop_add_multiply_fusion_1` | 3,275 | **3.99 GB / 0.50 GB** | 1,371 (**88%**) | 6 | 6 | 58; 50/47 | 10% / 44% | 16,392 × 128 |
+| û/v̂ build `loop_multiply_fusion_9` | 635 | 0.32 / 0.35 GB | 1,048 (67%) | 7 | 7 | 42; 62.5/56 | 33% / 77% | 16,392 × 128 |
+| u·θ `wrapped_multiply_1` | 293 | 0.27 / 0.12 GB | 1,340 (86%) | 2 | 1 | 26; 100/81 | 62% / 54% | 1,728 × 128 |
+| cuFFT `regular_fft_factor<64>` | 187 | 0.13 / 0.12 GB | 1,342 (86%) | 26 | 26 | 60; 50/47 | 1% / 62% | 4,098 × 256 |
+
+What it says:
+- **The AB3 fusion is DRAM-bound at 88% of peak, but it moves ≈4× the data it needs.** It reads 3.99 GB for ≈1.0 GB of
+  distinct inputs (7 c128 fields + 1 f64) and writes 0.50 GB for 0.27 GB of outputs. 16,392 × 128 threads over
+  8.39 M elements is 4 complex128 elements per thread (64 B per operand), and with ~9 operands per thread the data
+  in flight overruns the 40 MB L2 (L1 hit 10%, L2 hit 44%). This is the over-fetch the seeds' analysis predicted
+  (round 1).
+- **Not FP64-bound:** SM 6%, FP64 pipe 6%. The no-op filter's f64 sqrt/exp, suspected after job E, is not the cost.
+  float32 gained 5.1× because it halves the bytes per element and the in-flight working set, so it stops
+  thrashing.
+- The u·θ multiply and the cuFFT passes read and write the ideal bytes at 86% of peak: they are done. The û/v̂ build
+  over-fetches ≈1.4×.
+
+**Scorecard (Part VI):** 4 **half refuted** (the AB3 fusion is at 88% of DRAM peak, not ≤ 30%: busy, just over-fetching;
+`wrapped_multiply_1` 86% and `regular_fft_factor` 86% ≥ 75% confirmed). 5 confirmed (SM 6% < 40%, FP64 6% < 30%).
+6 **refuted**: 58 registers (< 64), no spills, theoretical occupancy 50%. The cause is DRAM over-fetch, not latency.
 
 ---
 
