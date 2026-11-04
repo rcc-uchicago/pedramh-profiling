@@ -490,6 +490,44 @@ copies and launches of the **whole** optimizer step to the phase that issued the
 5. **`thread_ref`:** the 480 solver syncs move to the worker thread. The main thread keeps only `flush`,
    `loss_item` and `harness_sync`: ≤ 24 + 2 + 1 syncs per step.
 
-## Results
+## Results (job 7813332, `debug`, x3002c0s1b1n0, 2026-11-04 17:48–17:56; 6 captured steps per arm)
 
-*(to be filled in when job D lands)*
+`PHASES_TEST_OK`, then `PHASES_OK` × 3. **Parser vs nsys:** the per-step API counts equal `cuda_api_sum` ÷ 6 for
+every call name in all three arms, and 0 GPU activities are unattributed. Under nsys: `serial_ref` 4.919 s/step
+(plain job B: 4.887 s, +0.7%), `serial_fixed` 4.956 s. `thread_ref` has a median of 4.838 s; its mean of 4.269 s is
+low because the drained first step has no join. Summaries: `SQG/analysis/results/polaris_phases_7813332/`.
+
+| per optimizer step | `serial_ref` (production) | `serial_fixed` | `thread_ref` |
+|---|---|---|---|
+| `solver`: syncs / DtoH (4 B, pinned) | **480 / 480**, 4,412 ms blocked, issuer `conditional.277.0` | 0 / 0 | 480 / 480 on the worker threads, ≈4,478 ms blocked |
+| `solver`: launches (slow > 100 µs) | 11,052 (0) | 10,572 (**9,619**; 3,838 ms inside launch calls) | 11,052 on the workers |
+| `flush`: syncs / pageable DtoH / stream waits | 24 / 24 (262,144 B each) / 12, **0.08 ms** blocked | same, 0.08 ms | same, 0.09 ms |
+| `sample`: pageable HtoD | 2 (8.39 MB), 0 syncs | same | same |
+| `forward`, `backward`, `clip`, `optimizer`: syncs | 0 | 0 | 0 |
+| `loss_item`: syncs / DtoH, host wait | 2 / 2, 132 ms | 2 / 2, 132 ms | 2 / 2, 482 ms |
+| `harness_sync` | 1 | 1 | 1 |
+| **total syncs / DtoH / DtoD** | **507 / 506 / 4,723** | 27 / 26 / 3,283 | 507 / 506 / 4,723 |
+
+What the code does:
+- **The `lax.switch` is the only host sync that costs time.** In the production order, 480 of the 507 syncs per
+  step come from one HLO op. They block 4,412 ms of the 4,920 ms step. The other 27 are cheap. The 24 `flush`
+  syncs (`Tensor.copy_` into pageable memory) block 0.08 ms in total, because the solver has already finished.
+  `loss_item` waits 132 ms, but for the network's own GPU work, whose result it needs. The data path (`flush` +
+  `sample`) costs ≈5 ms of host time per step, and the network phases issue no sync at all.
+- **Without the switch, the host wait moves into the launch calls, not into `flush`.** 91% of the solver's
+  launches take > 100 µs (from the second call on, A1), for 3.84 s/step inside `cuLaunchKernel`. `flush` stays at
+  0.08 ms: `loss_item` and `harness_sync` have already waited for a GPU that ran the last solver call alongside
+  the network.
+- **The JAX → torch hand-off is a GPU-side stream wait** (`cuStreamWaitEvent`, 12 per step in `flush`), not a host
+  sync.
+- **The backward kernels are launched from a thread without harness ranges**: 2,478 launches/step, 0 syncs, while
+  the main thread waits in `backward` (256 ms). This fits PyTorch's autograd engine running CUDA backward work on
+  its own device thread (an inference, not checked in the trace).
+- `serial_fixed` has 1,440 fewer DtoD copies per step, i.e. 3 per solver step: the conditional's small copies of
+  A2, now counted in the full loop.
+
+**Scorecard:** 1 confirmed; 2 confirmed; 3 confirmed; 4 **half refuted** (0 solver syncs and the slow launches are
+confirmed, but the host wait stays in the launch calls, not in `flush`); 5 confirmed.
+
+**Consequence for Part IV:** the ranking is unchanged. The host side holds nothing to fix beyond item 4 (the
+switch), which does not pay on its own (A3, B). The remaining target is the solver's GPU work (the addendum above).

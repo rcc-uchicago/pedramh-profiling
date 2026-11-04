@@ -114,6 +114,12 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-04** — **SQG job D 7813332 PASS (`PHASES_OK` × 3), 4 of 5 predictions confirmed, 1 half refuted.** In
+  the production order there are 507 syncs and 506 DtoH per optimizer step. 480 of each come from one HLO op
+  (`conditional.277.0`, the `lax.switch`) and block 4,412 of 4,920 ms. The other 27 are cheap (`flush` 24, 0.08 ms;
+  `loss_item` 2, waiting on the network's own GPU work; harness 1). The network phases issue 0 syncs. Without the
+  switch the wait moves into `cuLaunchKernel` (91% of launches slow, 3.84 s/step), not into `flush`. Parser counts
+  equal nsys `cuda_api_sum` ÷ 6. Notes Part V; summaries in `SQG/analysis/results/polaris_phases_7813332/`.
 - **2026-11-04** — **SQG job D: per-phase sync audit of the online optimizer step, tooling done, job 7813332
   submitted** (`debug`, 1 A100, 40 min; branch `sqg-polaris-profiling`; notes Part V). Jobs A/B counted syncs
   for the solver alone. D attributes every CUDA API call, and the GPU work it issued, to the NVTX phase open on its
