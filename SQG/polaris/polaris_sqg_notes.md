@@ -976,3 +976,143 @@ What it says:
 - **The NCCL-over-CXI fix probe:** `FI_LOG` / `libcudart.so` shim / `GDR_LEVEL=LOC`, above. It comes before any
   cross-node DDP.
 - **Replicate vs decouple.** The trade-off above is wall-clock vs GPUs at equal GPU-hours.
+
+The user's decisions (2026-11-05) on all four became round 1c (Part IX).
+
+---
+
+# Part IX — Round 1c: seed 1 rerun, the NCCL-over-CXI fix, replicate vs decouple (job 7815637, 2026-11-05)
+
+**Scope (user decisions after 7815096):** rerun seed 1 under round 1b's `t` rule; carry `lean32` toward o1.2; measure
+both scale-out layouts.
+
+**Run and harness.**
+- **Job:** `SQG/analysis/opt/run_round1c_polaris.pbs`, 2-node debug, x3206c0s25b1n0 + x3206c0s31b0n0, 05:51–06:11
+  (1,202 s). It ended `OPT_R1C_DONE failures=0`. Summaries: `SQG/analysis/results/polaris_opt_round1c_7815637/`.
+- **Predictions:** `SQG/analysis/opt/PREDICTIONS_round1c.md`, written before submission.
+- **NCCL arms:** from combine_handoffs, after a readelf check of the library stack (Part VIII, "Leading
+  hypothesis").
+- **Review:** two read-only Fable critics reviewed the code before submission.
+- **Code:** `multisim/sqg_multisim.py` gained `--mode replicate` and `--mode decouple`; `multisim/probe_verdict.py` is
+  the strict probe token.
+- **NCCL phases** ran with `OMP_NUM_THREADS=1`.
+
+## Phase 1 — seed 1 under round 1b's `t` rule (node 0, GPU 0)
+
+`LEAN_RING_TEST_OK`, `SEED1_GATE_R1B_TEST_OK`, `SEED1_GATE_OK` × 3, `SEED1_BENCH` × 3, `SEED1_OPTSTEP`, `SEED1_LONG` ×
+3, `SEED1_DONE` (9.0 min), `OPT_RANK_OK`. The ref is 9.288 ms/step and drifted 0.0% over the run.
+
+| variant | gate | fields at 1 / 40 / 480 steps (both starts) | `t` exact | 4,000 steps: coarse / energy / θ̂ | ms/step | speedup | optimizer step |
+|---|---|---|---|---|---|---|---|
+| `lean` | PASS | bitwise | yes / yes | 0 / 0 / 0 | 7.970 | 1.165× | — |
+| `lean_u1` | PASS | bitwise | yes / yes | 0 / 0 / 0 | **6.400** | **1.451×** | **3.086 s** (ref 4.470 s, 1.449×) |
+| `lean_split` | PASS | bitwise | yes / yes | 0 / 0 / 0 | 7.078 | 1.312× | — |
+
+What it says:
+- **`lean_u1` computes exactly what production computes, 1.45× faster.** Its float64 fields are bitwise equal to the
+  production step at every checkpoint, up to 4,000 steps from the synthetic state. So it needs no statistical
+  validation and raises no precision question.
+- **It beats every other float64 variant.** `lean64` (round 1b) runs 7.051 ms, frames bitwise but fields ≤ 1e-13.
+- **The run-time `dt` made `t` exact here too.** In both seeds the only change to the step was where `dt` comes from,
+  and `t` went from inexact (round 1) to exact. That supports XLA constant-folding the unrolled `(t + dt) + dt`; the
+  HLO was not inspected.
+
+## Phase 2 — NCCL over CXI, 8 ranks, 64 MB all_reduce (NCCL 2.20.5, aws-ofi-nccl v1.6.0, libfabric 2.3.1)
+
+| arm | environment change vs 7815096 | verdict | busbw min (per-rank median ms) | inter-node lines `/GDRDMA` | `cxil_map` / regfail | FI_LOG |
+|---|---|---|---|---|---|---|
+| `A_filog` | `FI_LOG_LEVEL=info` | **FAIL** (rc 124, no JSON) | — | 16 / 16 | 30 / 12 | `cuda_hmem_dl_init(): Failed to dlopen libcudart.so` on 8/8 ranks; no CUDA HMEM |
+| `B_shim` | + dir with `libcudart.so` → the env's `libcudart.so.12` (12.1.105) | **PASS** | **31.5 GB/s** (3.52 ms) | 24 / 24 | 0 / 0 | `Number of CUDA devices detected: 1` on 8/8; `cuda dmabuf support status: 0` |
+| `C_loc` | `NCCL_NET_GDR_LEVEL=LOC` | **PASS** | 17.2 GB/s (6.67 ms) | 0 / 24 | 0 / 0 | (not set) |
+| `D_cuda129` | + `/soft/compilers/cudatoolkit/cuda-12.9.1/lib64` | **PASS** | 32.6 GB/s (3.45 ms) | 24 / 24 | 0 / 0 | as B |
+
+`B_shim` and `D_cuda129` each log 24 libfabric warnings: `cuda_set_sync_memops(): Failed to perform
+cuPointerSetAttribute: CUDA_ERROR_NOT_SUPPORTED`. The all_reduce values were right in both. We infer, but did not
+check, that libfabric asks for SYNC_MEMOPS on NCCL's cuMem (VMM) buffers, which do not support that attribute. Phase 3
+ran on `B_shim`, the first in the preference order B, D, A, C. Its NET lines were `/GDRDMA` in every arm (24 / 8 / 24),
+with 0 registration errors.
+
+What it says:
+- **The cause is confirmed.** In 7815096's environment, libfabric's CUDA HMEM layer cannot dlopen the unversioned
+  `libcudart.so`, which the wheel-based env does not ship. The cxi provider then registers GPU addresses as host memory
+  and gets EFAULT.
+- **The fix is one symlink to the runtime file torch already loads**, so there is a single CUDA runtime in the
+  process. It is now part of `run_round1c_polaris.pbs`'s `arm_env B_shim`.
+- **GDR roughly doubles 2-node bandwidth over host-staged: 31.5 vs 17.2 GB/s.** Our host-staged 17.2 GB/s matches
+  combine_handoffs' 2-node 18.0 GB/s, which ran GDR 0.
+- **`D_cuda129` (makani/ACE2's recipe) works too, at +3%**, with a second CUDA runtime (12.9) in the process. `B_shim`
+  stays the recommended setup.
+
+## Phase 3 — replicate vs decouple, DDP over `B_shim` (A100, batch 16 per trainer rank, strict fp32)
+
+| | `replicate lean32` | `decouple lean32` | `replicate ref` |
+|---|---|---|---|
+| layout | 8 GPUs, each solver + DDP rank | per node: 1 DDP trainer (local rank 1) + 3 simulators | 8 GPUs, each solver + DDP rank |
+| global batch; fresh pairs per trainer step | 128; 12 | 32; **12.0**, 0 starved steps | 128; 12 |
+| s/step | **1.946** (ranks 1.9455–1.9457) | 0.4235 free-running; **≈ 0.515 paced** (see below) | **4.897** (job B 1 GPU: 4.887) |
+| same steps without the all_reduce (`no_sync`) | 1.941 → DDP cost **5.2 ms** | free 0.4235 vs the stream arm's no-DDP 0.419 (7815096, other nodes) → ≈ 4.5 ms | 4.892 → DDP cost **4.8 ms** |
+| rank-steps/s per GPU | 0.514 | ≈ 0.485 (paced) | 0.204 |
+| other | DDP init 0.42 s; buffer fill 17 s; torch peak 20.4 GiB | simulators 3.231–3.236 ms/step; 23.2 pairs/s per trainer | DDP init 0.37–0.59 s; fill 51 s |
+
+**The paced number is derived, because the harness reported the wrong statistic.**
+- **The printout is a median.** `decouple` printed paced s/step 0.424 and 0.590 rank-steps/s per GPU, both from the
+  median step. The median wait was 0.0 s.
+- **Why the median misleads.** The 3 simulators per trainer start within 0.03 s of each other, so their 12-pair
+  messages arrive together, ≈ 36 pairs every 1.55 s. Two steps in three find pairs waiting; the third waits for the
+  next burst.
+- **The phase mean.** The phase got exactly 720 fresh pairs (12.0 × 60 steps) at 23.17 pairs/s, from the simulators'
+  periods; the printed rate is 23.39. That puts the mean at 0.513–0.518 s per step.
+- **The fix.** `sqg_multisim.py` now records each phase's wall time and mean, and the summary uses the means
+  (`fix(sqg): decouple trainer -- report the paced phase by its mean`).
+
+What it says:
+- **Cross-node DDP is nearly free: ≈ 5 ms per step for 8 ranks and 163 MB of gradients**, 0.3% of the `lean32` step
+  and 0.1% of `ref`'s.
+- **Today's o1.2 replicates to 2 nodes at no per-step cost** (4.897 vs 4.887 s), but every added rank grows the
+  global batch.
+- **Equal GPU-seconds, measured: decouple ≈ 0.485 vs replicate 0.514 rank-steps/s per GPU** (ratio 0.94). The 6% is
+  the trainers idling between bursts in a solver-bound layout: 3 `lean32` simulators give 23.2 pairs/s, and a 0.42 s
+  trainer step needs 28.3.
+- **Decoupling buys 3.8× shorter steps (1.946 → ≈ 0.515 s) for the same 12 fresh pairs per rank-step.** At this GPU
+  count the global batch is 4× smaller. With ≥ 3.7 `lean32` simulators per trainer the step would reach the trainer's
+  0.42 s.
+- **`replicate lean32` is 1.946 s, slightly under the 1-GPU sum** of 1.546 + 0.419 = 1.965 s. Its solver has no
+  host sync, so the next call's dispatch overlaps the end of the ML step a little: `advance()` host time is 1.36 s for
+  ≈ 1.55 s of GPU work.
+
+## Scorecard (`PREDICTIONS_round1c.md`)
+
+- **1, confirmed:** all three pass, bitwise, `t` exact (the ≈ 85% call).
+- **2, confirmed:** 7.970 / 6.400 / 7.078 ms, i.e. −0.4 / 0.0 / +0.2%.
+- **3, confirmed:** `lean_u1` is the best float64 variant at 1.451×, optimizer step 3.086 s (≈ 3.1) vs `lean64`'s
+  3.40.
+- **4, confirmed:** all zero.
+- **5, confirmed:** A fails with 7815096's signature; `Failed to dlopen libcudart.so` on 8/8 ranks; no CUDA HMEM line.
+- **6, half:** every predicted marker is confirmed. GDRDMA is on all inter-node lines (24 here; the failing runs printed 16
+  before their init aborted); there are 0 errors, CUDA HMEM is up on 8/8 and nothing reads "Failed to find". busbw 31.5
+  GB/s refutes the 12–20 range: the 18.0 reference was host-staged.
+- **7, confirmed:** 17.2 GB/s in 8–18, no GDRDMA, ≤ B.
+- **7b, confirmed:** D passes with GDRDMA, at 32.6 GB/s = +3.3% of B (±15%).
+- **8, half:** the DDP cost of 5.2 ms is confirmed (0–0.10 s). s/step 1.946 and no_sync 1.941 sit just below their
+  ranges (1.99–2.10, 1.95–2.02), and 0.514 rank-steps/s per GPU just above (0.48–0.51). The 1-GPU sum missed the small
+  overlap.
+- **9, half:** free 0.4235 (0.42–0.47), 12.0 fresh, 0 starved and simulators 3.231–3.236 (3.22–3.26) are confirmed.
+  The paced s/step was not measured as predicted: the printed median 0.424 is outside 0.50–0.54, and the derived mean
+  of ≈ 0.515 is inside but is not a direct measurement.
+- **10, confirmed on the derived mean:** 0.485 vs 0.514 per GPU (within ±10%), steps 3.8× shorter (≈ 3.9×
+  predicted), global batch 32 vs 128.
+- **11, confirmed:** 4.897 s in 4.88–5.05, DDP cost 4.8 ms, 0.204 rank-steps/s per GPU.
+
+## Next (the user's decisions)
+
+- **What goes into o1.2 first.**
+  - `lean_u1` is now a bitwise float64 1.45× (optimizer step 4.47 → 3.09 s on an A100). It needs no science
+    sign-off.
+  - `lean32` (the user's 11-05 choice) is 2.9× (1.55 s), but needs statistical validation and jesswan / Weidong's
+    sign-off.
+  - They don't exclude each other: `lean_u1` can ship now while `lean32`'s validation runs.
+- **Round 2 (float64):** `lean_u1`'s one-element-per-thread trigger + `lean64`'s C2C packing + the 2-slot ring.
+  Separately, the same trigger on `lean32`.
+- **Multi-node:** DDP over CXI now works (`B_shim`). The design choice is wall-clock per step (decouple) vs global
+  batch (replicate) at equal GPU-hours. Sizing a decoupled run means ≥ 3.7 `lean32` (or ≥ 10.7 `ref`) simulators per
+  trainer on A100s.

@@ -9,6 +9,25 @@
 This file is a starting point, not the record. The record is `SQG/polaris/polaris_sqg_notes.md` (Parts I–VII) and
 the 2026-11-04/05 SQG entries in `CHANGELOG.md`. Where this file and those disagree, they win.
 
+> **Status update (2026-11-05, later the same day). §2–§5 below are superseded by notes Parts VIII–IX.**
+> - 7815096 has been scored (Part VIII).
+> - Round 1c = job **7815637** is DONE with `failures=0` (Part IX).
+>
+> Results:
+> - **Seed 1:** `lean_u1` is **bitwise** and 1.451× (optimizer step 4.47 → 3.09 s).
+> - **NCCL over CXI is fixed:** a dir holding `libcudart.so` → the env's own `libcudart.so.12` on
+>   `LD_LIBRARY_PATH` (`run_round1c_polaris.pbs`, `arm_env B_shim`) gives 31.5 GB/s with GDRDMA.
+> - **Multi-node DDP over CXI works:** about 5 ms per step.
+> - **Replicate vs decouple:** equal GPU-seconds measured (0.94×). Decoupling gives 3.8× shorter steps at a smaller
+>   global batch.
+>
+> Open for the user:
+> - ship `lean_u1` to o1.2 (no sign-off needed), with `lean32` (the user's pick) after validation;
+> - round 2 (the u1 trigger + C2C packing);
+> - sizing a decoupled run.
+>
+> The decouple harness now reports the paced phase by its mean.
+
 ---
 
 ## 0. Orientation

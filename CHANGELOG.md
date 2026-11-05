@@ -114,6 +114,31 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-05** — **SQG round 1c (7815637) DONE, `OPT_R1C_DONE failures=0`.** Notes Part IX; summaries in
+  `SQG/analysis/results/polaris_opt_round1c_7815637/`.
+  - **Seed 1: all three pass, bitwise at 1/40/480/4,000 steps, `t` exact.** `lean` 7.970 ms (1.165×),
+    **`lean_u1` 6.400 ms (1.451×; optimizer step 4.470 → 3.086 s)**, `lean_split` 7.078 (1.312×). So `lean_u1` is a
+    bitwise float64 speed-up that needs no science sign-off. The run-time `dt` fixed `t` in both seeds.
+  - **NCCL over CXI is solved.**
+    - A (7815096's env + FI_LOG) fails again, and FI_LOG shows `cuda_hmem_dl_init(): Failed to dlopen
+      libcudart.so` on 8/8 ranks. That confirms the cause.
+    - **B, a dir holding `libcudart.so` → the env's own `libcudart.so.12`, passes at 31.5 GB/s:** GDRDMA on 24/24
+      NET lines, CUDA HMEM up 8/8, 0 errors.
+    - C (`GDR_LEVEL=LOC`) passes at 17.2 GB/s, host-staged; combine_handoffs' 2-node 18.0 GB/s was GDR 0.
+    - D (`cuda-12.9.1` prepend) passes at 32.6 GB/s.
+    - B and D log 24 harmless-looking `cuPointerSetAttribute … CUDA_ERROR_NOT_SUPPORTED` warnings each.
+  - **Replicate vs decouple (DDP over B, GDR):**
+    - replicate `lean32`: 1.946 s/step on 8 GPUs; DDP cost 5.2 ms. 0.514 rank-steps/s per GPU.
+    - replicate `ref`: 4.897 s/step (vs 4.887 s on 1 GPU); DDP cost 4.8 ms.
+    - decouple `lean32` (2 cross-node DDP trainers + 6 simulators): 0.4235 s/step free-running; ≈ 0.515 s paced to
+      12 fresh pairs/step (derived). That is ≈ 0.485 rank-steps/s per GPU, 0.94× replicate, so equal GPU-seconds
+      holds: 3.8× shorter steps at a 4× smaller global batch.
+  - **Harness bug found and fixed (separate commit).** The paced phase was reported by its median (0.424 s, wait
+    median 0.0). The simulators' bursts hide the waits, so the trainer now records the phase mean.
+  - **Predictions:** 9 confirmed, 3 half (#6 busbw above range, #8 s/step 1–2% faster than the 1-GPU sum, #9
+    paced s/step not measured as stated), 0 refuted.
+  - **Next (the user's):** ship `lean_u1` (bitwise) to o1.2 while `lean32` waits for validation? Round 2 = the u1
+    trigger + C2C packing. Size a decoupled run at ≥ 3.7 `lean32` simulators per trainer.
 - **2026-11-05** — **SQG round 1c submitted: 2-node debug job 7815637** (`SQG/analysis/opt/run_round1c_polaris.pbs`,
   walltime 0:59).
   - **User decisions (11-05):** rerun seed 1; carry `lean32` toward o1.2 (precision in production still needs
@@ -400,10 +425,12 @@ Each is attributed to its source doc — verify there before acting.
   `NCCL_NET_GDR_LEVEL=PHB` fails at connect.**
   - Symptom: `cxil_map: write error` → `NET/OFI Unable to register memory (type = 2) … RC: -14, Error: Bad address`
     on every rank that does an inter-node hop; the rest hang.
-  - Likely cause (unconfirmed): libfabric can't dlopen an unversioned `libcudart.so`, which the wheel env lacks.
-  - Don't re-run that exact env block. First try a `libcudart.so` symlink to the env's `libcudart.so.12` on
-    `LD_LIBRARY_PATH` (with `FI_LOG_LEVEL=info`); `NCCL_NET_GDR_LEVEL=LOC` is the fallback. cuMem is probably not
-    the cause: combine_handoffs' working NCCL 2.28 runs use it too.
+  - **Cause CONFIRMED (job 7815637):** libfabric's `cuda_hmem_dl_init()` cannot dlopen the unversioned
+    `libcudart.so`, which a wheel-based env lacks.
+  - **FIXED:** put a dir holding `libcudart.so` → the env's own `libcudart.so.12` first on `LD_LIBRARY_PATH`
+    (`run_round1c_polaris.pbs`, `arm_env B_shim`). That gave 31.5 GB/s with GDRDMA, and DDP works. Fallbacks:
+    `NCCL_NET_GDR_LEVEL=LOC` (17.2 GB/s), or prepending `cuda-12.9.1/lib64` (32.6 GB/s, but two CUDA runtimes).
+  - Don't use the bare env block for cross-node NCCL from a wheel env.
   - Source: job 7815096; `SQG/polaris/polaris_sqg_notes.md` Part VIII.
 
 - **(Polaris) `torch_harmonics` version box** — makani 0.2.0 imports the *public*
