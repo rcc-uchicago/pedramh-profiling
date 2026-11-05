@@ -16,10 +16,11 @@ unmodified, as profile_solver.import_asqg does. Variants (lean_solver.make_advan
 Gate, fixed before any run (float64-only changes):
   G1  one solver step from each test state: every value finite, and the relative L2 error of each AB3 field
       (theta_hat and both stored tendencies) vs the production step <= 1e-12.
-  G2  one 40-step call, the code that is timed, from each test state: finite, relative L2 of each field <= 1e-9, t and
-      tc identical, AB3 level 2. It catches a wrong ring rotation, which a 1-step test cannot see; rounding-only
-      differences stay near 1e-15 over 40 steps.
+  G2  one 40-step call, the code that is timed, from each test state: finite, relative L2 of each field <= 1e-9, tc
+      identical, AB3 level 2 (round 1: t identical too; round 1b: see T_REL_TOL). It catches a wrong ring rotation,
+      which a 1-step test cannot see; rounding-only differences stay near 1e-15 over 40 steps.
   G3  finite after 480 steps (12 calls) from each test state, where the reference is finite.
+  Round 1b (2026-11-05): at 1, 40 and 480 steps, tc exact, level 2, |t - t_ref| <= 1e-6 |t_ref|; exact t = information.
 Information only: bitwise equality after 480 steps; after 4,000 steps from the synthetic state, the relative L2 of the
 256^2 coarse field (o1.2's coarse()) and the relative difference of the energy 0.5<theta^2> vs the reference.
 
@@ -51,6 +52,12 @@ import lean_solver as LS  # noqa: E402  (standard library only at import)
 
 TOL_1STEP = 1e-12          # G1, the policy's float64 tolerance
 TOL_40STEP = 1e-9          # G2, structural check of the timed call
+# ROUND 1b (written 2026-11-05 before the seed-1 rerun, at the user's request; the same rule as seed2_opt.py's ROUND 1b
+# block). Round 1 (job 7814300) failed all three variants only on G2's exact-t check: their fields were bitwise after 480
+# steps, and t is the float32 time counter, which no field reads. Round 1's verdicts stand as recorded. Round 1b:
+# tc exact and AB3 level 2, and |t - t_ref| <= T_REL_TOL |t_ref|, at 1, 40 and 480 steps; exact t equality is reported
+# as information (t_equal). lean_solver.py now advances t by a run-time dt (its item 9). G1-G3 are otherwise unchanged.
+T_REL_TOL = 1e-6
 VARIANTS = {"lean": {}, "lean_u1": {"unroll1": True}, "lean_split": {"split": True}}
 FIELDS = ("qh", "T0", "T1")  # theta_hat, _updates[0] (newest tendency), _updates[1]
 BITWISE_CALLS = 12         # 480 steps = one optimizer step
@@ -114,9 +121,12 @@ def compare(np, cand, ref, forced=None):
     out["combined_rel_l2"] = math.sqrt(sq_d / sq_r) if sq_r > 0 else float("nan")
     for flag in ("finite", "values_equal", "bits_equal"):
         out[flag] = all(out[k][flag] for k in FIELDS)
-    out["t_equal"] = cand["t"] == ref["t"]
+    out["t_equal"] = cand["t"] == ref["t"]                     # information (round 1b)
+    out["t"], out["t_ref"] = cand["t"], ref["t"]
+    out["t_rel_diff"] = abs(cand["t"] - ref["t"]) / abs(ref["t"]) if ref["t"] != 0 else abs(cand["t"])
     out["tc_equal"] = cand["tc"] == ref["tc"]
     out["ablevel"] = cand["ablevel"]
+    out["meta_ok"] = bool(out["tc_equal"] and out["ablevel"] == 2 and out["t_rel_diff"] <= T_REL_TOL)
     if forced is not None:                       # the 24 forced modes: error relative to |F0| there
         idx, fabs = forced
         out["T0_forced_modes_max_err_over_F"] = float((np.abs(cand["T0"][idx] - ref["T0"][idx]) / fabs).max())
@@ -124,22 +134,30 @@ def compare(np, cand, ref, forced=None):
 
 
 def gate_reason(g):
-    """None if the variant passes G1-G3, else a one-word reason."""
+    """None if the variant passes G1-G3 (+ round 1b's t rule), else a one-word reason."""
+    def meta(c, n, ic):
+        if not c["meta_ok"]:
+            return f"{n}step_tc_ablevel_or_t_{ic}(t_rel={c['t_rel_diff']:.1e})"
+        return None
     for ic, c in g["1step"].items():
         if not c["finite"]:
             return f"nonfinite_after_1_step_{ic}"
         if not c["max_rel_l2"] <= TOL_1STEP:
             return f"1step_rel_l2={c['max_rel_l2']:.3e}>{TOL_1STEP:g}_in_{c['worst_field']}_{ic}"
+        if meta(c, 1, ic):
+            return meta(c, 1, ic)
     for ic, c in g["40step"].items():
         if not c["finite"]:
             return f"nonfinite_after_40_steps_{ic}"
         if not c["max_rel_l2"] <= TOL_40STEP:
             return f"40step_rel_l2={c['max_rel_l2']:.3e}>{TOL_40STEP:g}_in_{c['worst_field']}_{ic}"
-        if not (c["t_equal"] and c["tc_equal"] and c["ablevel"] == 2):
-            return f"40step_t_tc_or_ablevel_differ_{ic}"
+        if meta(c, 40, ic):
+            return meta(c, 40, ic)
     for ic, c in g["480step"].items():
         if c["ref_finite"] and not c["finite"]:
             return f"nonfinite_after_480_steps_{ic}"
+        if meta(c, 480, ic):
+            return meta(c, 480, ic)
     if not g["1step"] or not g["40step"] or not g["480step"]:
         return "gate_not_run"
     return None
@@ -182,7 +200,9 @@ def main():
     out_json = os.path.join(args.out, "seed1.json")
     res = {"seed": 1, "angle": "float64, JAX level, same mathematics",
            "thresholds": {"G1_1step_rel_l2_per_field": TOL_1STEP, "G2_40step_rel_l2_per_field": TOL_40STEP,
-                          "G3": "finite after 480 steps where the reference is finite"},
+                          "G3": "finite after 480 steps where the reference is finite",
+                          "round1b_t_rel_tol": T_REL_TOL,
+                          "round1b_meta": "tc exact, level 2, |t - t_ref| <= tol at 1/40/480 steps; exact t = info"},
            "phases_s": {}}
 
     def save():
@@ -379,7 +399,9 @@ def run(args, res, save):
         g = gates[name]
         print(f"SEED1_GATE_OK {name} 1step_max_rel_l2={max(c['max_rel_l2'] for c in g['1step'].values()):.2e} "
               f"40step_max_rel_l2={max(c['max_rel_l2'] for c in g['40step'].values()):.2e} "
-              + " ".join(f"bitwise480_{ic}={c['bits_equal']}" for ic, c in g["480step"].items()), flush=True)
+              + " ".join(f"bitwise480_{ic}={c['bits_equal']}" for ic, c in g["480step"].items())
+              + " t_exact=" + "/".join(str(all(g[n][ic]["t_equal"] for n in ("1step", "40step", "480step")))
+                                       for ic in g["1step"]), flush=True)
     res["gate"] = {name: {"pass": name in passed, "reason": failed.get(name), **gates[name]} for name in names}
     save()
 

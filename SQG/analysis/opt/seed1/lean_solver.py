@@ -24,6 +24,9 @@ What changes against GD.inner, and why the computed values do not:
   8. The two stored tendencies live in a 3-slot ring and the scan body is unrolled by 3, so the slots change roles:
      each new tendency is written into the slot whose old value is dead. This removes the two full-field copies per
      step of pyqg_jax's history rotation `new_updates = (updates, updates_p)` under lax.scan.
+  9. (round 1b) The float32 time counter t advances by a run-time scalar consts["tdt"] = float32(dt), one add per
+     step as pyqg. Round 1 (job 7814300) used a compile-time f32(dt), and t came out different from the reference
+     after 40 steps, probably because XLA folded the unrolled (t + dt) + dt. No field reads t.
 Options (neither changes a value):
   unroll1  multiplies one operand of each complex128 loop fusion by cos(x*0) == 1, so the fusion contains a cosine.
            XLA's loop emitter then gives each thread 1 element instead of 4. Nsight Compute (job 7814044) found that
@@ -107,13 +110,14 @@ def preconditions(GD):
 
 def build_consts(GD, ncol):
     """Run-time operands of the lean step (arguments, not closure constants, so XLA cannot fold them into dense
-    constants): the SQG inversion factor, the real decay factor and the forcing's non-zero columns."""
+    constants): the SQG inversion factor, the real decay factor, the forcing's non-zero columns and the t increment."""
     import jax.numpy as jnp
     m = GD.sm.model
     return {
         "s": (m.f_0 / m.Nb) * jnp.sqrt(m.wv2i),        # the same IEEE ops as pyqg's _apply_a_ph, evaluated once
         "decay": jnp.asarray(GD.decay, jnp.float64),
         "frows": jnp.asarray(GD.F0_hat[0, :, :ncol]),
+        "tdt": jnp.float32(GD.sm.stepper.dt),          # pyqg_jax: t + jnp.float32(dt) per step (item 9)
     }
 
 
@@ -167,7 +171,7 @@ def make_advance(GD, nsteps, *, ncol, unroll1=False, split=False):
         dfac = c["decay"]
         if unroll1:
             dfac = dfac * jnp.cos(jnp.imag(qh[0]) * zero)       # == decay (imag, not real: no CSE with the one above)
-        return new * dfac, T, t + f32(dt), tc + 1
+        return new * dfac, T, t + c["tdt"], tc + 1                # run-time dt: no folding (item 9)
 
     def advance(st, c):
         def stp(qh, Tp, Tpp, t, tc):
