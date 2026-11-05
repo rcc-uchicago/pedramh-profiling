@@ -436,12 +436,15 @@ def run_ddp_trainer(args, rank, pg, n_senders):
     for _ in range(3):
         step()
     free = []
+    t_free0 = time.perf_counter()
     for _ in range(args.free_steps):                                  # free-running: the trainer's own speed with DDP
         t0 = time.perf_counter()
         step()
         free.append(time.perf_counter() - t0)
+    t_free = time.perf_counter() - t_free0
     matched, waits, fresh, starved = [], [], [], 0
     n0 = n_prev = rx.n
+    t_m0 = time.perf_counter()
     for i in range(args.matched_steps):                               # o1.2's recipe: fresh_per_step new pairs/step
         t0 = time.perf_counter()
         waits.append(rx.wait_for(n0 + args.fresh_per_step * (i + 1)))
@@ -451,12 +454,20 @@ def run_ddp_trainer(args, rank, pg, n_senders):
         matched.append(time.perf_counter() - t0)
         fresh.append(rx.n - n_prev)
         n_prev = rx.n
+    t_m = time.perf_counter() - t_m0
     rx.join(args, t_start)
+    # The paced phase must be read by its MEAN (phase wall / steps). Its simulators start together, so their 12-pair
+    # messages arrive in bursts: most steps do not wait and one in ~3 waits for the next burst. 7815637 reported the
+    # median (0.424 s, wait median 0.0) while its 720 fresh pairs at ~23 pairs/s took ~0.52 s per step (Part IX).
+    nf, nm = max(len(free), 1), max(len(matched), 1)
     return {"ddp_init_s": round(t_ddp, 2), "fill_wait_s": round(t_fill, 2), "senders": n_senders,
             "free_steps": args.free_steps, "s_per_step_free_median": med(free),
+            "free_phase_s": round(t_free, 3), "s_per_step_free_mean": round(t_free / nf, 4),
             "matched_steps": args.matched_steps, "s_per_step_matched_median": med(matched),
-            "wait_s_matched_median": med(waits), "fresh_pairs_per_step_matched_mean":
-                round(statistics.mean(fresh), 3) if fresh else None, "starved_steps": starved, **rx.summary()}
+            "matched_phase_s": round(t_m, 3), "s_per_step_matched_mean": round(t_m / nm, 4),
+            "wait_s_matched_median": med(waits), "wait_s_matched_mean": round(statistics.mean(waits), 4) if waits else None,
+            "fresh_pairs_per_step_matched_mean": round(statistics.mean(fresh), 3) if fresh else None,
+            "starved_steps": starved, **rx.summary()}
 
 
 def decouple_roles(args, rank, world):
@@ -528,9 +539,9 @@ def summarize(args, allm, world, ref_ms):
     if args.mode == "decouple":
         trs = [m for m in allm if m["role"] == "trainer"]
         res["trainers"] = [m["rank"] for m in trs]
-        if trs and all(m.get("s_per_step_matched_median") for m in trs):
-            s_m = max(m["s_per_step_matched_median"] for m in trs)
-            s_f = max(m["s_per_step_free_median"] for m in trs)
+        if trs and all(m.get("s_per_step_matched_mean") for m in trs):
+            s_m = max(m["s_per_step_matched_mean"] for m in trs)        # mean, not median (bursty paced phase)
+            s_f = max(m["s_per_step_free_mean"] for m in trs)
             res.update({"n_trainers": len(trs), "n_simulators": len(sims), "global_batch": len(trs) * args.batch,
                         "s_per_step_free": s_f, "s_per_step_matched": s_m,
                         "fresh_pairs_per_step_matched": min(m["fresh_pairs_per_step_matched_mean"] for m in trs),
