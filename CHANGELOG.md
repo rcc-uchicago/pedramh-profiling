@@ -114,6 +114,49 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-05** — **SQG job 7815096 DONE (`OPT_R1B_MS_DONE failures=1`).** Round 1b passed. Of the 2-node arms, 4/5
+  passed; the NCCL-over-CXI probe failed. Notes Part VIII; summaries in
+  `SQG/analysis/results/polaris_opt_round1b_ms_7815096/`.
+  - **Round 1b (one A100): all three pass their pre-set gates.** ms per solver step vs ref 9.290:
+
+    | variant | ms/step | speedup | optimizer step |
+    |---|---|---|---|
+    | `lean64` | 7.051 | 1.318× | 3.40 s |
+    | `mixed` | 4.714 | 1.971× | 2.28 s |
+    | `lean32` | 3.189 | 2.913× | 1.55 s (vs 4.47) |
+
+    - `t` is now exact for all three (run-time `dt`).
+    - `lean64`'s 256² float32 frames are **bitwise** equal to production's after 4,000 steps (fields ≤ 1e-13).
+    - `lean32` is float32 itself: its 1-step and 4,000-step differences equal the original step run in float32 to 3
+      digits (4.36e-4 coarse, −8.36e-5 SPE).
+    - `mixed` keeps a float64 state and is 70× closer at 4,000 steps.
+  - **2-node arms.**
+    - **Independent simulators:** scaling efficiency 0.9999 (ref) / 1.0024 (lean32).
+    - **Stream (7 simulators → 1 trainer, gloo over hsn0, RAM only, nothing written to disk):** the trainer stays
+      at its standalone 0.419 s/step. A send is ≈1 ms per 6.3 MB message. Fresh pairs per trainer step:
+      `ref` 8.14 (solver-bound), `lean32` 22.6 (trainer-bound). One trainer needs 10.7 / 8.1 / 5.4 / 3.7
+      simulators (ref / lean64 / mixed / lean32) to get o1.2's 12 fresh pairs per step.
+    - **Decoupling trades GPUs for wall-clock at equal GPU-hours.** Replicating o1.2 only grows the global batch.
+  - **NCCL probe FAILED: cxi can't register NCCL's GPU buffers.**
+    - Stack: torch 2.3.1's NCCL 2.20.5 + aws-ofi-nccl 1.6.0, under `NCCL_NET_GDR_LEVEL=PHB`.
+    - Plugin v6 and the cxi provider loaded on 8/8 ranks. Intra-node is `P2P/CUMEM/read` ×24, SHM 0.
+    - Every inter-node hop chose GDRDMA. On all 4 network ranks: `cxil_map: write error`, then
+      `NET/OFI Unable to register memory (type = 2) … RC: -14, Error: Bad address`.
+    - `Connected all rings` was never reached, so there is no busbw. No arm ran without `NCCL_PROTO=Simple`.
+    - `NCCL_CXI_OK providers=8` only means the provider was selected.
+    - These answers went to combine_handoffs (SendMessage, 11-05).
+    - **Their reply.** GDR works on their stack (7629096: 4 nodes, NCCL 2.28.3, `GDRDMA`, `GDR 1`), with cuMem on
+      too. Their leading cause: cray libfabric 2.3.1 dlopens the unversioned `libcudart.so`, and sqg-env has only
+      `libcudart.so.12`, so CUDA HMEM init fails and cxi pins GPU addresses as host memory (EFAULT).
+    - **Checked here:** the libfabric strings, and that no dir on the job's `LD_LIBRARY_PATH` has `libcudart.so`.
+      The mechanism itself is unconfirmed (no `FI_LOG`).
+    - **Next probe:** A `FI_LOG_LEVEL=info`; B a `libcudart.so` → env `libcudart.so.12` shim; C
+      `NCCL_NET_GDR_LEVEL=LOC`. Gate the probe's token on a completed all_reduce + busbw.
+  - **Predictions scored without edits.**
+    - Round 1: the gates all mispredicted (cause: the gates); 2/6 speed ranges hit; every speed miss was slower.
+    - Round 1b: 7 confirmed, 1 confirmed with two edge misses (≤ 2%), 1 half (#5: cxi yes, bandwidth never measured).
+  - **Open (the user's):** a seed-1 `lean_u1` rerun under round 1b's `t` rule; which precision goes into o1.2
+    (precision is jesswan / Weidong's call); replicate vs decouple.
 - **2026-11-05** — **SQG handoff for a fresh session: `SQG/polaris/sqg_opt_handoff.md`.** It gives the state, the
   steps after 7815096 (scoring, the NCCL answers owed to combine_handoffs, notes Part VIII), the open decisions (seed 1
   rerun, which variant goes into o1.2, replicate vs decouple), and the Polaris multi-node recipe.
@@ -324,6 +367,16 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 ## Known issues / failed approaches (do NOT re-attempt)
 
 Each is attributed to its source doc — verify there before acting.
+
+- **(Polaris, SQG env) NCCL over CXI with torch 2.3.1's bundled NCCL 2.20.5 + aws-ofi-nccl v1.6.0 +
+  `NCCL_NET_GDR_LEVEL=PHB` fails at connect.**
+  - Symptom: `cxil_map: write error` → `NET/OFI Unable to register memory (type = 2) … RC: -14, Error: Bad address`
+    on every rank that does an inter-node hop; the rest hang.
+  - Likely cause (unconfirmed): libfabric can't dlopen an unversioned `libcudart.so`, which the wheel env lacks.
+  - Don't re-run that exact env block. First try a `libcudart.so` symlink to the env's `libcudart.so.12` on
+    `LD_LIBRARY_PATH` (with `FI_LOG_LEVEL=info`); `NCCL_NET_GDR_LEVEL=LOC` is the fallback. cuMem is probably not
+    the cause: combine_handoffs' working NCCL 2.28 runs use it too.
+  - Source: job 7815096; `SQG/polaris/polaris_sqg_notes.md` Part VIII.
 
 - **(Polaris) `torch_harmonics` version box** — makani 0.2.0 imports the *public*
   `torch_harmonics.quadrature.precompute_latitudes`, which does NOT exist in 0.7.4 or

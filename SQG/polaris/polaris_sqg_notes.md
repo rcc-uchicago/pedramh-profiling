@@ -701,3 +701,278 @@ Our float64 step (job E nsys): cuFFT 3.06 ms, inverse-FFT input copies 0.59, his
 approaches its FFT roofline: ≈3.1–3.5 ms in float64 (now 9.3) and ≈1.5–1.8 ms in float32 (now 3.6). That route is not
 bitwise (operation order, FMA contraction), so it needs gyaradax-style statistical validation. Mixed precision
 (float32 FFTs and products, float64 state and AB3), as gyaradax does, sits between float64 and float32.
+
+---
+
+# Part VIII — Solver rewrites (rounds 1 and 1b) and the first 2-node run (jobs 7814300, 7815096; 2026-11-04/05)
+
+Round 1 times six rewrites of the solver step, each against the production step from the same state. Two Opus seeds
+wrote them, and a Fable principal scientist reviewed them. Each variant's tolerance was fixed before the run. User
+policy (2026-11-04) is that bitwise equality is reported but not required. Round 1b reruns seed 2's three variants
+under corrected gates, also set before the rerun. Phase 2 of the same job is SQG's first run across nodes. All code
+is in `SQG/analysis/opt/`.
+
+| variant | seed | precision | what changes vs the production step |
+|---|---|---|---|
+| `lean` | 1 | f64 | drops the exact ×1 / +0 terms (switched-off filter, β, U, rek); 3-slot AB3 ring (no history-rotation copies) |
+| `lean_u1` | 1 | f64 | `lean` + a cos(±0) factor (exactly 1) meant to switch XLA's loop emitter to 1 element per thread |
+| `lean_split` | 1 | f64 | `lean` with the AB3 update split into two smaller fusions |
+| `lean64` | 2 | f64 | u, v from one forward C2C FFT of the Hermitian-mirrored plane (`build_w`) instead of two C2R; 2-slot ring |
+| `mixed` | 2 | f32 nonlinear term, f64 state | `lean64` with the 4 FFTs and the products in float32 |
+| `lean32` | 2 | f32 | `lean64` entirely in float32 inside each 40-step call (state cast at entry and exit) |
+
+## Predictions
+
+- **Round 1:** `SQG/analysis/opt/PREDICTIONS_round1.md`, written by the principal scientist before 7814300.
+- **Round 1b + 2-node smoke:** `SQG/analysis/opt/PREDICTIONS_round1b.md`, written by the main session before
+  7815096. Round 1's numbers informed its phase-1 items.
+
+Neither file was edited after its job.
+
+## Results
+
+### Round 1 (7814300, `debug`, x3003c0s7b1n0, 2026-11-04 23:20–23:36; one A100)
+
+The run ended `OPT_ROUND1_DONE failures=0` and `OPT_RANK_OK`, with `WARN OPT_RANK_NO_PASSING_VARIANT`.
+- **Timing:** ms per solver step is the median of 3 × 60 jitted 40-step calls from the random start state. The ref
+  is 9.290 (seed 1) / 9.291 (seed 2); a ref re-run at the end drifted 0.0%.
+- **Error:** the 1-step error is the max over fields of the relative L2 vs the production step. There are two start
+  states: a synthetic one at CFL 0.3 and the solver's random one.
+- Summaries: `SQG/analysis/results/polaris_opt_round1_7814300/`.
+
+| variant | 1-step error, synthetic / random | fields after 480 steps | ms/step | speedup | gate | failed on |
+|---|---|---|---|---|---|---|
+| `lean` | 0 / 0 | **bitwise** | 8.002 | 1.161× | FAIL | `t` |
+| `lean_u1` | 0 / 0 | **bitwise** | **6.402** | **1.451×** | FAIL | `t` |
+| `lean_split` | 0 / 0 | **bitwise** | 7.066 | 1.315× | FAIL | `t` |
+| `lean64` | 2.90e-14 / 2.41e-22 | 3.9e-14 (synthetic), not bitwise | 7.073 | 1.314× | FAIL | `t` |
+| `mixed` | 2.30e-5 / 1.75e-13 | — | 4.684 | 1.984× | FAIL | `t`; 2.30e-5 > 1e-5 |
+| `lean32` | 2.30e-5 / 6.84e-8 | — | 3.205 | 2.899× | FAIL | `t`; 2.30e-5 > 1e-5 |
+| *original step in float32* (report only) | 2.48e-5 / 6.84e-8 | — | — | — | — | — |
+
+What it says:
+- **Both failure causes were in the gates, not the variants; the verdicts stand as recorded.**
+  - **(1) The `t` check.** Every variant failed the exact-`t` check. `t` is a float32 time counter that the step
+    never reads; `tc` and `_ablevel` were exact.
+  - **(2) The 1e-5 float32 limit.** It sits below float32's own error: the unmodified step run in float32 scores
+    2.48e-5 from the same synthetic state.
+- **Seed 1's dropped terms are exact no-ops.** All three seed-1 variants are bitwise in every field after 480 steps.
+- **`lean_u1` is the fastest float64 variant.** The cos(±0) factor alone takes `lean` from 8.00 to 6.40 ms. That the
+  saving comes from the per-thread layout is not verified (HLO / ncu not checked).
+- **`lean64`'s C2C trick saves less than planned.** Seed 2's micro-table has one complex128 C2C at 1.198 ms and one
+  C2R at 1.014 ms (the C2R time includes its input copy and the 1/N² scaling). Replacing two C2R with one C2C
+  therefore saves ≈0.83 ms, not the ≈1.2 predicted. `lean64` also lands above the 6.3 ms marker that the predictions
+  named for "its AB3 fusion still thrashes".
+
+### Round 1b (7815096 phase 1, `debug`, x3001c0s1b0n0 GPU 0, 2026-11-05 03:39–03:47)
+
+Tokens: `SEED2_BUILDW_TEST_OK`, `SEED2_F32BASE`, `SEED2_GATE_OK` × 3, `SEED2_BENCH` × 3, `SEED2_OPTSTEP`,
+`SEED2_DONE` (wall 480 s), `OPT_RANK_OK`.
+- **`build_w` check.** `build_w` matches the C2R path to 1.07e-15. Wrong-mirror-sign and no-row-flip mutants score
+  0.98 / 0.905, so the test can fail.
+- **Gates.**
+  - `lean64`: ≤ 1e-12.
+  - float32 variants: ≤ min(1e-4, 2 × the original step's float32 error from the same state, same run), which is
+    1.4e-7 (random) / 5.0e-5 (synthetic).
+  - all: `tc` / `_ablevel` exact and |t − t_ref| ≤ 1e-6 relative.
+  - `t` now advances by a run-time `dt`.
+- **The 4,000-step columns are ungated** (synthetic start). The ref's own SPE drift over those steps is −1.37e-2.
+- Summaries: `SQG/analysis/results/polaris_opt_round1b_ms_7815096/`.
+
+| variant | 1-step synthetic (gate) | 1-step random (gate) | `t` exact | coarse rel diff @ 4,000 | ΔSPE @ 4,000 | ms/step | speedup | optimizer step (ref 4.468 s) |
+|---|---|---|---|---|---|---|---|---|
+| `lean64` | 2.90e-14 (1e-12) | 2.41e-22 (1e-12) | yes | **0** | **0** | 7.051 | 1.318× | 3.396 s |
+| `mixed` | 2.30e-5 (5.0e-5) | 1.75e-13 (1.4e-7) | yes | 6.37e-6 | −2.59e-8 | 4.714 | 1.971× | 2.278 s |
+| `lean32` | 2.30e-5 (5.0e-5) | 6.84e-8 (1.4e-7) | yes | 4.36e-4 | −8.36e-5 | **3.189** | **2.913×** | **1.546 s (2.891×)** |
+| *original in float32* | 2.48e-5 | 6.84e-8 | yes | 4.36e-4 | −8.36e-5 | — | — | — |
+
+The per-|k|-band errors are report-only. The worst band is 1024–2048 for all three: `lean64` 2.10e-14,
+`mixed` / `lean32` 1.89e-5.
+
+What it says:
+- **All three pass their pre-set gates.** `t` is now exact for all three (and for the float32 original). That fits
+  XLA folding a compile-time `dt` in round 1. It is not proven, because round 1's HLO was not inspected for it.
+- **`lean64`'s training frames are bitwise equal to production's.** After 4,000 steps its 256² frames match the
+  reference exactly. Its ≤ 1e-13 field differences are below the frames' float32 rounding (`coarse()` casts to
+  float32, as o1.2 stores frames), and its SPE difference is 0.
+- **`lean32` is the original step run in float32, and adds nothing measurable.**
+  - 1-step: 0.93× (synthetic) and 1.00× (random) the original-in-float32 error.
+  - 4,000 steps: its coarse difference (4.357e-4) and SPE difference (−8.359e-5) equal the original-in-float32's
+    (4.355e-4, −8.356e-5) to 3 digits.
+  - So the restructuring is not the issue. Float32 itself is, and that is a science decision.
+- **`mixed` sits close to float64.** It keeps the state in float64. Its 1-step synthetic error is float32-sized
+  (2.30e-5, from the nonlinear term), but its 4,000-step coarse difference is 70× smaller than `lean32`'s (6.37e-6)
+  and its ΔSPE is 3,000× smaller (−2.6e-8).
+- **Timings reproduce round 1** to within 0.7%.
+
+### Phase 2: 8 GPUs on 2 nodes (7815096, x3001c0s1b0n0 + x3001c0s1b1n0, 03:47–04:01)
+
+**Setup.**
+- **Launch:** `mpiexec --ppn 4 --cpu-bind depth -d 8` through `multisim/rank_env.sh`, which gives each rank one GPU
+  (`CUDA_VISIBLE_DEVICES` = local rank). Rendezvous at the first node; the port is unique per job and per arm.
+- **Stream transport:** gloo over `hsn0`.
+- **Results:** 4 of 5 arms pass (`MULTISIM_OK` × 4). The NCCL probe failed (rc 124), so the job ended
+  `OPT_R1B_MS_DONE failures=1`.
+- **`NCCL_CXI_OK providers=8` is literal.** The line was printed and is true as defined (the cxi provider was
+  selected on every rank). It does not mean the all_reduce ran; the probe's failure was counted separately.
+
+| independent arm | ranks | ms/step, min–max over ranks | 1-GPU | scaling efficiency |
+|---|---|---|---|---|
+| `ref` | 8 simulators | 9.287–9.299 | 9.291 | 0.9999 |
+| `lean32` | 8 simulators | 3.195–3.200 | 3.205 | 1.0024 |
+
+**Stream arms.** Rank 0 trains o1.2's ConvNextUViT (40.8 M parameters; batch 16; strict fp32; AdamW; clip 1.0;
+`loss.item()` every step). Its input is a 16,384-pair in-RAM replay buffer. Ranks 1–7 integrate their own
+trajectories in o1.2's pattern (12 × 40 steps + `coarse`). Each sends 12 pairs per 6.3 MB message as soon as it has
+them.
+
+| | `stream ref` | `stream lean32` |
+|---|---|---|
+| simulator ms/step (7 ranks) | 9.321–9.332 | 3.229–3.237 |
+| simulator period per 12 pairs (median) | 4.476 s | 1.552 s |
+| pairs/s into the trainer: printed / from the period × 7 | 19.38 / **18.77** | 54.48 / **54.12** |
+| MB/s into the trainer | 10.2 | 28.6 |
+| gloo send per message, median same node / other node (max) | 0.97 / 1.52 ms (122 ms) | 1.04 / 1.27 ms (13 ms) |
+| trainer s/step (job C, alone: 0.417) | 0.419 | 0.419 |
+| **fresh pairs per trainer step** (o1.2: 12) | **8.14: solver-bound** | **22.59: trainer-bound** |
+| wait for the first batch | 44.8 s | 15.5 s |
+| written to disk | nothing but logs/JSON (0.46 MB for the whole job, HLO text included) | same |
+
+The printed `pairs_per_s` is (messages − 1) / (last − first arrival). With 7 senders × 25 messages it overstates the
+rate by ≈3.6% (ref), and by ≈1% with 88 messages (`lean32`). The second number is 7 × 12 / period.
+
+**NCCL probe** (`multisim_ncclprobe_ref.log`, `NCCL_DEBUG=INFO`, INIT,NET; 64 MB all_reduce):
+- **Stack:** torch 2.3.1's bundled NCCL 2.20.5+cuda12.4 (`cudaDriverVersion 13000`) with aws-ofi-nccl v1.6.0 and
+  libfabric 2.3.1, using the combine_handoffs env block (`NCCL_NET_GDR_LEVEL=PHB`, `NCCL_PROTO=Simple`). No arm ran
+  without `NCCL_PROTO=Simple`.
+- **What loaded:** `Loaded net plugin AWS Libfabric (v6)` and `Selected Provider is cxi (found 2 nics)` on 8/8 ranks.
+- **Intra-node:** all 24 channel lines are `via P2P/CUMEM/read`; 0 use SHM.
+- **GDR:** under PHB, GDR is enabled only for GPUs 46000 / c7000 (distance 6 to their NIC), i.e. local ranks 1 and 3.
+  The ring puts every inter-node hop on those GPUs, and all 16 inter-node lines read `via NET/AWS Libfabric/{0,1}/GDRDMA`.
+- **The failure, on all 4 network ranks:**
+  - `cxil_map: write error`, then
+  - `NET/OFI Unable to register memory (type = 2) for device N. RC: -14, Error: Bad address`, then
+  - a proxy `Connect` failure, then
+  - `DistBackendError: unhandled system error`.
+- **The other 4 ranks** hung to the 360 s timeout.
+- **What never happened:** `Connected all rings` was never printed, and there is no bus-bandwidth number.
+- **Leading hypothesis (from combine_handoffs, 2026-11-05; file facts checked here, mechanism untested): libfabric
+  cannot load the CUDA runtime in sqg-env.**
+  - `/opt/cray/libfabric/2.3.1/lib64/libfabric.so.1.29.1` dlopens the unversioned name `libcudart.so`. Its strings
+    include `libcudart.so` and `Failed to dlopen libcudart.so`.
+  - sqg-env ships only `site-packages/nvidia/cuda_runtime/lib/libcudart.so.12`. None of the job's 8
+    `LD_LIBRARY_PATH` dirs has a `libcudart.so`, nor do `/usr/lib64` and `/lib64`.
+  - makani and ACE2 prepend `/soft/compilers/cudatoolkit/cuda-12.9.1/lib64`, which ships one.
+  - If CUDA HMEM init fails, cxi would pin the GPU address as host memory and get EFAULT, which matches the log.
+    aws-ofi-nccl still reports "GPU Direct RDMA Enabled" because it only checks the provider's FI_HMEM capability.
+  - This log has no `FI_LOG` lines, so the mechanism itself is unconfirmed.
+- **combine_handoffs' working 4-node runs** (7629096, NCCL 2.28.3) show `GDRDMA` with `GDR 1` and no registration
+  errors. **cuMem was on there too** (`P2P/CUMEM/read`), so my first guess (cuMem buffers) is unlikely.
+- **Other differences from their runs, untested:**
+  - NCCL 2.20.5;
+  - one GPU per rank: their ranks see all 4, and their topology reports "distance 8 <= 8" where ours says 6 / 7.
+- **Probe for the next job** (their proposal):
+  - A: the current setup + `FI_LOG_LEVEL=info`, to look for the dlopen failure;
+  - B: a shim dir with `libcudart.so` → sqg-env's own `libcudart.so.12`, prepended for the probe only (the same file
+    torch loads, so there is no second CUDA runtime);
+  - C: `NCCL_NET_GDR_LEVEL=LOC` (host-staged), as a fallback;
+  - only if B fails: `NCCL_CUMEM_ENABLE=0`, then a newer NCCL wheel.
+- **Token bug, to fix before the next probe:** the probe's PASS token must require a completed all_reduce plus a
+  busbw line, not just provider selection.
+- **2-node bandwidth reference:** combine_handoffs' `polaris_nccl_metrics.md` §5 (18.03 GB/s at 64 MB, 8 ranks).
+  Check its GDR mode before comparing.
+
+What it says:
+- **Independent simulators scale perfectly over 2 nodes**, since nothing is shared.
+- **Streaming pairs to a separate trainer costs almost nothing.** The simulators are 0.3–1% slower than alone, and
+  the trainer is at its standalone speed. A send takes ≈1 ms per 1.5–4.5 s message, at 10–29 MB/s. The HSN is
+  idle at this load.
+- **Simulators per trainer.** For o1.2's 12 fresh pairs per step at 0.419 s/step (28.6 pairs/s), one trainer needs:
+  - `ref`: 10.7 simulators (4.476 / 0.419);
+  - `lean64`: 8.1;
+  - `mixed`: 5.4;
+  - `lean32`: 3.7.
+  The `lean64` and `mixed` values come from their round-1b optimizer-step times; those two were not streamed.
+- **Decoupling buys wall-clock with GPUs, not GPU-hours.** One trainer plus S = t_solver / t_train simulators costs
+  (S + 1) · t_train = t_solver + t_train GPU-seconds per step. That is the same as one o1.2 rank doing both.
+  Replicating o1.2 over more GPUs (option a) also leaves the wall-clock per step unchanged (≈4.9 s on an A100). It
+  only grows the global batch, which changes the recipe.
+- **For a fixed recipe the wall-clock levers are a faster solver and decoupling.** The fixed recipe is 195,250 steps,
+  7 ranks × batch 32 and 12 fresh pairs per rank-step. A faster solver is rounds 1/1b; decoupling (option b) heads
+  for the offline 21 h floor. The two compose.
+- **H200 GPUs needed for ≈21 h (projection, not measured).** Assume the A100 ratios hold, with the H200 solver at
+  ≈2.7 s and the trainer at ≈0.39 s per step. Then S ≈ 6.9 (ref), 5.3 (`lean64`), 3.5 (`mixed`) and 2.4 (`lean32`).
+  For 7 trainers that is ≈55 / 44 / 31 / 24 GPUs.
+- **Freshness changes under decoupling.** Each trainer's fresh pairs come from S trajectories instead of its own one.
+  Each pair is the same kind (same STRIDE and LAG), but the mix per step differs. That is a science question for
+  jesswan / Weidong.
+- **Cross-node NCCL is broken in this env; intra-node NCCL works.** A decoupled layout with all trainers on one node
+  (≤ 4 on Polaris) needs no cross-node NCCL, since the simulator → trainer traffic is gloo and works. Cross-node DDP
+  needs the CXI fix first: 7 trainers, or option (a). The fp32 gradients are 163 MB per step. gloo was not measured
+  for those.
+
+## Scorecards
+
+**Round 1 (`PREDICTIONS_round1.md`):**
+- **Gates:** all six were predicted PASS and all six FAILED. Refuted, but the cause was the gates (the `t` check and
+  the f32 limit), not the variants' arithmetic.
+- **1-step errors:**
+  - **Seed 1** "0 to 1e-15": confirmed (0). Bits equal at 480 steps (predicted ≤ 50% likely): yes for all three.
+  - **`lean64`:** predicted 1e-16–3e-15 synthetic, measured 2.90e-14, refuted (10× above). Predicted 1e-18–1e-16
+    random, measured 2.4e-22, refuted (below).
+  - **`mixed`:** predicted 3e-7–2e-6 synthetic, measured 2.30e-5, refuted. Predicted 1e-9–1e-7 random, measured
+    1.75e-13, refuted (below).
+  - **`lean32`:** predicted 3e-7–2e-6 synthetic, measured 2.30e-5, refuted. Predicted 5e-8–1e-7 random, measured
+    6.84e-8, confirmed.
+  - The float32 synthetic ranges sat below float32's own floor on that state, the same mistake as the 1e-5 gate.
+- **Speed:**
+  - `lean`: 7.3 (6.6–7.9) predicted, 8.00 measured, refuted.
+  - `lean_u1`: 6.15 (5.9–6.6) predicted, 6.40 measured, confirmed.
+  - `lean_split`: 6.7 (6.3–7.1) predicted, 7.07 measured, confirmed.
+  - `lean64`: 5.8 (5.3–6.8) predicted, 7.07 measured, refuted.
+  - `mixed`: 3.3 (2.8–3.9) predicted, 4.68 measured, refuted.
+  - `lean32`: 2.5 (2.3–2.9) predicted, 3.20 measured, refuted.
+  - Every miss is on the slow side.
+- **Optimizer step** (measured in round 1b): `lean64` 2.8 → 3.40 s, `mixed` 1.6 → 2.28, `lean32` 1.2 → 1.55.
+- **Winner:**
+  - Overall fastest, `lean32`: confirmed on speed. It passes only in round 1b.
+  - Float64, "`lean64` over `lean_u1` 55/45": refuted; `lean_u1` wins by 0.67 ms, as the stated 6.3 ms marker
+    implied.
+  - Full order `lean64` < `lean_u1` < `lean_split` < `lean`: refuted (`lean_u1` < `lean_split` ≈ `lean64` < `lean`).
+  - "≈85% both beat `lean`": confirmed.
+- **Information-only:**
+  - 4,000-step coarse: float64 0, confirmed; `mixed` 6.37e-6 in 1e-6–1e-4, confirmed; `lean32` 4.36e-4 in
+    1e-5–1e-3, confirmed.
+  - Energy: float64 0, confirmed; `mixed` 2.6e-8 in 1e-9–1e-6, confirmed; `lean32` 8.4e-5 vs 1e-7–1e-5, refuted. Plain
+    float32 gives the same 8.4e-5.
+  - FFT micro-table: C2C c128 0.8–0.9 predicted, 1.198 measured, refuted (this is `lean64`'s miss). C2R c128
+    1.014, R2C f64 0.619 and the c64 ≈ halves: confirmed.
+  - Seed refs agree to 0.015% (≤ 0.5%), confirmed.
+  - Peak memory 3.79 / 8.39 GiB vs ≈5 / ≈7: half.
+  - Wall: seed 1 7.1 min (≈10 predicted), seed 2 7.1 (7–8); job 15.7 min (≈20). Confirmed.
+  - No first-execution exception (≈25% per seed predicted).
+
+**Round 1b + smoke (`PREDICTIONS_round1b.md`):**
+- **1, confirmed:** `lean64` 2.90e-14 / 2.41e-22; `t` exact.
+- **2, confirmed:** `mixed` 2.30e-5 vs 4.96e-5, ratio 0.93; random 1.75e-13.
+- **3, confirmed:** `lean32` ratio 0.93 / 1.00.
+- **4, confirmed:** 7.051 / 4.714 / 3.189 ms, i.e. −0.3 / +0.6 / −0.5% vs round 1's measured 7.073 / 4.684 / 3.205.
+- **5, half:** cxi was selected on both nodes, but the predicted 10–20 GB/s bus bandwidth is refuted. The all_reduce
+  never ran.
+- **6, confirmed:** every rank within 0.3% of 1 GPU; efficiency 0.9999 / 1.0024.
+- **7, confirmed with two edge misses:** simulators 9.32–9.33 ms, 8.14 fresh pairs/step and solver-bound are all
+  confirmed. The trainer's 0.419 s is 0.2% under the predicted 0.42–0.45, and the printed 19.38 pairs/s is 2% above
+  18–19 (the period-based 18.77 is inside).
+- **8, confirmed:** 54.5 pairs/s, 22.6 fresh, trainer-bound, 28.6 MB/s; median sends 1.04 / 1.27 ms (< 5 / < 10).
+- **9, confirmed:** the job's outputs are 0.46 MB of logs/JSON/HLO text.
+
+## Next (the user's decisions; handoff §4–5)
+
+- **Seed-1 rerun.** `lean_u1` (bitwise fields, 1.45×) under round 1b's `t` rule.
+- **Which precision goes into o1.2.**
+  - float64: `lean64`, whose frames are bitwise, or `lean_u1`.
+  - float32 / mixed: needs statistical validation and jesswan / Weidong's sign-off.
+  - Round 2 is the union of the float64 tricks (C2C packing + ring + one element per thread), and later cuFFT callbacks.
+- **The NCCL-over-CXI fix probe:** `FI_LOG` / `libcudart.so` shim / `GDR_LEVEL=LOC`, above. It comes before any
+  cross-node DDP.
+- **Replicate vs decouple.** The trade-off above is wall-clock vs GPUs at equal GPU-hours.
