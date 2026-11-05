@@ -114,6 +114,20 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-05** — **SQG Nsight job 7819082 DONE (`NSIGHT_DONE failures=0`), notes Part X.** Results in
+  `SQG/analysis/results/polaris_nsight_lean_7819082/`. Predictions: 14 confirmed, 6 half, 1 refuted.
+  - **`lean32` 3.198 ms/step, by op:** AB3 fusion 926 µs (28.8%), 2 RFFT 615, C2C 540, IRFFT 503, products 253,
+    `build_w` 235, copies 99. GPU busy 99.4%. Ideal 2.82 GB/step ≈ 2.09 ms at 1.35 TB/s.
+  - **The AB3 fusion over-fetches 2.2–2.9×** (4 elements per thread; ncu: 75% excessive sectors). **Seed 1's cos
+    trigger fixes it:** the fusion reads exactly its 369 MB, at 89% of peak.
+  - **Bitwise rewrites of `lean32`:** trigger **2.641 ms (1.211×)**; 3-slot ring 3.104 (0 copies); both
+    **2.524 ms = 3.68× production**.
+  - **cuFFT column passes run at 41–52% of DRAM peak** (uncoalesced global on the half-plane, shared bank
+    conflicts on the full plane). Only a custom FFT reaches them (≈ 0.43 ms).
+  - **cuFFT 11.4.1 via `LD_PRELOAD`:** confirmed mapped, no change (< 1%). **Not a lever.**
+  - **Float64 `lean_u1` 6.40 ms:** 3 IRFFTs = 47%. Next is `lean64`'s C2C packing (≈ −0.9 ms) + the trigger on its
+    last 4-element fusion (≈ −0.15) → ≈ 5.3–5.5 ms.
+  - Ranked list: notes Part X. `lean32_u1_ring3`'s precision question is still Part XI (job 7819310).
 - **2026-11-05** — **SQG float32 vs o1.2's training delta: two mechanisms found; delta-fidelity job built**
   (`SQG/analysis/opt/delta/`). The user: "we need to be sure that fp32 is not impacting δ as it is very small".
   Round 1b compared frames, not deltas.
