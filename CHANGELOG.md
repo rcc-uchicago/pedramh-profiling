@@ -114,6 +114,29 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-05** — **SQG float32 vs o1.2's training delta: two mechanisms found; delta-fidelity job built**
+  (`SQG/analysis/opt/delta/`). The user: "we need to be sure that fp32 is not impacting δ as it is very small".
+  Round 1b compared frames, not deltas.
+  - **Damping quantization.** `decay` stored in float32 quantizes each mode's damping rate, because rate·DT ≈
+    1e-7..5e-6 and float32 spacing below 1 is 6e-8. Rate error: up to ±20% at k = 4–16 (rms 11–13%), ±5% in
+    the forcing ring, 0.1% at k = 1. It is deterministic per mode, applies every step, and is present in plain
+    float32 too.
+  - **Sub-ulp rounding.** A float32 state rounds sub-ulp per-step changes systematically wherever the increments
+    vary slowly, i.e. the large scales, where Δ is smallest (k = 1–2: Δ ≈ 4% of θ).
+    `test_f32_update.py` (emulated float32, one forced k = 8.4 mode, 100k steps): the 4,000-step delta is
+    **31% off** for `lean32`'s update and **also for expm1 damping alone**. The compensated (TwoSum hi + lo)
+    update gives 8.8e-8. So any float32 *state* has this; the fixes are a float64 state (`mixed`) or a
+    compensated float32 state (`lean32ek`, +1 complex64 array).
+  - **The GPU test** (`delta_fidelity.py`, `run_delta_polaris.pbs`):
+    - spin-up of a synthetic −5/3 field (no archived checkpoint on Polaris);
+    - per-band increments;
+    - 8 × 4,000-step pairs on o1.2's coarse frames for `mixed` / `lean32` / `lean32e` / `lean32ek` vs float64,
+      with a float64-from-rounded-state floor.
+
+    Pre-set gate: e_Δ ≤ max(2 × floor, 1e-6), overall and in each band holding ≥ 1% of Δ energy.
+    Predictions: `PREDICTIONS_delta.md` (written first). It is auto-submitted when 7819082 starts (debug allows
+    one waiting job per user).
+  - **Until it reports: do not ship `lean32` to o1.2.** `lean_u1` (float64, bitwise) is unaffected.
 - **2026-11-05** — **SQG Nsight job on `lean32` submitted: 1-node debug job 7819082**
   (`SQG/analysis/opt/nsight/run_nsight_lean_polaris.pbs`, walltime 0:55). The user asked for an Nsight analysis of
   `lean32` and where the solver can still improve. End token `NSIGHT_DONE failures=N`; results →
