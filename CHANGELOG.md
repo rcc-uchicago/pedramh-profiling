@@ -114,6 +114,25 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-05** — **SQG round 1b + 2-node independent-simulation smoke submitted: debug job 7815096** (2 nodes,
+  8 A100s). Phase 1 reruns `lean64` / `mixed` / `lean32` under gates written before the rerun (user request):
+  float32 variants ≤ min(1e-4, 2 × the ORIGINAL step's float32 error from the same state, same run); `lean64` ≤
+  1e-12; `tc`/`_ablevel` exact, `t` within 1e-6 relative (exact `t` reported as information); `t` now advances
+  by a run-time `dt`. Phase 2 (`SQG/analysis/opt/multisim/`) runs an NCCL-over-CXI probe (aws-ofi-nccl v1.6.0
+  with torch 2.3.1's bundled NCCL, never tried before; recipe from combine_handoffs), 8 independent trajectories (ref
+  and lean32), and an o1.2-style stream: 7 simulators send pairs over gloo/hsn0 to 1 trainer GPU running o1.2's
+  UViT from an in-RAM FIFO, with nothing written to disk, as online training does. Predictions:
+  `SQG/analysis/opt/PREDICTIONS_round1b.md`. Results → `SQG/analysis/results/polaris_opt_round1b_ms_7815096/`.
+  **Do not edit `SQG/analysis/opt/` while it is queued** (the job reads it at start).
+- **2026-11-05** — **SQG round 1 (7814300) DONE: every variant FAILED its pre-set gate; verdicts stand.** Measured
+  ms/step vs ref 9.29: `lean` 8.00, `lean_u1` 6.40 (1.45×, bitwise fields), `lean_split` 7.07, `lean64` 7.07 (≤
+  2.9e-14), `mixed` 4.68 (1.98×), `lean32` 3.20 (2.90×). Two causes. (1) All of them fail on the float32 time
+  counter `t` (`tc`/`_ablevel` were fine), which the step never reads; the likely cause is XLA folding the
+  unrolled `(t + dt) + dt`. (2) `mixed` and `lean32` (2.30e-5) also fail the 1e-5 float32 limit, which was below
+  plain float32's own error: the original step run in float32 scores 2.48e-5 from the same state. So the limit
+  measured float32, not the variants. Projected o1.2 online wall-clock on the H200 (7 days today, solver ≈ 87%):
+  `lean_u1` ≈ 5.1 d, `mixed` ≈ 4.0 d, `lean32` ≈ 3.0 d; the offline floor is 21 h if the solver is hidden on
+  extra simulation GPUs. Results: `SQG/analysis/results/polaris_opt_round1_7814300/`.
 - **2026-11-04** — **SQG solver-optimization round 1 submitted: debug job 7814300.** Built by two Opus seeds and
   reviewed by a Fable principal scientist (user's design; user policy: bitwise not required, a tolerance fixed
   before the run decides). Six variants: seed 1 float64 JAX `lean` / `lean_u1` / `lean_split` (drop exact ×1/+0
