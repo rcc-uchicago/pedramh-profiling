@@ -1028,7 +1028,11 @@ What it says:
 
 `B_shim` and `D_cuda129` each log 24 libfabric warnings: `cuda_set_sync_memops(): Failed to perform
 cuPointerSetAttribute: CUDA_ERROR_NOT_SUPPORTED`. The all_reduce values were right in both. We infer, but did not
-check, that libfabric asks for SYNC_MEMOPS on NCCL's cuMem (VMM) buffers, which do not support that attribute. Phase 3
+check, that libfabric asks for SYNC_MEMOPS on NCCL's cuMem (VMM) buffers, which do not support that attribute.
+combine_handoffs (2026-11-05) has never seen these warnings, but their only FI_LOG run never registered CUDA memory, so
+their data cannot rule on them. Their cheap test is one more probe arm: `B_shim` + `NCCL_CUMEM_ENABLE=0`. If the 24
+warnings disappear, the cuMem attribution is confirmed. Until then, "benign" is an inference. Do not silence the
+warnings with libfabric's `disable_cuda_sync_memops` in an equivalence-gated run without that A/B. Phase 3
 ran on `B_shim`, the first in the preference order B, D, A, C. Its NET lines were `/GDRDMA` in every arm (24 / 8 / 24),
 with 0 registration errors.
 
@@ -1116,3 +1120,5 @@ What it says:
 - **Multi-node:** DDP over CXI now works (`B_shim`). The design choice is wall-clock per step (decouple) vs global
   batch (replicate) at equal GPU-hours. Sizing a decoupled run means ≥ 3.7 `lean32` (or ≥ 10.7 `ref`) simulators per
   trainer on A100s.
+- **Cheap open check (combine_handoffs):** a probe arm `B_shim` + `NCCL_CUMEM_ENABLE=0`, to attribute the
+  `cuPointerSetAttribute … NOT_SUPPORTED` warnings. It needs a 2-node job, so fold it into the next one.

@@ -139,6 +139,9 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     paced s/step not measured as stated), 0 refuted.
   - **Next (the user's):** ship `lean_u1` (bitwise) to o1.2 while `lean32` waits for validation? Round 2 = the u1
     trigger + C2C packing. Size a decoupled run at ≥ 3.7 `lean32` simulators per trainer.
+  - **Open, cheap (combine_handoffs):** were the 24 `cuPointerSetAttribute … NOT_SUPPORTED` warnings in B/D from
+    NCCL's cuMem buffers? Test with an arm `B_shim` + `NCCL_CUMEM_ENABLE=0` in the next 2-node job; the warnings
+    should disappear if so. Don't silence them with `disable_cuda_sync_memops` in gated runs before that A/B.
 - **2026-11-05** — **SQG round 1c submitted: 2-node debug job 7815637** (`SQG/analysis/opt/run_round1c_polaris.pbs`,
   walltime 0:59).
   - **User decisions (11-05):** rerun seed 1; carry `lean32` toward o1.2 (precision in production still needs
