@@ -1122,3 +1122,182 @@ What it says:
   trainer on A100s.
 - **Cheap open check (combine_handoffs):** a probe arm `B_shim` + `NCCL_CUMEM_ENABLE=0`, to attribute the
   `cuPointerSetAttribute … NOT_SUPPORTED` warnings. It needs a 2-node job, so fold it into the next one.
+
+---
+
+# Part X — Nsight analysis of `lean32`, and where the solver can still improve (job 7819082, 2026-11-05)
+
+**Ask (user, 2026-11-05):** an Nsight analysis of `lean32`, and where else the solver can improve.
+
+**Run and harness.**
+- **Job:** `SQG/analysis/opt/nsight/run_nsight_lean_polaris.pbs`, 1-node debug, x3001c0s19b0n0, 23:21–23:42 (1,261 s).
+  It ended `NSIGHT_DONE failures=0`.
+- **Predictions:** `SQG/analysis/opt/nsight/PREDICTIONS_nsight.md`, written before submission.
+- **Summaries:** `SQG/analysis/results/polaris_nsight_lean_7819082/`. The tables below regenerate with
+  `python3 SQG/analysis/opt/nsight/analyze_nsight.py SQG/analysis/results/polaris_nsight_lean_7819082`.
+- **New tools.**
+  - `summarize_nsys_ops.py`: GPU time per XLA op per step. Each kernel and memcpy follows its CUDA call to the XLA
+    thunk NVTX range (`hlo_op=`) open on its thread. Validated on job E's real capture: AB3 fusion 649.8 µs/step
+    (job E: 650).
+  - `summarize_ncu_window.py`: every kernel of one loop period, from an unfiltered ncu window.
+  - `lean32_probes.py`: exact rewrites of `lean32`.
+
+## Probes: exact rewrites of `lean32` (phase 1, one A100)
+
+Each probe passed its check vs seed 2's `lean32` (rel ≤ 1e-6 at 40 steps). **All are bitwise at 40 and 480 steps,
+`t` exact.**
+
+| variant | ms/step | vs `lean32` | vs production | full-size copies (HLO) |
+|---|---|---|---|---|
+| `ref` (production) | 9.288 | 0.344× | 1.000× | 5 |
+| `lean_u1` (float64) | 6.409 | — | 1.449× | 3 |
+| `lean32` | 3.198 | 1.000× | 2.904× | 2 |
+| `lean32_u1` (+ cos(x·0) trigger) | **2.641** | **1.211×** | 3.517× | 2 |
+| `lean32_ring3` (3-slot ring) | 3.104 | 1.030× | 2.992× | **0** |
+| `lean32_u1_ring3` | **2.524** | **1.267×** | **3.681×** | 0 |
+
+What it says:
+- **Seed 1's trigger is worth 0.557 ms/step on `lean32` (−17%), bitwise.** That is far more than predicted. The
+  ring saves 0.093 ms, and the two add up (0.674 vs 0.650 ms).
+- **`lean32_u1_ring3` is the fastest exact form of `lean32`: 2.524 ms, 3.68× production.** It changes nothing
+  `lean32` computes. The open question is `lean32`'s float32 numerics (Part XI), not this rewrite.
+
+## Where `lean32`'s 3.21 ms go (nsys per XLA op, 2 ranges × 480 steps)
+
+GPU busy 3,212 of 3,231 µs per step (99.4%).
+
+| op | µs/step | share | ideal MB/step | achieved GB/s | at 1.35 TB/s | headroom |
+|---|---|---|---|---|---|---|
+| AB3 fusion (2 per body) | 926 | 28.8% | 504 | 544 | 373 | **553** |
+| 2 × RFFT (uθ, vθ) | 615 | 19.1% | 537 | 874 | 398 | **217** |
+| C2C (u − i v) | 540 | 16.8% | 537 | 994 | 398 | **143** |
+| IRFFT (θ): copy + 2 passes + `scal` | 503 | 15.7% | 537 | 1,067 | 398 | 105 |
+| products | 253 | 7.9% | 336 | 1,325 | 249 | 5 |
+| `build_w` | 235 | 7.3% | 235 | 998 | 174 | 61 |
+| tendency copies | 99 | 3.1% | 134 | 1,357 | 100 | 0 |
+| entry/exit casts (`loop_convert_fusion`, `call`) | 34 | 1.0% | — | — | — | — |
+
+- **Totals:** ideal 2,819 MB/step, i.e. 2.09 ms at 1.35 TB/s; summed headroom ≈ 1.08 ms.
+- **How "ideal" is counted:** every operand read once and every output written once, from the HLO shapes. An FFT
+  pass reads and writes its whole array. The 1.35 TB/s reference is what the products, `scal` and the cuFFT row
+  passes reach.
+
+## Kernel by kernel (ncu `--set full`, every kernel of a 120-launch window, production clocks)
+
+The loop period was 30 launches = 2 steps. ncu's per-step kernel time is 2,852 µs: −11% vs nsys, because the memcpys
+are not kernels and kernels run serialized with flushed caches.
+
+| kernel | µs | DRAM read / write MB | % of DRAM peak | top stall | ncu's own rule |
+|---|---|---|---|---|---|
+| AB3 `loop_add_multiply_fusion` (16,392 × 128: 4 elements per thread) | 1,042 | **1,068 / 302** | 84.6 | long_scoreboard | 75% excessive sectors (uncoalesced) |
+| AB3 `loop_add_multiply_fusion_1` | 795 | **808 / 221** | 83.3 | long_scoreboard | 75% excessive sectors |
+| C2C column pass `regular_fft_factor` (1,024 × 1,024) | 317–320 | 134 / 121 | **51.2–51.6** | lg_throttle | 43% excessive shared wavefronts |
+| C2C row pass `vector_fft` | 187–189 | 134 / 117 | 85.5–86.5 | long_scoreboard | — |
+| half-plane column pass `regular_fft_factor` (513 × 1,024), × 3 per step | 186–190 | 67 / 52 | **40.4–41.2** | lg_throttle | 42% excessive global sectors; 4.2-wave tail |
+| `vector_fft_symm_c2r` / `_r2c` | 96 / 98 | 67 / 50–58 | 78.1–81.9 | — | — |
+| `scal` (1/N²) | 93 | 67 / 50 | 80.8 | — | — |
+| products `loop_multiply_fusion_1` | 239–240 | 201 / 121 | 86.3–86.6 | — | — |
+| `build_w` `input_concatenate_fusion_1` | 229–230 | **191** / 124 | 87.8–88.2 | — | 8% excessive sectors |
+
+Unique data per AB3 launch: 369 MB read (5 complex64 fields + `decay`), 134 MB written.
+
+**`lean32_u1`'s AB3 fusion uses 65,568 × 128 threads, one element each.** It reads **369.3 MB, exactly the unique
+data**, and writes 126 MB, in 359–360 µs at 88.8% of peak. That is 2.2–2.9× less time than `lean32`'s.
+
+What it says:
+- **The AB3 fusion was the largest single cost, and its cause was over-fetch, as in float64 (job F).** XLA's
+  4-elements-per-thread loop emitter makes a warp stride over complex64 elements, so each sector is fetched 2–3×.
+  Job E's "float32 fixes it" was only partly true: float32 fits the L2 better, but the pattern remains. One element
+  per thread removes it completely.
+- **The cuFFT column passes are the next cost: 41–52% of DRAM peak.**
+  - ncu blames uncoalesced global accesses on the 2,049-wide half-plane (42% excessive sectors), and shared-memory
+    bank conflicts on the 4,096-wide full plane (43% excessive wavefronts).
+  - So the 2,049-column misalignment is not the whole story (prediction 9's mechanism): the aligned full-plane
+    column pass is slow too.
+  - These kernels are inside cuFFT. Only a different transform layout or a custom FFT changes them.
+- **cuFFT 11.4.1 (CUDA 12.9.1, phase 3) changes nothing.**
+  - It really was loaded: the mapped file is `.../cuda-12.9.1/.../libcufft.so.11.4.1.4`.
+  - The FFT micro-table moved < 1%, and `lean32` ran 3.200 vs 3.198 ms.
+  - Production float64 frames were bitwise identical at 40/480 steps; `lean32`'s frames differed by 1.7e-10 / 6.7e-9.
+  - A cuFFT upgrade is not a lever.
+- **The rest is near bandwidth:** the products (87%), the row passes and `scal` (78–82%), and `build_w` (88%, but
+  it reads 1.9× its unique data through the mirrored θ̂ reads).
+
+## Float64 `lean_u1` (6.40 ms; bitwise production)
+
+nsys: GPU busy 99.5%.
+
+| part | ms/step | share |
+|---|---|---|
+| 3 IRFFTs (copy + 2 passes + `scal`, ≈ 1.0 ms each) | **3.01** | **47%** |
+| 2 RFFTs | 1.22 | 19% |
+| XLA fusions | the rest | |
+
+The trigger worked on its AB3 fusion (`loop_multiply_fusion_1`): 65,568 × 128 threads, 671 MB read, the unique
+data, at 89.8% of peak.
+
+**One fusion still uses 4 elements per thread:** `loop_multiply_fusion_3`, once per step, 571–586 µs at 66% of peak,
+lg_throttle, 279 MB read / 310 MB written.
+
+Note: `ncu_window_lean_u1_xla.json`'s period of 5 XLA kernels is **one** step, because the 3-step body reuses one
+kernel per fusion. Its `per_step` numbers are therefore 3× too small; the per-period numbers are right.
+
+## Scorecard (`PREDICTIONS_nsight.md`)
+
+| # | verdict | detail |
+|---|---|---|
+| 1 | confirmed | `lean32_r2` bitwise |
+| 2 | half | check + bitwise confirmed. Speed 2–8% refuted: **17.4%** (1.211×) |
+| 3 | confirmed | 0 copies; −93 µs (80–130) |
+| 4 | confirmed | additive: 674 vs 650 µs (±50) |
+| 5 | confirmed | timings reproduce: 9.288 / 6.409 / 3.198 ms |
+| 6 | confirmed | GPU busy 99.4% (≥ 97) |
+| 7 | half | 6 of 8 ranges hold. AB3 926 µs vs 380–600 refuted; "everything else" 36 µs vs < 15 (the c128↔c64 casts at each call's entry/exit) |
+| 8 | confirmed | FFT family 51.6% (50–58) |
+| 9 | half | half-plane column passes at 40–41% of peak (≤ 55) and 42% excessive global sectors (sector-efficiency metric not in this ncu's raw export). The mechanism is not only misalignment: the aligned full-plane pass is slow too (52%, shared-memory bank conflicts) |
+| 10 | refuted | C2C column pass at 51–52% of peak, not ≥ 70 |
+| 11 | half | row passes (78–82), `scal` (81), products (86–87) are ≥ 80, but `vector_fft_symm_c2r` is 78.1–78.6 |
+| 12 | confirmed | AB3: 4 elements per thread, reads 2.2–2.9× unique, 83–85% of peak |
+| 13 | confirmed | `build_w` reads 1.89× (1.3–2.2) |
+| 14 | confirmed | period found (30); ncu −11% vs nsys (≤ 15) |
+| 15 | confirmed | `lean32_u1` AB3: 1 element per thread, read = 1.00× unique |
+| 16 | confirmed | `lean_u1` AB3: 1 element per thread, 671 MB = unique |
+| 17 | confirmed | cuFFT 11.4.1 mapped |
+| 18 | confirmed | micro-table ≤ 1%; `lean32` +0.06% |
+| 19 | half | both differences ≤ their bounds, but `ref` came out bitwise (predicted not bitwise, 70%) |
+| 20 | half | headroom 1.08 ms (≥ 0.8 confirmed), but the half-plane column passes hold ≈ 0.30 ms (< 0.4); the AB3 over-fetch (0.55 ms) is the largest |
+| 21 | confirmed | AB3 over-fetch; the IRFFT copy + `scal` = 0.205 ms |
+
+**Totals: 14 confirmed, 6 half, 1 refuted.**
+
+## Where the solver can still improve (ranked by measured or bounded gain)
+
+**Float32 path.** Precision caveat: see Part XI.
+
+| # | change | gain | exact? | status |
+|---|---|---|---|---|
+| 1 | cos(x·0) trigger on the AB3 fusion | **−0.557 ms** | bitwise | measured; ready |
+| 2 | 3-slot ring | −0.093 ms | bitwise | measured; ready |
+| | → `lean32_u1_ring3` | **2.524 ms (3.68×)** | bitwise to `lean32` | |
+| 3 | keep the complex64 state across calls (no c128↔c64 cast at each call's entry/exit) | ≈ −0.034 ms | bitwise to the continuous run | estimate from nsys |
+| 4 | one forward C2C of (u − i v)·θ instead of 2 RFFTs (Hermitian separation folded into the AB3 fusion) | ≈ −0.075 ms (micro: 0.526 vs 2 × 0.311) | rounding only | estimate |
+| 5 | cuFFT column passes (41–52% of peak): the remaining cuFFT headroom ≈ 0.43 ms | up to ≈ −0.43 ms | rounding only | needs a custom FFT (cuFFTDx / VkFFT / LTO callbacks); not reachable through `jnp.fft` |
+| 6 | IRFFT input copy + `scal` (0.205 ms): fold 1/N² into the products, skip the copy | ≈ −0.1 to −0.2 ms | exact (power-of-2 scale) | needs a custom FFT call (XLA's thunk always copies and scales) |
+| 7 | `build_w`'s mirrored re-read (1.9×) | ≈ −0.06 ms | exact | layout work |
+
+- **Reachable in XLA:** items 1–4 give ≈ 2.4 ms.
+- **With a custom fused FFT pipeline:** ≈ 1.8–2.0 ms. That is near Part VII's 1.5–1.8 ms FFT-roofline estimate.
+
+**Float64 path** (bitwise or rounding-only; no precision question):
+
+| # | change | gain | exact? |
+|---|---|---|---|
+| 1 | `lean64`'s C2C packing (two IRFFTs → one C2C) on top of `lean_u1` | ≈ −0.8 to −0.9 ms (measured `lean` → `lean64`: −0.93) | rounding only, ≤ 1e-13; `lean64`'s frames were bitwise |
+| 2 | trigger on the remaining 4-element fusion (`loop_multiply_fusion_3`) | up to ≈ −0.15 ms | bitwise |
+
+- **Expected round-2 float64 step:** ≈ 5.3–5.5 ms, ≈ 1.7× production.
+
+**Not levers:**
+- cuFFT 11.4.1;
+- XLA unroll flags (none exist in this jaxlib; job F);
+- host-side scheduling: the GPU is 99.4–99.5% busy in both variants.
