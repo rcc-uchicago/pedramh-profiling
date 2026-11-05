@@ -1,0 +1,220 @@
+{
+ "mode": "decouple",
+ "solver": "lean32",
+ "world_size": 8,
+ "hosts": [
+  "x3206c0s25b1n0",
+  "x3206c0s31b0n0"
+ ],
+ "ref_ms_1gpu": 3.2048,
+ "ranks": [
+  {
+   "rank": 0,
+   "host": "x3206c0s25b1n0",
+   "local_rank": 0,
+   "cuda_visible_devices": "0",
+   "role": "simulator",
+   "trainers": [
+    1,
+    5
+   ],
+   "sends_to": 1,
+   "ms_per_step": 3.231,
+   "steps": 34080,
+   "chunks_sent": 62,
+   "pairs_sent": 744,
+   "first_send_s": 15.52,
+   "send_ms_median": 1.739,
+   "send_ms_max": 1.956,
+   "chunk_s_median": 1.5509
+  },
+  {
+   "rank": 1,
+   "host": "x3206c0s25b1n0",
+   "local_rank": 1,
+   "cuda_visible_devices": "1",
+   "role": "trainer",
+   "trainers": [
+    1,
+    5
+   ],
+   "ddp_init_s": 0.18,
+   "fill_wait_s": 15.58,
+   "senders": 3,
+   "free_steps": 40,
+   "s_per_step_free_median": 0.4235,
+   "matched_steps": 60,
+   "s_per_step_matched_median": 0.424,
+   "wait_s_matched_median": 0.0,
+   "fresh_pairs_per_step_matched_mean": 12,
+   "starved_steps": 0,
+   "pairs_received": 2232,
+   "chunks_received": 186,
+   "receive_window_s": 94.93,
+   "pairs_per_s": 23.386,
+   "MB_per_s": 12.328,
+   "chunks_per_src": {
+    "0": 62,
+    "2": 62,
+    "3": 62
+   }
+  },
+  {
+   "rank": 2,
+   "host": "x3206c0s25b1n0",
+   "local_rank": 2,
+   "cuda_visible_devices": "2",
+   "role": "simulator",
+   "trainers": [
+    1,
+    5
+   ],
+   "sends_to": 1,
+   "ms_per_step": 3.2331,
+   "steps": 34080,
+   "chunks_sent": 62,
+   "pairs_sent": 744,
+   "first_send_s": 15.54,
+   "send_ms_median": 1.807,
+   "send_ms_max": 2.03,
+   "chunk_s_median": 1.5517
+  },
+  {
+   "rank": 3,
+   "host": "x3206c0s25b1n0",
+   "local_rank": 3,
+   "cuda_visible_devices": "3",
+   "role": "simulator",
+   "trainers": [
+    1,
+    5
+   ],
+   "sends_to": 1,
+   "ms_per_step": 3.2363,
+   "steps": 34080,
+   "chunks_sent": 62,
+   "pairs_sent": 744,
+   "first_send_s": 15.55,
+   "send_ms_median": 1.238,
+   "send_ms_max": 1.564,
+   "chunk_s_median": 1.5533
+  },
+  {
+   "rank": 4,
+   "host": "x3206c0s31b0n0",
+   "local_rank": 0,
+   "cuda_visible_devices": "0",
+   "role": "simulator",
+   "trainers": [
+    1,
+    5
+   ],
+   "sends_to": 5,
+   "ms_per_step": 3.233,
+   "steps": 34080,
+   "chunks_sent": 62,
+   "pairs_sent": 744,
+   "first_send_s": 15.53,
+   "send_ms_median": 1.289,
+   "send_ms_max": 6.172,
+   "chunk_s_median": 1.5519
+  },
+  {
+   "rank": 5,
+   "host": "x3206c0s31b0n0",
+   "local_rank": 1,
+   "cuda_visible_devices": "1",
+   "role": "trainer",
+   "trainers": [
+    1,
+    5
+   ],
+   "ddp_init_s": 0.21,
+   "fill_wait_s": 15.58,
+   "senders": 3,
+   "free_steps": 40,
+   "s_per_step_free_median": 0.4235,
+   "matched_steps": 60,
+   "s_per_step_matched_median": 0.4239,
+   "wait_s_matched_median": 0.0,
+   "fresh_pairs_per_step_matched_mean": 12,
+   "starved_steps": 0,
+   "pairs_received": 2232,
+   "chunks_received": 186,
+   "receive_window_s": 94.86,
+   "pairs_per_s": 23.403,
+   "MB_per_s": 12.336,
+   "chunks_per_src": {
+    "4": 62,
+    "6": 62,
+    "7": 62
+   }
+  },
+  {
+   "rank": 6,
+   "host": "x3206c0s31b0n0",
+   "local_rank": 2,
+   "cuda_visible_devices": "2",
+   "role": "simulator",
+   "trainers": [
+    1,
+    5
+   ],
+   "sends_to": 5,
+   "ms_per_step": 3.2325,
+   "steps": 34080,
+   "chunks_sent": 62,
+   "pairs_sent": 744,
+   "first_send_s": 15.53,
+   "send_ms_median": 2.404,
+   "send_ms_max": 4.277,
+   "chunk_s_median": 1.5514
+  },
+  {
+   "rank": 7,
+   "host": "x3206c0s31b0n0",
+   "local_rank": 3,
+   "cuda_visible_devices": "3",
+   "role": "simulator",
+   "trainers": [
+    1,
+    5
+   ],
+   "sends_to": 5,
+   "ms_per_step": 3.2338,
+   "steps": 34080,
+   "chunks_sent": 62,
+   "pairs_sent": 744,
+   "first_send_s": 15.52,
+   "send_ms_median": 1.275,
+   "send_ms_max": 3.952,
+   "chunk_s_median": 1.5523
+  }
+ ],
+ "errors": [],
+ "aggregate_steps_per_s": 1855.7,
+ "scaling_efficiency_vs_1gpu": 0.9912,
+ "ms_per_step_by_host": {
+  "x3206c0s25b1n0": 3.2335,
+  "x3206c0s31b0n0": 3.2331
+ },
+ "ms_per_step_min_max": [
+  3.231,
+  3.2363
+ ],
+ "simulated_time_units_per_hour": 33.403,
+ "pairs_per_s_from_period": 46.346,
+ "trainers": [
+  1,
+  5
+ ],
+ "n_trainers": 2,
+ "n_simulators": 6,
+ "global_batch": 32,
+ "s_per_step_free": 0.4235,
+ "s_per_step_matched": 0.424,
+ "fresh_pairs_per_step_matched": 12,
+ "starved_steps": 0,
+ "rank_steps_per_s_matched": 4.717,
+ "rank_steps_per_s_per_gpu_matched": 0.5896
+}

@@ -1,0 +1,743 @@
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: [rank1]:[W CUDAAllocatorConfig.h:28] Warning: expandable_segments not supported on this platform (function operator())
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: [rank4]:[W CUDAAllocatorConfig.h:28] Warning: expandable_segments not supported on this platform (function operator())
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: [rank2]:[W CUDAAllocatorConfig.h:28] Warning: expandable_segments not supported on this platform (function operator())
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: [rank7]:[W CUDAAllocatorConfig.h:28] Warning: expandable_segments not supported on this platform (function operator())
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: [rank0]:[W CUDAAllocatorConfig.h:28] Warning: expandable_segments not supported on this platform (function operator())
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: [rank5]:[W CUDAAllocatorConfig.h:28] Warning: expandable_segments not supported on this platform (function operator())
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: [rank6]:[W CUDAAllocatorConfig.h:28] Warning: expandable_segments not supported on this platform (function operator())
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: [rank3]:[W CUDAAllocatorConfig.h:28] Warning: expandable_segments not supported on this platform (function operator())
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3267776 [0] NCCL INFO Bootstrap : Using bond0:10.140.56.225<0>
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3267776 [0] NCCL INFO NET/Plugin: Failed to find ncclNetPlugin_v8 symbol.
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3267776 [0] NCCL INFO NET/Plugin: Loaded net plugin AWS Libfabric (v6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3267776 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin_v8 symbol.
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3267776 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin symbol (>= v5). ncclCollNetPlugin symbols v4 and lower are not supported.
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3267776 [0] NCCL INFO cudaDriverVersion 13000
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: NCCL version 2.20.5+cuda12.4
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3267779 [0] NCCL INFO cudaDriverVersion 13000
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3267778 [0] NCCL INFO cudaDriverVersion 13000
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2911949 [0] NCCL INFO cudaDriverVersion 13000
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2911950 [0] NCCL INFO cudaDriverVersion 13000
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2911951 [0] NCCL INFO cudaDriverVersion 13000
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3267779 [0] NCCL INFO Bootstrap : Using bond0:10.140.56.225<0>
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3267778 [0] NCCL INFO Bootstrap : Using bond0:10.140.56.225<0>
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2911949 [0] NCCL INFO Bootstrap : Using bond0:10.140.56.226<0>
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2911950 [0] NCCL INFO Bootstrap : Using bond0:10.140.56.226<0>
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2911951 [0] NCCL INFO Bootstrap : Using bond0:10.140.56.226<0>
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3267777 [0] NCCL INFO cudaDriverVersion 13000
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3267777 [0] NCCL INFO Bootstrap : Using bond0:10.140.56.225<0>
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2911952 [0] NCCL INFO cudaDriverVersion 13000
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2911952 [0] NCCL INFO Bootstrap : Using bond0:10.140.56.226<0>
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3267779 [0] NCCL INFO NET/Plugin: Failed to find ncclNetPlugin_v8 symbol.
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3267779 [0] NCCL INFO NET/Plugin: Loaded net plugin AWS Libfabric (v6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3267779 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin_v8 symbol.
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3267779 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin symbol (>= v5). ncclCollNetPlugin symbols v4 and lower are not supported.
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3267778 [0] NCCL INFO NET/Plugin: Failed to find ncclNetPlugin_v8 symbol.
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3267778 [0] NCCL INFO NET/Plugin: Loaded net plugin AWS Libfabric (v6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3267778 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin_v8 symbol.
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3267778 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin symbol (>= v5). ncclCollNetPlugin symbols v4 and lower are not supported.
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2911950 [0] NCCL INFO NET/Plugin: Failed to find ncclNetPlugin_v8 symbol.
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2911950 [0] NCCL INFO NET/Plugin: Loaded net plugin AWS Libfabric (v6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2911950 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin_v8 symbol.
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2911950 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin symbol (>= v5). ncclCollNetPlugin symbols v4 and lower are not supported.
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2911949 [0] NCCL INFO NET/Plugin: Failed to find ncclNetPlugin_v8 symbol.
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2911949 [0] NCCL INFO NET/Plugin: Loaded net plugin AWS Libfabric (v6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2911949 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin_v8 symbol.
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2911949 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin symbol (>= v5). ncclCollNetPlugin symbols v4 and lower are not supported.
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2911951 [0] NCCL INFO NET/Plugin: Failed to find ncclNetPlugin_v8 symbol.
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2911951 [0] NCCL INFO NET/Plugin: Loaded net plugin AWS Libfabric (v6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2911951 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin_v8 symbol.
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2911951 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin symbol (>= v5). ncclCollNetPlugin symbols v4 and lower are not supported.
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3267777 [0] NCCL INFO NET/Plugin: Failed to find ncclNetPlugin_v8 symbol.
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3267777 [0] NCCL INFO NET/Plugin: Loaded net plugin AWS Libfabric (v6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3267777 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin_v8 symbol.
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3267777 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin symbol (>= v5). ncclCollNetPlugin symbols v4 and lower are not supported.
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2911952 [0] NCCL INFO NET/Plugin: Failed to find ncclNetPlugin_v8 symbol.
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2911952 [0] NCCL INFO NET/Plugin: Loaded net plugin AWS Libfabric (v6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2911952 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin_v8 symbol.
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2911952 [0] NCCL INFO NET/Plugin: Failed to find ncclCollNetPlugin symbol (>= v5). ncclCollNetPlugin symbols v4 and lower are not supported.
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO NET/OFI Using aws-ofi-nccl 1.6.0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO NET/OFI Selected Provider is cxi (found 2 nics)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Using non-device net plugin version 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Using network AWS Libfabric
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO NET/OFI Using aws-ofi-nccl 1.6.0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO NET/OFI Using aws-ofi-nccl 1.6.0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO NET/OFI Using aws-ofi-nccl 1.6.0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO NET/OFI Using aws-ofi-nccl 1.6.0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO NET/OFI Using aws-ofi-nccl 1.6.0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO NET/OFI Selected Provider is cxi (found 2 nics)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Using non-device net plugin version 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Using network AWS Libfabric
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO NET/OFI Using aws-ofi-nccl 1.6.0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO NET/OFI Selected Provider is cxi (found 2 nics)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Using non-device net plugin version 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Using network AWS Libfabric
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO NET/OFI Using aws-ofi-nccl 1.6.0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO NET/OFI Selected Provider is cxi (found 2 nics)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Using non-device net plugin version 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Using network AWS Libfabric
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO NET/OFI Selected Provider is cxi (found 2 nics)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Using non-device net plugin version 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Using network AWS Libfabric
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO NET/OFI Selected Provider is cxi (found 2 nics)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Using non-device net plugin version 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Using network AWS Libfabric
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO NET/OFI Selected Provider is cxi (found 2 nics)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Using non-device net plugin version 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Using network AWS Libfabric
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO NET/OFI Selected Provider is cxi (found 2 nics)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Using non-device net plugin version 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Using network AWS Libfabric
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO comm 0x5586f44502e0 rank 1 nranks 8 cudaDev 0 nvmlDev 1 busId 46000 commId 0xbfd7f659a5da225 - Init START
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO comm 0x55f59bfd1a00 rank 2 nranks 8 cudaDev 0 nvmlDev 2 busId 85000 commId 0xbfd7f659a5da225 - Init START
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO comm 0x5605d6c4b400 rank 5 nranks 8 cudaDev 0 nvmlDev 1 busId 46000 commId 0xbfd7f659a5da225 - Init START
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO comm 0x5565187cf270 rank 6 nranks 8 cudaDev 0 nvmlDev 2 busId 85000 commId 0xbfd7f659a5da225 - Init START
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO comm 0x56302d057940 rank 3 nranks 8 cudaDev 0 nvmlDev 3 busId c7000 commId 0xbfd7f659a5da225 - Init START
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO comm 0x55e1243ea7e0 rank 7 nranks 8 cudaDev 0 nvmlDev 3 busId c7000 commId 0xbfd7f659a5da225 - Init START
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO comm 0x55c0be6178a0 rank 4 nranks 8 cudaDev 0 nvmlDev 0 busId 7000 commId 0xbfd7f659a5da225 - Init START
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO comm 0x55b90f49e980 rank 0 nranks 8 cudaDev 0 nvmlDev 0 busId 7000 commId 0xbfd7f659a5da225 - Init START
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 0 'cxi0'
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 1 'cxi1'
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO NCCL_NET_GDR_LEVEL set by environment to PHB
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 0 'cxi0'
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 1 'cxi1'
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO NVLS multicast support is not available on dev 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO NCCL_NET_GDR_LEVEL set by environment to PHB
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO NVLS multicast support is not available on dev 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 0 'cxi0'
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 1 'cxi1'
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 0 'cxi0'
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 0 'cxi0'
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 1 'cxi1'
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO NCCL_NET_GDR_LEVEL set by environment to PHB
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 1 'cxi1'
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 0 'cxi0'
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO NCCL_NET_GDR_LEVEL set by environment to PHB
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 1 'cxi1'
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO NCCL_NET_GDR_LEVEL set by environment to PHB
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 0 'cxi0'
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 0 'cxi0'
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 1 'cxi1'
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO NET/AWS Libfabric : GPU Direct RDMA Enabled for HCA 1 'cxi1'
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO NCCL_NET_GDR_LEVEL set by environment to PHB
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO NVLS multicast support is not available on dev 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO NCCL_NET_GDR_LEVEL set by environment to PHB
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO NVLS multicast support is not available on dev 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO NVLS multicast support is not available on dev 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO NVLS multicast support is not available on dev 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO NCCL_NET_GDR_LEVEL set by environment to PHB
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO NVLS multicast support is not available on dev 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 1 (distance 7 > 6)
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO comm 0x55c0be6178a0 rank 4 nRanks 8 nNodes 2 localRanks 4 localRank 0 MNNVL 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Disabled for GPU c7000 / HCA 1 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Trees [0] -1/-1/-1->4->7 [1] 5/-1/-1->4->6 [2] -1/-1/-1->4->7 [3] 5/-1/-1->4->6
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 7000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO P2P Chunksize set to 131072
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO comm 0x5605d6c4b400 rank 5 nRanks 8 nNodes 2 localRanks 4 localRank 1 MNNVL 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 46000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Trees [0] 6/-1/-1->5->1 [1] -1/-1/-1->5->4 [2] 6/1/-1->5->-1 [3] -1/-1/-1->5->4
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Disabled for GPU 85000 / HCA 0 (distance 7 > 6)
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO P2P Chunksize set to 131072
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO comm 0x5565187cf270 rank 6 nRanks 8 nNodes 2 localRanks 4 localRank 2 MNNVL 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO NVLS multicast support is not available on dev 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Trees [0] 7/-1/-1->6->5 [1] 4/-1/-1->6->7 [2] 7/-1/-1->6->5 [3] 4/-1/-1->6->7
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO comm 0x55f59bfd1a00 rank 2 nRanks 8 nNodes 2 localRanks 4 localRank 2 MNNVL 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO P2P Chunksize set to 131072
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Trees [0] 3/-1/-1->2->1 [1] 0/-1/-1->2->3 [2] 3/-1/-1->2->1 [3] 0/-1/-1->2->3
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO comm 0x55e1243ea7e0 rank 7 nRanks 8 nNodes 2 localRanks 4 localRank 3 MNNVL 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO P2P Chunksize set to 131072
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Trees [0] 4/-1/-1->7->6 [1] 6/-1/-1->7->3 [2] 4/-1/-1->7->6 [3] 6/3/-1->7->-1
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO P2P Chunksize set to 131072
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO comm 0x56302d057940 rank 3 nRanks 8 nNodes 2 localRanks 4 localRank 3 MNNVL 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Trees [0] 0/-1/-1->3->2 [1] 2/7/-1->3->-1 [2] 0/-1/-1->3->2 [3] 2/-1/-1->3->7
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO P2P Chunksize set to 131072
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO comm 0x55b90f49e980 rank 0 nRanks 8 nNodes 2 localRanks 4 localRank 0 MNNVL 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Channel 00/04 :    0   2   3   7   6   4   5   1
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Channel 01/04 :    0   1   5   4   6   7   3   2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Channel 02/04 :    0   2   3   7   6   4   5   1
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Channel 03/04 :    0   1   5   4   6   7   3   2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Trees [0] -1/-1/-1->0->3 [1] 1/-1/-1->0->2 [2] -1/-1/-1->0->3 [3] 1/-1/-1->0->2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO P2P Chunksize set to 131072
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO comm 0x5586f44502e0 rank 1 nRanks 8 nNodes 2 localRanks 4 localRank 1 MNNVL 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Trees [0] 2/5/-1->1->-1 [1] -1/-1/-1->1->0 [2] 2/-1/-1->1->5 [3] -1/-1/-1->1->0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO P2P Chunksize set to 131072
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy recv connection 0 from local rank 3, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Channel 00/0 : 4[0] -> 5[1] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800bab0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy send connection 0 from local rank 0, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Channel 01/0 : 0[0] -> 1[1] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c004f40
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy recv connection 0 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Channel 00/0 : 2[2] -> 3[3] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c005d30
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy recv connection 0 from local rank 1, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy send connection 0 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed8008520
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x148258005030
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Channel 02/0 : 4[0] -> 5[1] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy send connection 0 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Channel 01/0 : 6[2] -> 7[3] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258006920
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy send connection 1 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c004fb8
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Channel 03/0 : 0[0] -> 1[1] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy send connection 0 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f470004f70
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy send connection 1 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy recv connection 1 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x1482580050a8
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c005da8
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy recv connection 0 from local rank 1, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy recv connection 1 from local rank 1, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c006b90
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed8008598
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Channel 03/0 : 6[2] -> 7[3] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy recv connection 1 from local rank 1, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy send connection 1 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c006c08
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f470004fe8
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Channel 01/0 : 4[0] -> 6[2] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy recv connection 1 from local rank 3, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy send connection 2 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c005030
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800bb28
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Channel 03/0 : 4[0] -> 6[2] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy send connection 3 from local rank 0, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Channel 00/0 : 0[0] -> 2[2] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c0050a8
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy send connection 2 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy recv connection 2 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f470005060
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x148258005120
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy recv connection 3 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Channel 02/0 : 0[0] -> 2[2] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f4700050d8
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Channel 02/0 : 2[2] -> 3[3] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy recv connection 4 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c005120
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy send connection 1 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Channel 00/0 : 6[2] -> 4[0] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy send connection 4 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258006998
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f470005150
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy recv connection 2 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy recv connection 5 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c005198
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258006a10
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Channel 02/0 : 6[2] -> 4[0] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy recv connection 3 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy send connection 5 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f4700051c8
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258006a88
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy send connection 3 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy recv connection 6 from local rank 0, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x148258005198
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c005210
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy recv connection 6 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy recv connection 4 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f470005240
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x148258005210
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy recv connection 7 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c005288
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy recv connection 5 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy recv connection 7 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x148258005288
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f4700052b8
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Channel 01/0 : 2[2] -> 0[0] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy send connection 4 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258006b00
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Channel 03/0 : 2[2] -> 0[0] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy send connection 5 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258006b78
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy recv connection 6 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258006bf0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy recv connection 6 from local rank 0, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x148258005300
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy recv connection 7 from local rank 0, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x148258005378
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy recv connection 7 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258006c68
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy recv connection 2 from local rank 1, transport 2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy recv connection 2 from local rank 3, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed8008610
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800bba0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy recv connection 2 from local rank 3, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c005e20
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy recv connection 2 from local rank 1, transport 2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c006c80
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Channel 00/0 : 3[3] -> 7[3] [receive] via NET/AWS Libfabric/0/GDRDMA
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy recv connection 3 from local rank 3, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c005e98
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Channel 02/0 : 3[3] -> 7[3] [receive] via NET/AWS Libfabric/0/GDRDMA
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 1
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy send connection 4 from local rank 3, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c005f10
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Channel 01/0 : 7[3] -> 3[3] [send] via NET/AWS Libfabric/0/GDRDMA
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 1
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Channel 01/0 : 1[1] -> 5[1] [receive] via NET/AWS Libfabric/1/GDRDMA
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy recv connection 3 from local rank 1, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed8008688
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Channel 03/0 : 1[1] -> 5[1] [receive] via NET/AWS Libfabric/1/GDRDMA
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 1
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy send connection 4 from local rank 1, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed8008700
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Channel 00/0 : 5[1] -> 1[1] [receive] via NET/AWS Libfabric/1/GDRDMA
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Channel 00/0 : 5[1] -> 1[1] [send] via NET/AWS Libfabric/1/GDRDMA
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 1
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy send connection 5 from local rank 3, transport 2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy recv connection 3 from local rank 1, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c005f88
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c006cf8
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Channel 03/0 : 7[3] -> 3[3] [send] via NET/AWS Libfabric/0/GDRDMA
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Channel 02/0 : 5[1] -> 1[1] [receive] via NET/AWS Libfabric/1/GDRDMA
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy send connection 5 from local rank 1, transport 2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 1
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed8008778
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy send connection 4 from local rank 1, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Channel 02/0 : 5[1] -> 1[1] [send] via NET/AWS Libfabric/1/GDRDMA
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c006d70
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Channel 01/0 : 1[1] -> 5[1] [send] via NET/AWS Libfabric/1/GDRDMA
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Channel 01/0 : 5[1] -> 4[0] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 1
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy send connection 6 from local rank 1, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy send connection 5 from local rank 1, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed80087f0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c006de8
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Channel 03/0 : 1[1] -> 5[1] [send] via NET/AWS Libfabric/1/GDRDMA
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Channel 01/0 : 7[3] -> 3[3] [receive] via NET/AWS Libfabric/0/GDRDMA
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Channel 00/0 : 7[3] -> 6[2] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Channel 03/0 : 5[1] -> 4[0] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy recv connection 3 from local rank 3, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy send connection 6 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800bc18
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c006000
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Channel 03/0 : 7[3] -> 3[3] [receive] via NET/AWS Libfabric/0/GDRDMA
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy send connection 7 from local rank 1, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 1
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed8008868
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy send connection 4 from local rank 3, transport 2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800bc90
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Channel 02/0 : 7[3] -> 6[2] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Channel 00/0 : 3[3] -> 7[3] [send] via NET/AWS Libfabric/0/GDRDMA
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy send connection 7 from local rank 3, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c006078
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 1
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy send connection 5 from local rank 3, transport 2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800bd08
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Channel 02/0 : 3[3] -> 7[3] [send] via NET/AWS Libfabric/0/GDRDMA
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Channel 01/0 : 3[3] -> 2[2] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Channel 00/0 : 1[1] -> 0[0] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy send connection 6 from local rank 1, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c006e60
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Channel 02/0 : 1[1] -> 0[0] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy send connection 7 from local rank 1, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c006ed8
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy send connection 6 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800bd80
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Channel 03/0 : 3[3] -> 2[2] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy send connection 7 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800bdf8
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected all rings
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Channel 01/0 : 4[0] -> 5[1] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected all rings
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy recv connection 8 from local rank 1, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed80088e0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy send connection 8 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c005300
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Channel 03/0 : 4[0] -> 5[1] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy send connection 9 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy recv connection 9 from local rank 1, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed8008958
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Channel 00/0 : 5[1] -> 6[2] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy send connection 10 from local rank 1, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed80089d0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c005378
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Channel 02/0 : 5[1] -> 6[2] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy send connection 11 from local rank 1, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed8008a48
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Channel 00/0 : 4[0] -> 7[3] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy send connection 10 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c0053f0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Channel 02/0 : 4[0] -> 7[3] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy send connection 11 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected all rings
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected all rings
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy recv connection 8 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f470005330
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Channel 01/0 : 0[0] -> 2[2] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected all rings
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy recv connection 8 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected all rings
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c0060f0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Channel 00/0 : 1[1] -> 2[2] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c005468
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy recv connection 9 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy send connection 8 from local rank 1, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f4700053a8
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy recv connection 9 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c006f50
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c006168
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected all rings
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Channel 00/0 : 6[2] -> 7[3] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy send connection 10 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy recv connection 8 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f470005420
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258006ce0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Channel 02/0 : 6[2] -> 7[3] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy send connection 11 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy recv connection 9 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f470005498
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected all rings
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy recv connection 8 from local rank 3, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy recv connection 12 from local rank 1, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed8008ac0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800be70
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Channel 00/0 : 1[1] -> 5[1] [receive] via NET/AWS Libfabric/1/GDRDMA
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy recv connection 9 from local rank 3, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy recv connection 13 from local rank 1, transport 2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800bee8
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed8008b38
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Channel 01/0 : 6[2] -> 4[0] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy send connection 8 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy send connection 12 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x1482580053f0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f470005510
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Channel 03/0 : 0[0] -> 2[2] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Channel 03/0 : 6[2] -> 4[0] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy send connection 9 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy send connection 13 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy recv connection 10 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x148258005468
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c0061e0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Channel 02/0 : 1[1] -> 2[2] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy recv connection 11 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy send connection 9 from local rank 1, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c006258
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c006fc8
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy recv connection 12 from local rank 3, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy recv connection 12 from local rank 0, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 1
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c0054e0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy send connection 10 from local rank 1, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy recv connection 13 from local rank 0, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c005558
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c007040
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Channel 02/0 : 1[1] -> 5[1] [receive] via NET/AWS Libfabric/1/GDRDMA
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258006d58
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy recv connection 14 from local rank 1, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed8008bb0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Channel 01/0 : 2[2] -> 3[3] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f470005588
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy send connection 10 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c0062d0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258006dd0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Channel 01/0 : 3[3] -> 7[3] [receive] via NET/AWS Libfabric/0/GDRDMA
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Channel 03/0 : 2[2] -> 3[3] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy recv connection 13 from local rank 3, transport 2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy send connection 11 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c006348
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Channel 03/0 : 3[3] -> 7[3] [receive] via NET/AWS Libfabric/0/GDRDMA
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258006e48
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy recv connection 15 from local rank 1, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy recv connection 12 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed8008c28
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258006ec0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy recv connection 13 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258006f38
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Channel 00/0 : 0[0] -> 3[3] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy send connection 10 from local rank 0, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x1482580054e0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Channel 02/0 : 0[0] -> 3[3] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy send connection 11 from local rank 0, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x148258005558
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Channel 00/0 : 1[1] -> 5[1] [send] via NET/AWS Libfabric/1/GDRDMA
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO GPU Direct RDMA Enabled for GPU 46000 / HCA 1 (distance 6 <= 6), read 1
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Channel 00/0 : 7[3] -> 4[0] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy send connection 11 from local rank 1, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy send connection 14 from local rank 3, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c0063c0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c0070b8
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Channel 02/0 : 1[1] -> 5[1] [send] via NET/AWS Libfabric/1/GDRDMA
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Channel 02/0 : 7[3] -> 4[0] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy recv connection 12 from local rank 1, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy send connection 15 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c007130
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c006438
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy recv connection 13 from local rank 1, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c0071a8
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Channel 01/0 : 1[1] -> 0[0] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy recv connection 14 from local rank 0, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy send connection 14 from local rank 1, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Channel 01/0 : 7[3] -> 6[2] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c007220
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy send connection 16 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Channel 03/0 : 1[1] -> 0[0] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c0064b0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy send connection 15 from local rank 1, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c0055d0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c007298
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy recv connection 15 from local rank 0, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy recv connection 14 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c005648
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258006fb0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Channel 03/0 : 7[3] -> 6[2] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy send connection 17 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy recv connection 15 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c006528
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258007028
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Channel 00/0 : 2[2] -> 1[1] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy recv connection 14 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy send connection 16 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f470005600
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f2580070a0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Channel 02/0 : 2[2] -> 1[1] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy send connection 17 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258007118
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy recv connection 10 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800bf60
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy recv connection 11 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800bfd8
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 1
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy send connection 12 from local rank 3, transport 2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800c050
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Channel 01/0 : 3[3] -> 7[3] [send] via NET/AWS Libfabric/0/GDRDMA
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy recv connection 15 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO GPU Direct RDMA Enabled for GPU c7000 / HCA 0 (distance 6 <= 6), read 1
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f470005678
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy send connection 13 from local rank 3, transport 2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800c0c8
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Channel 03/0 : 3[3] -> 7[3] [send] via NET/AWS Libfabric/0/GDRDMA
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Channel 00/0 : 3[3] -> 0[0] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy send connection 14 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800c140
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Channel 02/0 : 3[3] -> 0[0] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy send connection 15 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800c1b8
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Channel 00/0 : 3[3] -> 2[2] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy send connection 16 from local rank 3, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800c230
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Channel 00/0 : 6[2] -> 5[1] via P2P/CUMEM/read
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Channel 02/0 : 3[3] -> 2[2] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy send connection 16 from local rank 2, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy send connection 17 from local rank 3, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f4700056f0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800c2a8
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy recv connection 12 from local rank 0, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x1482580055d0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy recv connection 13 from local rank 0, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x148258005648
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy recv connection 14 from local rank 0, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x1482580056c0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy recv connection 15 from local rank 0, transport 0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x148258005738
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Channel 02/0 : 6[2] -> 5[1] via P2P/CUMEM/read
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy send connection 17 from local rank 2, transport 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f470005768
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected all trees
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected all trees
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO 4 coll channels, 0 collnet channels, 0 nvls channels, 4 p2p channels, 2 p2p channels per peer
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected all trees
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected all trees
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO 4 coll channels, 0 collnet channels, 0 nvls channels, 4 p2p channels, 2 p2p channels per peer
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO 4 coll channels, 0 collnet channels, 0 nvls channels, 4 p2p channels, 2 p2p channels per peer
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO New proxy send connection 16 from local rank 1, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x149ed8008ca0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO New proxy send connection 18 from local rank 3, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected all trees
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x14e02800c320
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO 4 coll channels, 0 collnet channels, 0 nvls channels, 4 p2p channels, 2 p2p channels per peer
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected all trees
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO 4 coll channels, 0 collnet channels, 0 nvls channels, 4 p2p channels, 2 p2p channels per peer
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO 4 coll channels, 0 collnet channels, 0 nvls channels, 4 p2p channels, 2 p2p channels per peer
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected all trees
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO New proxy send connection 18 from local rank 3, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO Connected to proxy localRank 3 -> connection 0x149b1c0065a0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO 4 coll channels, 0 collnet channels, 0 nvls channels, 4 p2p channels, 2 p2p channels per peer
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO New proxy send connection 16 from local rank 1, transport 2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO Connected to proxy localRank 1 -> connection 0x14c69c007310
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected all trees
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO 4 coll channels, 0 collnet channels, 0 nvls channels, 4 p2p channels, 2 p2p channels per peer
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO New proxy send connection 16 from local rank 0, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO New proxy send connection 18 from local rank 2, transport 2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO New proxy send connection 16 from local rank 0, transport 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f4700057e0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x145b5c0056c0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x1482580057b0
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO New proxy send connection 18 from local rank 2, transport 2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO Connected to proxy localRank 2 -> connection 0x14f258007190
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912906 [0] NCCL INFO comm 0x55c0be6178a0 rank 4 nranks 8 cudaDev 0 nvmlDev 0 busId 7000 commId 0xbfd7f659a5da225 - Init COMPLETE
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912905 [0] NCCL INFO comm 0x5605d6c4b400 rank 5 nranks 8 cudaDev 0 nvmlDev 1 busId 46000 commId 0xbfd7f659a5da225 - Init COMPLETE
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268732 [0] NCCL INFO comm 0x55b90f49e980 rank 0 nranks 8 cudaDev 0 nvmlDev 0 busId 7000 commId 0xbfd7f659a5da225 - Init COMPLETE
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912907 [0] NCCL INFO comm 0x5565187cf270 rank 6 nranks 8 cudaDev 0 nvmlDev 2 busId 85000 commId 0xbfd7f659a5da225 - Init COMPLETE
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912908 [0] NCCL INFO comm 0x55e1243ea7e0 rank 7 nranks 8 cudaDev 0 nvmlDev 3 busId c7000 commId 0xbfd7f659a5da225 - Init COMPLETE
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268735 [0] NCCL INFO comm 0x5586f44502e0 rank 1 nranks 8 cudaDev 0 nvmlDev 1 busId 46000 commId 0xbfd7f659a5da225 - Init COMPLETE
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268733 [0] NCCL INFO comm 0x56302d057940 rank 3 nranks 8 cudaDev 0 nvmlDev 3 busId c7000 commId 0xbfd7f659a5da225 - Init COMPLETE
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268734 [0] NCCL INFO comm 0x55f59bfd1a00 rank 2 nranks 8 cudaDev 0 nvmlDev 2 busId 85000 commId 0xbfd7f659a5da225 - Init COMPLETE
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: rank 1 x3206c0s25b1n0 gpu 1 replica: {"s_per_step_median": 1.9455, "s_per_step_nosync_median": 1.9369}
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: rank 7 x3206c0s31b0n0 gpu 3 replica: {"s_per_step_median": 1.9455, "s_per_step_nosync_median": 1.9368}
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: rank 6 x3206c0s31b0n0 gpu 2 replica: {"s_per_step_median": 1.9455, "s_per_step_nosync_median": 1.9375}
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: rank 0 x3206c0s25b1n0 gpu 0 replica: {"s_per_step_median": 1.9456, "s_per_step_nosync_median": 1.9379}
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: rank 2 x3206c0s25b1n0 gpu 2 replica: {"s_per_step_median": 1.9455, "s_per_step_nosync_median": 1.9383}
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: rank 5 x3206c0s31b0n0 gpu 1 replica: {"s_per_step_median": 1.9455, "s_per_step_nosync_median": 1.9388}
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: rank 4 x3206c0s31b0n0 gpu 0 replica: {"s_per_step_median": 1.9455, "s_per_step_nosync_median": 1.9398}
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: rank 3 x3206c0s25b1n0 gpu 3 replica: {"s_per_step_median": 1.9457, "s_per_step_nosync_median": 1.9405}
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: MULTISIM replicate lean32: 8 ranks (solver + DDP rank each) on 2 nodes, s/step 1.9457 (no_sync 1.9405, DDP cost 0.0052 s), global batch 128, 0.514 rank-steps/s per GPU
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: MULTISIM_OK replicate lean32 -> /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/opt_round1c_7815637/multisim/multisim_replicate_lean32.json
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3268737 [0] NCCL INFO [Service thread] Connection closed by localRank 2
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3268742 [0] NCCL INFO [Service thread] Connection closed by localRank 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2912910 [0] NCCL INFO [Service thread] Connection closed by localRank 2
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2912909 [0] NCCL INFO [Service thread] Connection closed by localRank 0
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2912914 [0] NCCL INFO [Service thread] Connection closed by localRank 1
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2912911 [0] NCCL INFO [Service thread] Connection closed by localRank 3
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3268740 [0] NCCL INFO [Service thread] Connection closed by localRank 1
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3268736 [0] NCCL INFO [Service thread] Connection closed by localRank 3
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 4: x3206c0s31b0n0:2911949:2913404 [0] NCCL INFO comm 0x55c0be6178a0 rank 4 nranks 8 cudaDev 0 busId 7000 - Abort COMPLETE
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 6: x3206c0s31b0n0:2911951:2913402 [0] NCCL INFO comm 0x5565187cf270 rank 6 nranks 8 cudaDev 0 busId 85000 - Abort COMPLETE
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 5: x3206c0s31b0n0:2911950:2913403 [0] NCCL INFO comm 0x5605d6c4b400 rank 5 nranks 8 cudaDev 0 busId 46000 - Abort COMPLETE
+x3206c0s31b0n0.hsn.cm.polaris.alcf.anl.gov 7: x3206c0s31b0n0:2911952:2913401 [0] NCCL INFO comm 0x55e1243ea7e0 rank 7 nranks 8 cudaDev 0 busId c7000 - Abort COMPLETE
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 2: x3206c0s25b1n0:3267778:3269169 [0] NCCL INFO comm 0x55f59bfd1a00 rank 2 nranks 8 cudaDev 0 busId 85000 - Abort COMPLETE
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 0: x3206c0s25b1n0:3267776:3269170 [0] NCCL INFO comm 0x55b90f49e980 rank 0 nranks 8 cudaDev 0 busId 7000 - Abort COMPLETE
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 1: x3206c0s25b1n0:3267777:3269172 [0] NCCL INFO comm 0x5586f44502e0 rank 1 nranks 8 cudaDev 0 busId 46000 - Abort COMPLETE
+x3206c0s25b1n0.hsn.cm.polaris.alcf.anl.gov 3: x3206c0s25b1n0:3267779:3269171 [0] NCCL INFO comm 0x56302d057940 rank 3 nranks 8 cudaDev 0 busId c7000 - Abort COMPLETE
