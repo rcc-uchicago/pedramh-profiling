@@ -1,0 +1,10 @@
+x3001c0s1b1n0.hsn.cm.polaris.alcf.anl.gov 5: rank 5 x3001c0s1b1n0 gpu 1 simulator: {"ms_per_step": 3.1949}
+x3001c0s1b0n0.hsn.cm.polaris.alcf.anl.gov 0: rank 0 x3001c0s1b0n0 gpu 0 simulator: {"ms_per_step": 3.1953}
+x3001c0s1b1n0.hsn.cm.polaris.alcf.anl.gov 4: rank 4 x3001c0s1b1n0 gpu 0 simulator: {"ms_per_step": 3.1958}
+x3001c0s1b1n0.hsn.cm.polaris.alcf.anl.gov 6: rank 6 x3001c0s1b1n0 gpu 2 simulator: {"ms_per_step": 3.196}
+x3001c0s1b0n0.hsn.cm.polaris.alcf.anl.gov 2: rank 2 x3001c0s1b0n0 gpu 2 simulator: {"ms_per_step": 3.1967}
+x3001c0s1b1n0.hsn.cm.polaris.alcf.anl.gov 7: rank 7 x3001c0s1b1n0 gpu 3 simulator: {"ms_per_step": 3.1978}
+x3001c0s1b0n0.hsn.cm.polaris.alcf.anl.gov 1: rank 1 x3001c0s1b0n0 gpu 1 simulator: {"ms_per_step": 3.1993}
+x3001c0s1b0n0.hsn.cm.polaris.alcf.anl.gov 3: rank 3 x3001c0s1b0n0 gpu 3 simulator: {"ms_per_step": 3.2003}
+x3001c0s1b0n0.hsn.cm.polaris.alcf.anl.gov 0: MULTISIM independent lean32: 8 simulators on 2 nodes, ms/step [3.1949, 3.2003], efficiency 1.0024
+x3001c0s1b0n0.hsn.cm.polaris.alcf.anl.gov 0: MULTISIM_OK independent lean32 -> /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/opt_round1b_ms_7815096/multisim/multisim_independent_lean32.json
