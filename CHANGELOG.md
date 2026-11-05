@@ -114,6 +114,24 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-05** — **SQG Nsight job on `lean32` submitted: 1-node debug job 7819082**
+  (`SQG/analysis/opt/nsight/run_nsight_lean_polaris.pbs`, walltime 0:55). The user asked for an Nsight analysis of
+  `lean32` and where the solver can still improve. End token `NSIGHT_DONE failures=N`; results →
+  `SQG/analysis/results/polaris_nsight_lean_7819082/`. Predictions: `SQG/analysis/opt/nsight/PREDICTIONS_nsight.md`
+  (written first). Don't edit `SQG/analysis/opt/nsight/` or the two new summarizers while it is queued.
+  - **New tools.**
+    - `summarize_nsys_ops.py`: GPU time per XLA op per step, via the XLA thunk NVTX ranges. Validated on job E's
+      real f32 capture: AB3 fusion 649.8 µs/step (job E: 650), GPU busy 98.1%.
+    - `summarize_ncu_window.py`: every kernel of one loop period, from an unfiltered ncu window.
+    - `lean32_probes.py`: exact rewrites of `lean32` (seed 1's cos trigger, seed 1's 3-slot ring, both).
+  - **Leads going in.**
+    - `lean32`'s byte model is ≈ 2.8 GB/step ≈ 2.1 ms at 1.35 TB/s, vs 3.19 ms measured.
+    - Its HLO still has 2 full-size tendency copies per 2-step iteration.
+    - Job E's half-plane column FFT pass (`regular_fft_factor<4096>`) runs at ≈ 0.68 TB/s, half its neighbours.
+      Hypothesis: a 2,049-wide complex64 row is 16,392 B, so rows are not 32 B-aligned.
+    - `decay` is an exact circular 2/3 truncation, so most of the half-plane is zero every step.
+    - CUDA 12.9.1's cuFFT 11.4.1 (the env has 11.0.2) can be swapped in by `LD_PRELOAD`: XLA dlopens
+      `libcufft.so.11` by soname. Phase 3 is report-only.
 - **2026-11-05** — **SQG round 1c (7815637) DONE, `OPT_R1C_DONE failures=0`.** Notes Part IX; summaries in
   `SQG/analysis/results/polaris_opt_round1c_7815637/`.
   - **Seed 1: all three pass, bitwise at 1/40/480/4,000 steps, `t` exact.** `lean` 7.970 ms (1.165×),
