@@ -114,6 +114,34 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-05** — **SQG round 1c submitted: 2-node debug job 7815637** (`SQG/analysis/opt/run_round1c_polaris.pbs`,
+  walltime 0:59).
+  - **User decisions (11-05):** rerun seed 1; carry `lean32` toward o1.2 (precision in production still needs
+    statistical validation + jesswan / Weidong's sign-off); measure both replicate and decouple; submit without a
+    further approval once the critics' changes were in.
+  - **Phase 1:** seed 1 (`lean` / `lean_u1` / `lean_split`) under round 1b's `t` rule (run-time `dt`; `t` within
+    1e-6).
+  - **Phase 2: four NCCL probe arms**, each judged by `multisim/probe_verdict.py` (NCCL_PROBE_OK needs a completed
+    all_reduce + busbw, which fixes round 1b's token bug):
+    - A: 7815096's env + `FI_LOG_LEVEL=info`;
+    - B: a `libcudart.so` shim pointing at the env's own `.so.12` (combine_handoffs' preferred fix);
+    - C: `GDR_LEVEL=LOC`;
+    - D: makani/ACE2's `cuda-12.9.1/lib64` prepend.
+  - **Phase 3:** replicate `lean32` / decouple `lean32` / replicate `ref`, with DDP over the first passing arm (order
+    B, D, A, C).
+  - **Library check (readelf):**
+    - the aws-ofi-nccl plugin needs `libcudart.so.12`, and its RUNPATH dir no longer exists, so torch's
+      already-loaded 12.1 copy satisfies it;
+    - libfabric 2.3.1 dlopens the unversioned `libcudart.so` and `libgdrapi.so`, both absent.
+  - **combine_handoffs' answers:**
+    - their GDR runs were nccl-tests (NCCL 2.28.3, cudart 12.9), not torch, with libfabric resolving a
+      `cuda-13.0.1` `libcudart.so`;
+    - gdrcopy is opt-in and harmless; the RDZV vars are ruled out;
+    - FI_LOG's `Number of CUDA devices detected` marks a working CUDA HMEM.
+  - **Pre-submission review:** 2 read-only Fable critics; 3 minor harness fixes applied (receiver join timeout,
+    guarded rank-0 aggregation, NCCL-timeout docstrings); the job script had 0 defects.
+  - Predictions: `SQG/analysis/opt/PREDICTIONS_round1c.md`. Results →
+    `SQG/analysis/results/polaris_opt_round1c_7815637/`. Don't edit `SQG/analysis/opt/` while it is queued.
 - **2026-11-05** — **SQG job 7815096 DONE (`OPT_R1B_MS_DONE failures=1`).** Round 1b passed. Of the 2-node arms, 4/5
   passed; the NCCL-over-CXI probe failed. Notes Part VIII; summaries in
   `SQG/analysis/results/polaris_opt_round1b_ms_7815096/`.
