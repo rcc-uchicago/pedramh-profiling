@@ -102,7 +102,7 @@ def fake_job(root):
     drate = -np.log1p((d32 - d64) / d64) / AT.DT
     apred = -drate * AT.LAG_T
     afm = G["af_valid"]
-    inj_unit = np.array([2e-3, 1.5e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3])
+    inj_unit = -np.array([2e-3, 1.5e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3])  # added damping: alpha < 0 (smoke 7823653)
     bidx = np.maximum(G["band"], 0)
     for w in (0, 1):
         scale = 1.0 + w                                               # worker 1 plants twice the shift

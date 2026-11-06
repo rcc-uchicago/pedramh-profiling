@@ -119,3 +119,43 @@ What is NOT decided here:
 - **To.** `/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_stage/AllTrainData/<label>/checkpoint/`.
 - **The label.** `trainingdata_m0<m>_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02`.
 - **The copy must be byte-for-byte.** The loader checks a config hash, a forcing hash and a qh sha256.
+
+## Addendum (2026-11-06, after the harness smoke 7823653, BEFORE the archive run)
+
+The smoke (`SMOKE=1`) is unscored, as stated above. It exposed three problems in this file's rules. They are fixed
+here, before any archive state is run. The text above is left as written. Nothing sealed was opened: the smoke's
+sealed files are unread.
+
+1. **V3's z must be signed toward the truth.**
+   - The planted shift adds damping, so its coefficient is negative. "z_x ≥ 3" failed in all 8 bands only because
+     z ≈ −4.5 to −59.
+   - Corrected: z in the direction of α_inj64.
+2. **V3's ratio α_inj/α_inj64 contained the candidate's own coefficient.**
+   - Why: α_inj = α_planted + α_lean32ek, so the ratio would void the run exactly when lean32ek is biased.
+   - What happened: in the smoke, 4 bands failed it while z exceeded the planted-only expectation. At k 2–4, z = 25.5
+     against ≈ 10; at k 4–8, 58.7 against ≈ 24.
+   - What that hints: an x-aligned component in lean32ek's own error on those 4 near-duplicate synthetic states. That
+     is more leakage than the "±1 SE" accepted above. It is not evidence about archive states: the 4 smoke states lie
+     on one trajectory, 0.05 apart, so any state-independent error projects onto x.
+   - **V3 is now paired, and no candidate quantity enters it:**
+     - **recovery:** α(e_inj − e_lean32ek) / α(e_inj64), on the same first pairs, must lie in [0.7, 1.3] in every
+       band;
+     - **power:** |α(e_inj64)| ≥ 3 × lean32ek's SE (all 64 pairs) in every band.
+   - On the smoke this gives recovery 0.987–1.079 and power z 5.3–30.6, a PASS. The ratios are no longer sealed.
+3. **Negative-control calibration (reported).**
+   - The two arms with no learnable bias by construction (f64ic32, lean32sr) flagged 2.1% and 2.3% of shells on the
+     smoke (nominal 0.27%). That is with 4 clusters and near-duplicate states; the 16-cluster synthetic test gave
+     0.37%.
+   - Reading rule for P2 and P8, fixed now: if the pooled negative-control shell rate on the archive run exceeds 1%,
+     a candidate's "≤ 1% of shells" criterion is read as "not above the pooled negative-control rate by more than
+     2 binomial SE".
+   - Band-level |z| < 3 is unchanged.
+
+**Smoke facts** (synthetic state; for the record, not scoring):
+- **Bitwise:** prod == lean_u1, lean32ek_fast == lean32ek (40/400/4,000 steps), dt40 == lean_u1.
+- **ms/step:** lean_u1 6.405, lean32ek 3.340, lean32ek_fast 2.694, lean32sr 2.789, lean32 3.190.
+- **Control a:** κ = 1.08 / 1.00 / 0.99 at k < 8, falling to 0.93 / 0.45 / 0.17 / 0.10 / −0.08 above.
+- **Alias split:** 0.084.
+- **Production's own step error,** |D(2.5e-6)|/|Δ|: on o1.2's subsampled frames, 2.3e-4 at k 1–2. On alias-free
+  frames it is 9.1e-7 at k 1–2, rising to 1.3e-4 in the corner. The large-scale dt sensitivity of the targets is
+  aliased small-scale content.

@@ -21,12 +21,19 @@ on a 256^2 rfft spectrum (`sub`: rfft2 of o1.2's float32 frame; `af`: the alias-
    static prediction -drate_n x 0.02 (drate_n from the tables actually used). kappa_b = energy-weighted slope of the
    fitted vs predicted alpha over the band's shells; PASS if kappa_b in CTRL_A_RANGE for CTRL_A_BANDS (k < 8, where
    0.02 is short against the flow's time scales); higher bands are reported.
-4. Control b (power): `inj` = lean32ek + a planted rate shift (per band, per worker drate_wb), `inj64` = the same shift
-   in float64 (noise-free truth, first pairs). Level-1 regressions on regressors scaled by drate_wb / drate_0b:
-   PASS if every band has z >= CTRL_B_Z and alpha_inj / alpha_inj64 in CTRL_B_RANGE (sub frames).
+4. Control b (recovery and power): `inj` = lean32ek + a planted rate shift (per band, per worker drate_wb), `inj64` =
+   the same shift in float64 (noise-free truth, first pairs). Level-1 regressions on regressors scaled by
+   drate_wb / drate_0b, sub frames, every band:
+   - recovery: alpha(e_inj - e_lean32ek) / alpha(e_inj64) on the same pairs in CTRL_B_RANGE (lean32ek's own coefficient
+     cancels in the difference);
+   - power: |alpha(e_inj64)| >= CTRL_B_Z x lean32ek's SE (all pairs): the planted bias would be seen at z >= 3.
+   This paired form replaced "z(inj) >= 3 and alpha_inj / alpha_inj64 in range" after the harness smoke 7823653: that
+   ratio contains lean32ek's own coefficient, so it would void the run exactly when lean32ek is biased
+   (PREDICTIONS_taxonomy.md addendum; changed before the archive run).
+5. Negative controls (f64ic32, lean32sr): their shell flag rates and band |z| > 3 counts, against nominal 0.27%.
 Candidates (lean32ek = lean32ek_fast if bitwise, dt30, dt32): their bias statistics are SEALED into
 <sealed-dir>/sealed_taxonomy.json (sha256 printed and kept in the summary) until jesswan / Weidong sign item 4's
-gates; --unseal prints them. Control b's ratios and the dt order ratio are sealed too (they reveal the sealed numbers).
+gates; --unseal prints them. The dt order ratio is sealed too (with the unsealed D80 it reveals |D30|).
 Prints TAXO_* lines and TAXO_ANALYSIS_DONE last.
 """
 import argparse
@@ -428,38 +435,46 @@ def main():
           + " ".join(f"k{n}={fmt(ctrl_a[n]['learnable_bias'] if ctrl_a.get(n) else None)}" for n in BNAME[:4]),
           flush=True)
 
-    # ---- control b: planted shift, power and calibration (sub) ------------------------------------------------
+    # ---- control b: planted shift, recovery and power (sub), paired so lean32ek's own coefficient cancels -------
     drate_wb = {w: np.asarray(W["injection"]["drate_b"], dtype=np.float64) for w, W in workers.items()
                 if W.get("injection")}
     w0 = sorted(drate_wb)[0]
-    ctrl_b, ctrl_b_sealed = {}, {}
-    res_b = {}
-    for arm in ("inj", "inj64"):
-        arr = arm_arrays(pairs, arm, "sub", L, clusters)
-        if arr is None:
-            continue
-        x, d, e, cl, ws = arr
+    bidx = np.maximum(G["band"], 0)
+
+    def scaled(x, d, ws):
         scale = np.stack([drate_wb[w] / np.where(drate_wb[w0] > 0, drate_wb[w0], 1.0) for w in ws])   # (P, bands)
-        bidx = np.maximum(G["band"], 0)
-        sx = x * scale[:, bidx]
-        sd = d * scale[:, bidx]
-        res_b[arm] = level1(G, cl, ncl, sx, sd, e, allv)
-    b_pass = "inj" in res_b and "inj64" in res_b
-    for n in BNAME:
-        r, t = res_b.get("inj", {}).get(n), res_b.get("inj64", {}).get(n)
-        if r is None or t is None or t["alpha"] == 0:
-            ctrl_b[n] = None
-            b_pass = False
-            continue
-        ratio = r["alpha"] / t["alpha"]
-        ok = r["z_x"] >= CTRL_B_Z and CTRL_B_RANGE[0] <= ratio <= CTRL_B_RANGE[1]
-        b_pass = b_pass and ok
-        ctrl_b[n] = {"z_x": r["z_x"], "pass": bool(ok)}
-        ctrl_b_sealed[n] = {"ratio_inj_over_inj64": ratio, "B_x_inj64": t["B_x"]}
-    summ["control_b"] = {"bands": ctrl_b, "pass": b_pass, "drate_b": {str(w): v.tolist() for w, v in drate_wb.items()}}
-    print(f"TAXO_CONTROL b (planted shift in lean32ek vs its float64 truth) {'PASS' if b_pass else 'FAIL'}: "
-          + " ".join(f"k{n}:{'ok' if (ctrl_b[n] and ctrl_b[n]['pass']) else 'FAIL'}(z={fmt(ctrl_b[n]['z_x'] if ctrl_b[n] else None, '.1f')})"
-                     for n in BNAME) + " (ratios sealed)", flush=True)
+        return x * scale[:, bidx], d * scale[:, bidx]
+
+    ctrl_b = {}
+    first = [p for p in pairs if f"inj64__sub__{L}" in p["data"]]
+    a_in, a_ek, a_64 = (arm_arrays(first, a, "sub", L, clusters) for a in ("inj", "lean32ek", "inj64"))
+    a_ek_all = arm_arrays(pairs, "lean32ek", "sub", L, clusters)
+    b_pass = all(a is not None for a in (a_in, a_ek, a_64, a_ek_all))
+    if b_pass:
+        sx, sd = scaled(a_64[0], a_64[1], a_64[4])
+        rec = level1(G, a_64[3], ncl, sx, sd, a_in[2] - a_ek[2], allv)    # the shift as recovered in lean32ek
+        tru = level1(G, a_64[3], ncl, sx, sd, a_64[2], allv)              # the shift in float64 (truth)
+        sxa, sda = scaled(a_ek_all[0], a_ek_all[1], a_ek_all[4])
+        noise = level1(G, a_ek_all[3], ncl, sxa, sda, a_ek_all[2], allv)  # only its SE is used (never alpha)
+        for n in BNAME:
+            r, t, s = rec.get(n), tru.get(n), noise.get(n)
+            if r is None or t is None or s is None or t["alpha"] == 0 or not s["se_alpha"] > 0:
+                ctrl_b[n] = None
+                b_pass = False
+                continue
+            ratio = r["alpha"] / t["alpha"]
+            z_pow = abs(t["alpha"]) / s["se_alpha"]
+            ok = z_pow >= CTRL_B_Z and CTRL_B_RANGE[0] <= ratio <= CTRL_B_RANGE[1]
+            b_pass = b_pass and ok
+            ctrl_b[n] = {"recovery_ratio": ratio, "z_power": z_pow, "B_x_truth": t["B_x"], "pass": bool(ok)}
+    summ["control_b"] = {"bands": ctrl_b, "pass": b_pass, "drate_b": {str(w): v.tolist() for w, v in drate_wb.items()},
+                         "form": "paired: alpha(inj - lean32ek) / alpha(inj64) on the same pairs; power = "
+                                 "|alpha(inj64)| / SE(lean32ek, all pairs) (addendum, after smoke 7823653)"}
+    print(f"TAXO_CONTROL b (planted shift: recovered in lean32ek vs float64 truth; power vs lean32ek's noise) "
+          f"{'PASS' if b_pass else 'FAIL'}: "
+          + " ".join(f"k{n}:{'ok' if (ctrl_b[n] and ctrl_b[n]['pass']) else 'FAIL'}"
+                     f"(ratio={fmt(ctrl_b[n]['recovery_ratio'] if ctrl_b[n] else None, '.3f')},"
+                     f"z={fmt(ctrl_b[n]['z_power'] if ctrl_b[n] else None, '.1f')})" for n in BNAME), flush=True)
     valid_run = bool(prod_ok and a_pass and b_pass)
     summ["valid"] = valid_run
 
@@ -477,6 +492,23 @@ def main():
         nonc["lean32_minus_dquant_af"] = {"level1": level1(G, a32[3], ncl, a32[0], a32[1], ediff, G["af_valid"]),
                                           "level2": level2(G, a32[3], ncl, a32[0], a32[1], ediff, G["af_valid"])[0]}
     summ["non_candidates"] = nonc
+    # negative controls: f64ic32 (one float32 rounding of the start state) and lean32sr (unbiased rounding) carry no
+    # learnable bias by construction, so their flag rates calibrate the tests (nominal 0.27% of shells, |z| > 3 in
+    # 0.27% of band cells)
+    calib = {}
+    for arm in ("f64ic32", "lean32sr"):
+        if arm not in nonc:
+            continue
+        l1, l2 = nonc[arm]["level1"], nonc[arm]["level2"]
+        n_sh = sum(l2[n]["n_shells"] for n in BNAME[:6] if l2.get(n))
+        n_fl = sum(l2[n]["n_shells"] * l2[n]["frac_p"] for n in BNAME[:6] if l2.get(n))
+        zs = [abs(l1[n][k]) for n in BNAME if l1.get(n) for k in ("z_x", "z_d")]
+        calib[arm] = {"shells": n_sh, "shell_flag_rate_k_lt_64": n_fl / n_sh if n_sh else None,
+                      "band_cells": len(zs), "band_cells_abs_z_gt_3": int(sum(z > 3 for z in zs))}
+    summ["negative_control_calibration"] = calib
+    print("TAXO_CALIBRATION negative controls (nominal 0.0027): " + " ".join(
+        f"{a}: shells {fmt(c['shell_flag_rate_k_lt_64'], '.4f')} of {c['shells']}, band |z|>3 "
+        f"{c['band_cells_abs_z_gt_3']}/{c['band_cells']}" for a, c in calib.items()), flush=True)
     for arm, r in nonc.items():
         l1, l2 = r["level1"], r["level2"]
         print(f"TAXO_BIAS {arm}: z_x " + " ".join(f"k{n}={fmt(l1[n]['z_x'] if l1.get(n) else None, '.1f')}"
@@ -514,14 +546,19 @@ def main():
             order[kind] = row
     if (80, "sub") in dt:
         x, d, e80, cl, _ = dt[(80, "sub")]
-        summ["production_time_error_dt80"] = {
-            "e_delta_D80_sub": edelta_bands(G, x, d, e80, allv),
-            "note": "D(2.5e-6) = Delta(dt/2) - Delta(dt); production's own error is -2 D80 (first order) to -8/7 D80"}
-        print("TAXO_DT80 production time error |D(2.5e-6)|/|Delta| per band (sub): " + " ".join(
-            f"k{n}={fmt(v)}" for n, v in summ["production_time_error_dt80"]["e_delta_D80_sub"].items()), flush=True)
+        pte = {"e_delta_D80_sub": edelta_bands(G, x, d, e80, allv),
+               "note": "D(2.5e-6) = Delta(dt/2) - Delta(dt); production's own error is -2 D80 (first order) to "
+                       "-8/7 D80 (third order)"}
+        if (80, "af") in dt:
+            xa, da, ea, _, _ = dt[(80, "af")]
+            pte["e_delta_D80_af"] = edelta_bands(G, xa, da, ea, G["af_valid"])
+        summ["production_time_error_dt80"] = pte
+        for kind in ("sub", "af"):
+            if f"e_delta_D80_{kind}" in pte:
+                print(f"TAXO_DT80 production time error |D(2.5e-6)|/|Delta| per band ({kind}): " + " ".join(
+                    f"k{n}={fmt(v)}" for n, v in pte[f"e_delta_D80_{kind}"].items()), flush=True)
     cand["dt_order_ratio"] = order
     sealed["candidates"] = cand
-    sealed["control_b_ratios"] = ctrl_b_sealed
     summ["dt_arms_valid"] = dt40_ok
 
     # ---- seal ----------------------------------------------------------------------------------------------------
@@ -530,9 +567,9 @@ def main():
     spath = os.path.join(args.sealed_dir, "sealed_taxonomy.json")
     with open(spath, "wb") as fh:
         fh.write(blob)
-    summ["sealed"] = {"path": spath, "sha256": sha, "contents": sorted(sealed["candidates"]) + ["control_b_ratios"]}
-    print(f"TAXO_SEALED sha256={sha} path={spath} (lean32ek, dt30, dt32 bias statistics; control b ratios; dt order "
-          f"ratio) -- open after item 4's gates are signed", flush=True)
+    summ["sealed"] = {"path": spath, "sha256": sha, "contents": sorted(sealed["candidates"])}
+    print(f"TAXO_SEALED sha256={sha} path={spath} (lean32ek, dt30, dt32 bias statistics; dt order ratio) -- open "
+          f"after item 4's gates are signed", flush=True)
     if args.unseal:
         summ["unsealed"] = sealed
         for k in ("lean32ek", "dt30", "dt32"):

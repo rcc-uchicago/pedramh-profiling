@@ -114,6 +114,53 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-06 (later)** — **SQG item 3 (generator-error taxonomy): harness built, pre-registered and smoked (job
+  7823653, `failures=0`); the archive run waits on staging.**
+  - **Smoke facts** (synthetic state, 4 near-duplicate copies, unscored; `SQG/analysis/results/polaris_taxonomy_smoke_7823653/`).
+    - Bitwise: prod == lean_u1; lean32ek_fast == lean32ek at 40/400/4,000 steps; dt-ladder n=40 == lean_u1.
+    - **lean32ek_fast 2.694 ms/step = 3.45× production**, bitwise to lean32ek (3.340 ms). lean32sr 2.789,
+      lean_u1 6.405.
+    - Control a: κ 1.08 / 1.00 / 0.99 at k < 8.
+    - Alias split 0.084: lean32ek's large-scale error in o1.2's frames is mostly folded small-scale noise.
+    - Production's own dt sensitivity |D(2.5e-6)|/|Δ| is 2.3e-4 at k 1–2 on o1.2's subsampled frames, but 9e-7
+      alias-free. The step error reaches the targets' large scales only through aliasing, at ≈ 8× lean32ek's
+      float32 error there.
+  - **Control-b design fixed after the smoke** (PREDICTIONS addendum, before the archive run).
+    - The pre-set "z ≥ 3" was unsigned, but the planted shift damps (α < 0).
+    - Its ratio α_inj/α_inj64 contained lean32ek's own coefficient, so it would void the run exactly when lean32ek is
+      biased.
+    - Now paired: recovery α(inj − lean32ek)/α(inj64) on the same pairs. Smoke: 0.987–1.079. Power: |α(inj64)|/SE.
+      Smoke: 5.3–30.6. Both PASS.
+    - Leak, noted honestly: on the near-duplicate smoke states, the old z values hinted at an x-aligned component in
+      lean32ek's error at k 2–8. That is not evidence for archive states.
+    - Negative controls flag 2.1–2.3% of shells on the 4-cluster smoke (nominal 0.27%; 16-cluster test 0.37%). A
+      reading rule for P2/P8 is fixed in the addendum.
+  - **Code** in `SQG/analysis/opt/taxonomy/` (commit 3854307c):
+    - `taxonomy.py`, the per-GPU worker;
+    - `lean32_fast.py`: lean32ek with the u1 trigger + 3-slot ring, which must be bitwise, and a stochastic-rounding
+      control;
+    - `dt_ladder.py`: a variable-step AB3 switch, then lean_u1's code at h;
+    - `analyze_taxonomy.py`: per-band and per-shell clustered regressions of the paired error on (x, Δ), the MDE
+      before any z, and two positive controls;
+    - `PREDICTIONS_taxonomy.md`: validity gates V1–V4 + 13 predictions.
+  - **Tests (stdlib / numpy, login node).**
+    - dt-ladder order ratios −0.637 / −1.507 vs theory −0.639 / −1.500.
+    - The variable-step switch adds 1e-9 vs 1e-6 for naive weights.
+    - Analysis: the null flags 0.37% of shells; a planted band bias is recovered at 0.93 (z 7.5); a per-shell
+      random-sign bias is flagged in 100% of its shells at 0.99 of its size; end-to-end passes on a fake job dir.
+  - **Design facts worth keeping.**
+    - float32's damping error is a per-SHELL bias with random sign. A per-band pooled fit under-reads it, so the
+      analysis also fits per shell.
+    - The x-coefficient of a damping-rate error is −δr·0.02 whether the band is static or swept. That makes it the
+      robust control-a prediction; the d-coefficient is not.
+  - **Sealing (user's choice).** Until jesswan/Weidong sign item 4's gates, the bias statistics of lean32ek, dt
+    2e-4/30 and dt 2e-4/32 go to `$MEMBER_ROOT/sqg_profile/taxonomy_<job>/sealed/sealed_taxonomy.json`. Only its
+    sha256 is committed.
+  - **Blocked:** the 16 archived checkpoints (members 1–4 × `ckpt_t0{100,200,300,400}.00.npz`, ≈ 6.4 GB) must be
+    copied from Midway `/project/pedramh/weidong/SQG/SQG_deterForcing/AllTrainData/<label>/checkpoint/` to
+    `$MEMBER_ROOT/sqg_stage/AllTrainData/<label>/checkpoint/` (user, byte-for-byte). The job refuses to start without
+    them (`TAXO_CKPTS_NOT_STAGED`).
+
 - **2026-11-06** — **SQG: the math of the delta table, a three-agent "what else to test" plan, and analogues from
   other fields** (no jobs submitted). Everything is in `SQG/analysis/opt/team_2026-11-06/` and
   `SQG/analysis/opt/delta/MATH_delta.md`.
