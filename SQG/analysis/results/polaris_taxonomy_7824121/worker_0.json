@@ -1,0 +1,372 @@
+{
+ "worker": 0,
+ "device_kind": "NVIDIA A100-SXM4-40GB",
+ "jax": "0.4.28",
+ "solver_sha256": "8d243313bd11a9ff0dc4caea70c17d3d09fc5307acb3b6feec83b2e4bfa19ddb",
+ "pairs": 4,
+ "lags_steps": [
+  40,
+  400,
+  1000,
+  2000,
+  4000
+ ],
+ "inj_factor": 3.0,
+ "mde_pred": [
+  8e-06,
+  8.8e-07,
+  2.6e-07,
+  1.2e-07,
+  1.2e-07,
+  1.2e-07,
+  1.2e-07,
+  1.2e-07
+ ],
+ "bands": [
+  [
+   1,
+   2
+  ],
+  [
+   2,
+   4
+  ],
+  [
+   4,
+   8
+  ],
+  [
+   8,
+   16
+  ],
+  [
+   16,
+   32
+  ],
+  [
+   32,
+   64
+  ],
+  [
+   64,
+   128
+  ],
+  [
+   128,
+   182
+  ]
+ ],
+ "states": [
+  {
+   "member": 1,
+   "path": "/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_stage/AllTrainData/trainingdata_m01_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02/checkpoint/ckpt_t0100.00.npz",
+   "offset_calls": 0,
+   "t": 100.0,
+   "completed_blocks": 4000,
+   "spe": 46.019778267554,
+   "cfl": 0.23717342293174953,
+   "load_s": 9.8,
+   "pairs": [
+    {
+     "j": 0,
+     "spe": 46.019778267554,
+     "cfl": 0.23717342293174953,
+     "arms": [
+      "lean32ek",
+      "inj",
+      "dquant",
+      "inj64",
+      "lean32",
+      "f64ic32",
+      "lean32sr",
+      "prod",
+      "lean32ek_fast"
+     ],
+     "seconds": 328.5,
+     "dt": true
+    },
+    {
+     "j": 1,
+     "spe": 46.12195611709094,
+     "cfl": 0.2329450440652345,
+     "arms": [
+      "lean32ek",
+      "inj"
+     ],
+     "seconds": 52.5,
+     "dt": false
+    },
+    {
+     "j": 2,
+     "spe": 46.230069675952755,
+     "cfl": 0.2277838606808809,
+     "arms": [
+      "lean32ek",
+      "inj"
+     ],
+     "seconds": 52.5,
+     "dt": false
+    },
+    {
+     "j": 3,
+     "spe": 46.34373710027927,
+     "cfl": 0.22545325604992575,
+     "arms": [
+      "lean32ek",
+      "inj"
+     ],
+     "seconds": 52.5,
+     "dt": false
+    }
+   ]
+  },
+  {
+   "member": 2,
+   "path": "/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_stage/AllTrainData/trainingdata_m02_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02/checkpoint/ckpt_t0200.00.npz",
+   "offset_calls": 0,
+   "t": 200.0,
+   "completed_blocks": 9000,
+   "spe": 43.51774346629958,
+   "cfl": 0.2354749397161027,
+   "load_s": 1.6,
+   "pairs": [
+    {
+     "j": 0,
+     "spe": 43.51774346629958,
+     "cfl": 0.2354749397161027,
+     "arms": [
+      "lean32ek",
+      "inj",
+      "dquant",
+      "inj64",
+      "lean32",
+      "f64ic32",
+      "lean32sr"
+     ],
+     "seconds": 270.9,
+     "dt": true
+    },
+    {
+     "j": 1,
+     "spe": 43.60357680244269,
+     "cfl": 0.23428785521330844,
+     "arms": [
+      "lean32ek",
+      "inj"
+     ],
+     "seconds": 52.4,
+     "dt": false
+    },
+    {
+     "j": 2,
+     "spe": 43.690225114543736,
+     "cfl": 0.233779525022928,
+     "arms": [
+      "lean32ek",
+      "inj"
+     ],
+     "seconds": 52.4,
+     "dt": false
+    },
+    {
+     "j": 3,
+     "spe": 43.77710805529768,
+     "cfl": 0.2335273055463318,
+     "arms": [
+      "lean32ek",
+      "inj"
+     ],
+     "seconds": 52.4,
+     "dt": false
+    }
+   ]
+  },
+  {
+   "member": 3,
+   "path": "/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_stage/AllTrainData/trainingdata_m03_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02/checkpoint/ckpt_t0300.00.npz",
+   "offset_calls": 0,
+   "t": 300.0,
+   "completed_blocks": 14000,
+   "spe": 32.0676674868061,
+   "cfl": 0.3746888978075861,
+   "load_s": 1.5,
+   "pairs": [
+    {
+     "j": 0,
+     "spe": 32.0676674868061,
+     "cfl": 0.3746888978075861,
+     "arms": [
+      "lean32ek",
+      "inj",
+      "dquant",
+      "inj64",
+      "lean32",
+      "f64ic32",
+      "lean32sr"
+     ],
+     "seconds": 153.3,
+     "dt": false
+    },
+    {
+     "j": 1,
+     "spe": 32.07407006695511,
+     "cfl": 0.33907493231220187,
+     "arms": [
+      "lean32ek",
+      "inj"
+     ],
+     "seconds": 52.4,
+     "dt": false
+    },
+    {
+     "j": 2,
+     "spe": 32.07001003145526,
+     "cfl": 0.30906473953204994,
+     "arms": [
+      "lean32ek",
+      "inj"
+     ],
+     "seconds": 52.4,
+     "dt": false
+    },
+    {
+     "j": 3,
+     "spe": 32.05511911126551,
+     "cfl": 0.3107438810452926,
+     "arms": [
+      "lean32ek",
+      "inj"
+     ],
+     "seconds": 52.4,
+     "dt": false
+    }
+   ]
+  },
+  {
+   "member": 4,
+   "path": "/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_stage/AllTrainData/trainingdata_m04_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02/checkpoint/ckpt_t0400.00.npz",
+   "offset_calls": 0,
+   "t": 400.0,
+   "completed_blocks": 19000,
+   "spe": 32.92330411908345,
+   "cfl": 0.1990888825659348,
+   "load_s": 1.6,
+   "pairs": [
+    {
+     "j": 0,
+     "spe": 32.92330411908345,
+     "cfl": 0.1990888825659348,
+     "arms": [
+      "lean32ek",
+      "inj",
+      "dquant",
+      "inj64",
+      "lean32",
+      "f64ic32",
+      "lean32sr"
+     ],
+     "seconds": 153.3,
+     "dt": false
+    },
+    {
+     "j": 1,
+     "spe": 32.98835173670272,
+     "cfl": 0.20231747053542565,
+     "arms": [
+      "lean32ek",
+      "inj"
+     ],
+     "seconds": 52.4,
+     "dt": false
+    },
+    {
+     "j": 2,
+     "spe": 33.05030675816364,
+     "cfl": 0.21905287427822465,
+     "arms": [
+      "lean32ek",
+      "inj"
+     ],
+     "seconds": 52.4,
+     "dt": false
+    },
+    {
+     "j": 3,
+     "spe": 33.10873694886406,
+     "cfl": 0.2074403489266167,
+     "arms": [
+      "lean32ek",
+      "inj"
+     ],
+     "seconds": 52.4,
+     "dt": false
+    }
+   ]
+  }
+ ],
+ "bitwise": {
+  "prod_vs_lean_u1_frames": {
+   "40": true,
+   "400": true,
+   "1000": true,
+   "2000": true,
+   "4000": true
+  },
+  "fast_vs_lean32ek_state": {
+   "40": true,
+   "400": true,
+   "4000": true
+  },
+  "dt40_vs_lean_u1": [
+   {
+    "state": 0,
+    "frame": true,
+    "state_hash": true
+   },
+   {
+    "state": 1,
+    "frame": true,
+    "state_hash": true
+   }
+  ]
+ },
+ "npz": [
+  "pair_w0_s0_p0.npz",
+  "pair_w0_s0_p1.npz",
+  "pair_w0_s0_p2.npz",
+  "pair_w0_s0_p3.npz",
+  "pair_w0_s1_p0.npz",
+  "pair_w0_s1_p1.npz",
+  "pair_w0_s1_p2.npz",
+  "pair_w0_s1_p3.npz",
+  "pair_w0_s2_p0.npz",
+  "pair_w0_s2_p1.npz",
+  "pair_w0_s2_p2.npz",
+  "pair_w0_s2_p3.npz",
+  "pair_w0_s3_p0.npz",
+  "pair_w0_s3_p1.npz",
+  "pair_w0_s3_p2.npz",
+  "pair_w0_s3_p3.npz"
+ ],
+ "injection": {
+  "drate_b": [
+   8.069878895522392e-05,
+   4.073900754460306e-06,
+   3.5636889262338e-06,
+   5.819793926278906e-06,
+   1.250450847154185e-05,
+   2.0666413398987783e-05,
+   2.4939012629061733e-05,
+   2.6019688129059386e-05
+  ],
+  "edec_changed_modes": 32639
+ },
+ "ms_per_step": {
+  "lean_u1": 6.403,
+  "lean32ek": 3.3453,
+  "lean32ek_fast": 2.6969,
+  "lean32sr": 2.7922,
+  "lean32": 3.1954
+ },
+ "wall_s": 1634.3
+}

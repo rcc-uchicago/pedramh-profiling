@@ -4,8 +4,8 @@
 
 > Continue SQG item 3 (the generator-error taxonomy). Call EnterWorktree with
 > `path=/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling`,
-> then read `SQG/analysis/opt/taxonomy/HANDOFF_taxonomy.md` and follow its §3. Job 7824121 may still be queued; don't
-> resubmit it. Never open or print the sealed file.
+> then read `SQG/analysis/opt/taxonomy/HANDOFF_taxonomy.md` and follow its §3 from step 2. The archive run, job
+> 7824121, is DONE (`failures=0`, `valid=True`) and its summaries are committed. Never open or print the sealed file.
 
 This file is a starting point. The record is:
 - `PREDICTIONS_taxonomy.md`, including its addendum;
@@ -18,7 +18,7 @@ This file is a starting point. The record is:
 |---|---|
 | Branch / worktree | `sqg-polaris-profiling` (sparse: cone `SQG` + root files), pushed. Draft PR #25 → base `sqg`. |
 | Commits | `3854307c` harness + pre-registration; `3afd9eed` smoke results + paired control b + addendum; this handoff after. |
-| **Archive run** | **job 7824121** (`debug`, 1 node, walltime 0:59, submitted 21:08). It waited on `queue_tags` (no free debug node) and **STARTED 22:15:23** on x3001c0s13b0n0. Both test files passed at its start. Expected end ≈ 22:50; the hard walltime limit is 23:14. **Never resubmit** it while queued. |
+| **Archive run** | **job 7824121 DONE 22:44:08: `TAXO_JOB_DONE failures=0`, `TAXO_ANALYSIS_DONE valid=True control_a=True control_b=True prod_bitwise=True dt_valid=True fast=True`.** It ran 22:15–22:44 on x3001c0s13b0n0. Sealed sha256 `6f1d0e5153918a3b14faf6e29795d91263a032479121bf87a4417fb173b78be1`. The summaries are committed. **Start at §3 step 2: scoring.** |
 | Log | `/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/logs/7824121.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov.OU`. It appears when the job STARTS; key on the end token `TAXO_JOB_DONE failures=N`, not on the file existing. |
 | Raw outputs | `$MEMBER_ROOT/sqg_profile/taxonomy_7824121/`: `pair_w*_s*_p*.npz`, `tables_w*.npz`, `worker_*.json` / `.log`, `analyze_taxonomy.log`, and the **sealed file `sealed/sealed_taxonomy.json`**. |
 | Committed summaries | `SQG/analysis/results/polaris_taxonomy_7824121/`, written by the job. The results dir is gitignored, so use `git add -f`. |
@@ -114,7 +114,31 @@ says to unseal (`analyze_taxonomy.py --unseal`). Predictions 2 and 5 stay unscor
 - **Science owners.** jesswan / Weidong decide anything that changes what is computed: precision in production, dt,
   STRIDE, the replay ratio, and admission of lean32ek.
 
-## 5. Key numbers so far (smoke 7823653, synthetic state; not scored)
+## 5a. Archive run 7824121: the unsealed headline (read from the `.OU`; scoring not done yet)
+
+- **Validity.**
+  - V1: prod == lean_u1 on all 4 GPUs.
+  - V2: κ 1.036 / 0.997 / 0.992 at k < 8 (0.93 / 0.65 / 0.36 / 0.14 / 0.05 above).
+  - V3, paired: recovery 0.961–1.007, power z 5.2–17.6.
+  - V4: dt40 == lean_u1 on all 8 ladder states.
+  - Fast form: 2.698 ms/step, bitwise.
+- **States are archive-like.** Median rms(Δ) 0.2733, range [0.173, 0.381].
+- **Calibration.** Negative controls flag 0.50% (f64ic32) and 0.42% (lean32sr) of shells, nominal 0.27%. That is
+  below 1%, so the addendum's reading rule does not trigger. But 3 of 32 band cells have |z| > 3. The band-level test
+  runs somewhat hot; take that into account when P2 is unsealed.
+- **Overall e_Δ.** lean32ek 9.43e-6, lean32 5.84e-4, lean32sr 1.43e-5, f64ic32 2.05e-7.
+  - Check P11: lean32ek's predicted range was [1e-5, 4e-5].
+- **lean32 is a learnable bias.** Shells flagged: 67% at k 2–4, 70% at k 4–8, 74% at k 8–16. Learnable bias 4.8e-4 of
+  Δ at k 1–2.
+- **Mechanism B** (lean32 − dquant): flagged 35% of shells at k 4–8 and 27% at k 8–16; learnable 2.1e-4 at k 1–2.
+  The data favour LEARNING's P4 prediction.
+- **Mechanism A alone** (dquant): learnable bias 3.1e-4 at k 1–2, 2.1e-3 at k 2–4, 6.2e-4 at k 4–8.
+- **Alias split** 0.068. Spectrum spread: lean32ek 29, lean32 2,639.
+- **Production's own dt sensitivity** |D(2.5e-6)|/|Δ|: 2.49e-5 at k 1–2 on subsampled frames, 9.3e-7 alias-free.
+  That is about lean32ek's own subsampled error at k 1–2 (1.91e-5). Both are mostly aliasing.
+- **Timing.** Worker 3's GPU was about 5% slower than the others (lean_u1 6.58 vs 6.40). Report the median.
+
+## 5b. Key numbers from the smoke (7823653, synthetic state; not scored)
 
 - **Bitwise:** prod == lean_u1; lean32ek_fast == lean32ek at 40/400/4,000 steps; dt40 == lean_u1.
 - **ms/step (A100):** lean_u1 6.405 (1.45×), lean32ek 3.340 (2.78×), **lean32ek_fast 2.694 (3.45×)**, lean32sr 2.789,
