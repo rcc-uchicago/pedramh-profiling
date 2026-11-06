@@ -18,7 +18,7 @@ This file is a starting point. The record is:
 |---|---|
 | Branch / worktree | `sqg-polaris-profiling` (sparse: cone `SQG` + root files), pushed. Draft PR #25 → base `sqg`. |
 | Commits | `3854307c` harness + pre-registration; `3afd9eed` smoke results + paired control b + addendum; this handoff after. |
-| **Archive run** | **job 7824121** (`debug`, 1 node, walltime 0:59, submitted 21:08). At 22:02 it was still `Q` with "Insufficient amount of resource: queue_tags": no free debug node, 54 min of eligible time accrued. **Do not resubmit**; that resets the eligible time. Expected run time ≈ 35 min once started. |
+| **Archive run** | **job 7824121** (`debug`, 1 node, walltime 0:59, submitted 21:08). It waited on `queue_tags` (no free debug node) and **STARTED 22:15:23** on x3001c0s13b0n0. Both test files passed at its start. Expected end ≈ 22:50; the hard walltime limit is 23:14. **Never resubmit** it while queued. |
 | Log | `/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/logs/7824121.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov.OU`. It appears when the job STARTS; key on the end token `TAXO_JOB_DONE failures=N`, not on the file existing. |
 | Raw outputs | `$MEMBER_ROOT/sqg_profile/taxonomy_7824121/`: `pair_w*_s*_p*.npz`, `tables_w*.npz`, `worker_*.json` / `.log`, `analyze_taxonomy.log`, and the **sealed file `sealed/sealed_taxonomy.json`**. |
 | Committed summaries | `SQG/analysis/results/polaris_taxonomy_7824121/`, written by the job. The results dir is gitignored, so use `git add -f`. |
