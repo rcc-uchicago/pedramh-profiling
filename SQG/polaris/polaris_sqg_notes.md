@@ -1301,3 +1301,154 @@ kernel per fusion. Its `per_step` numbers are therefore 3× too small; the per-p
 - cuFFT 11.4.1;
 - XLA unroll flags (none exist in this jaxlib; job F);
 - host-side scheduling: the GPU is 99.4–99.5% busy in both variants.
+
+---
+
+# Part XI — Does float32 damage o1.2's training delta? (job 7819310, 2026-11-06)
+
+**Ask (user, 2026-11-05):** "we need to be sure that fp32 is not impacting δ as it is very small".
+
+o1.2 learns Δ = θ(t + 0.02) − θ(t) on 256² float32 frames (θ / 8), a lag of 4,000 solver steps. Round 1b had
+compared frames, not deltas.
+
+**Run.**
+- **Job:** `SQG/analysis/opt/delta/run_delta_polaris.pbs`, 1-node debug, x3001c0s13b0n0, 2026-11-06 00:48–01:16
+  (1,667 s). It ended `DELTA_JOB_DONE failures=0`.
+- **Predictions and the gate:** `SQG/analysis/opt/delta/PREDICTIONS_delta.md`, written before submission.
+- **Results:** `SQG/analysis/results/polaris_delta_7819310/`. The spun-up state (npz, 0.4 GB) stays in
+  `$MEMBER_ROOT/sqg_profile/delta_7819310/` for reuse.
+
+## Two mechanisms, found before the run
+
+1. **`decay` stored in float32 quantizes each mode's damping rate.** rate·DT ≈ 1e-7–5e-6, and float32 numbers
+   below 1 are 6e-8 apart.
+   - Rate error: up to ±20% at k = 4–16 (rms 11–13%), ±5% in the forcing ring, 0.1% at k = 1.
+   - It is deterministic per mode, and plain float32 has it too (`SQG/analysis/opt/delta/decay_quant.py`).
+2. **A float32 state rounds sub-ulp per-step changes systematically wherever the increments vary slowly.**
+   - `test_f32_update.py` (emulated float32; one forced k = 8.4 mode; 100k steps): the 4,000-step Δ is **31%
+     off** for `lean32`'s update.
+   - **It is the same 31% with expm1 damping.** The decrement is also sub-ulp and gets rounded onto the state's
+     grid.
+   - A compensated (TwoSum hi + lo) update gives **8.8e-8**.
+
+## Variants and method
+
+| variant | what | ms/step |
+|---|---|---|
+| `mixed` | seed 2: float32 FFTs and products; float64 state, AB3 and damping | 4.732 |
+| `lean32` | seed 2: all float32 | 3.202 |
+| `lean32e` | `lean32` + expm1 damping + AB3 terms summed first | 3.203 |
+| `lean32ek` | `lean32e` + compensated hi + lo complex64 state (`f32_update.compensated_update`) | **3.351** |
+| `f64ic32` (control) | float64 from the state rounded once to complex64: the floor | — |
+
+**Method.**
+- **Reference:** float64 `lean_u1`, confirmed bitwise equal to production on pair 0.
+- **Start state:** seed 2's synthetic −5/3 field, spun up 0.5 time units in float64. CFL 0.31–0.45, SPE 106 → 75.
+  No archived checkpoint is staged on Polaris.
+- **Pairs:** 8 pairs, 0.02 apart along the float64 trajectory, through o1.2's own `coarse()` / 8.
+
+## Per-step increments (full 4096² spectrum, identical float32-representable start)
+
+The increment is a small fraction of θ: 9.8e-6 at k = 1–2, 1.6e-5 at k = 2–4, 1.7e-4 at k = 8–16, 8.4e-4 overall.
+
+| 1-step increment rel. error | k 1–2 | k 2–4 | k 4–8 | k 8–16 | k 16–32 | all |
+|---|---|---|---|---|---|---|
+| `lean32` | **5.3e-3** | **3.8e-3** | 9.3e-4 | 3.6e-4 | 1.1e-4 | 7.8e-5 |
+| `lean32e` | 5.4e-3 | 2.7e-3 | 6.1e-4 | 2.0e-4 | 7.2e-5 | 5.8e-5 |
+| `lean32ek` | 4.3e-6 | 2.2e-6 | 1.9e-6 | 2.4e-6 | 2.4e-6 | 3.3e-5 |
+| `mixed` | 4.1e-6 | 2.2e-6 | 1.9e-6 | 2.4e-6 | 2.3e-6 | 3.3e-5 |
+
+`lean32` gets each large-scale increment 0.4–0.5% wrong, every step. That is state rounding (6e-8 of θ) on an
+increment of 1e-5 of θ. **The compensation survives XLA:** `lean32ek` equals `mixed` in every band.
+
+## The delta at o1.2's lag (median over 8 pairs)
+
+| e_Δ at 4,000 steps | all | k 1–2 | k 2–4 | k 4–8 | k 8–16 | k 16–32 | k 32–64 | k 64–182 |
+|---|---|---|---|---|---|---|---|---|
+| share of Δ energy | — | 0.01% | 0.8% | 6.5% | 21% | 30% | 23% | 19% |
+| `f64ic32` floor | 2.3e-7 | 1.2e-6 | 4.3e-7 | 1.1e-7 | 6.9e-8 | 9.7e-8 | 1.9e-7 | 4.5e-7 |
+| `mixed` | 8.7e-6 | 2.2e-5 | 5.2e-6 | 3.1e-6 | 2.8e-6 | 3.9e-6 | 7.4e-6 | 1.7e-5 |
+| `lean32ek` | 8.8e-6 | 2.2e-5 | 5.2e-6 | 3.1e-6 | 2.9e-6 | 3.9e-6 | 7.5e-6 | 1.8e-5 |
+| `lean32e` | 4.3e-4 | 3.2e-3 | 1.4e-3 | 3.3e-4 | 1.4e-4 | 1.7e-4 | 3.5e-4 | 8.1e-4 |
+| `lean32` | **5.5e-4** | **3.6e-3** | **2.0e-3** | 4.5e-4 | 2.1e-4 | 2.1e-4 | 4.3e-4 | 1.0e-3 |
+
+How the error grows with lag (overall e_Δ / frame error; median):
+
+| lag (steps) | 40 | 400 | 1,000 | 2,000 | 4,000 |
+|---|---|---|---|---|---|
+| `lean32` e_Δ | 5.8e-5 | 8.0e-5 | 1.3e-4 | 2.3e-4 | 5.5e-4 |
+| `lean32` e_frame | 1.9e-6 | 1.6e-5 | 4.0e-5 | 9.8e-5 | **3.0e-4** (160×) |
+| `lean32ek` e_frame | 3.8e-7 | 1.1e-6 | 1.8e-6 | 2.9e-6 | **4.8e-6** (13×) |
+
+**Gate** (pre-set): e_Δ ≤ max(2 × floor, 1e-6), overall and in every band holding ≥ 1% of Δ's energy (k ≥ 4 here).
+
+| variant | verdict | e_Δ / floor | e_Δ / UViT relative error |
+|---|---|---|---|
+| `mixed` | **FAIL** | 37× | 1.1e-4 |
+| `lean32ek` | **FAIL** | 38× | 1.1e-4 |
+| `lean32e` | **FAIL** | 1,900× | 5.5e-3 |
+| `lean32` | **FAIL** | 2,400× | 6.9e-3 |
+
+The UViT's relative error is taken as sqrt(0.0043)/rms(Δ) = 0.079 in this state; with the archive's rms(Δ), 0.24.
+The verdicts stand as recorded; the gate is not loosened after the run.
+
+What it says:
+- **Plain float32 does damage the delta, worst where the delta is smallest.**
+  - `lean32` (and the plain float32 production step it equals) gets the k = 1–4 part of the 0.02 delta 0.2–0.4%
+    wrong.
+  - Its frame error grows faster than linearly in the lag (160× over 100× the steps): accumulation that does not
+    average out, as test_f32_update predicted.
+  - The expm1 damping fix alone barely helps (−20%). State rounding is the cause, not the damping table.
+- **A compensated float32 state removes 98% of it, for +0.15 ms/step.**
+  - `lean32ek` matches `mixed` in every band and at every lag: ≈ 9e-6 overall, 2e-5 at k = 1–2.
+  - Its error grows like a random walk (13× over 100× the steps).
+  - It costs 3.35 ms vs `mixed`'s 4.73 (2.77× vs 1.96× production).
+- **Nothing with float32 tendencies reaches the float64 floor.**
+  - The floor is what one float32 rounding of the state does through float64 dynamics over 0.02: 2.3e-7. It sits
+    far below my predicted 1e-6–1e-4, because chaos amplifies little in 0.02 time units.
+  - `mixed`'s and `lean32ek`'s remaining 9e-6 is the float32 FFT / nonlinear term (≈ 2e-6 per step relative,
+    1-step table).
+  - So the gate as set asks "as good as float64?", and only the float64 path (`lean_u1`, `lean64`) is.
+- **Limits.**
+  - **The start state is not archive-like.** rms(Δ) is 0.825 vs the archive's 0.27, and the energy is still
+    falling. Small scales dominate Δ here, so k ≤ 4 (where float32 errs most) holds < 1% of Δ's energy and was
+    not gated.
+  - **Paired, not distributional.** Paired errors do not show a bias in Δ's statistics; that needs long runs.
+
+## Scorecard (`PREDICTIONS_delta.md`)
+
+- **Confirmed:**
+  - 2: `edec` = `decay` to 5.8e-11.
+  - 4: `lean32` FAILS, overall 5.5e-4, in 1e-4–3e-3.
+  - 4: `lean32e` FAILS, within 2× of `lean32` (0.80×).
+  - 4: every variant's e_Δ ≤ 1% of the UViT's error (`lean32` 0.69%).
+  - 5: speed. `lean32e` +0.003%; `lean32ek` +0.149 ms (0.08–0.25); `mixed` 4.73.
+- **Half:**
+  - 1: `lean_u1` == `ref` bitwise, but CFL reached 0.453 > 0.45 at t = 0.15.
+  - 3: the error pattern is confirmed: `lean32` k1–2 5.3e-3 ≥ 1e-3, `lean32e` within 2×, `lean32ek` / `mixed`
+    ≤ 1e-5 for k ≤ 16. But the k = 1–2 increment size was 9.8e-6, just under the predicted 1e-5–5e-5.
+- **Refuted:**
+  - 4: floor in 1e-6–1e-4 → 2.3e-7.
+  - 4: `lean32ek` PASS → FAIL (38× floor).
+  - 4: `mixed` PASS → FAIL (37× floor).
+  - 4: rms(Δ) 0.15–0.40 → 0.825.
+
+## Decision for the user (science; the pre-set gate settles only "as good as float64": nothing in float32 is)
+
+| path | Δ error at the 0.02 lag | ms/step (A100) | vs production |
+|---|---|---|---|
+| float64 `lean_u1` | 0 (bitwise) | 6.40 | 1.45× |
+| float64 round 2 (C2C + trigger) | ≤ 1e-13 fields, frames bitwise so far | ≈ 5.3–5.5 (estimate) | ≈ 1.7× |
+| `lean32ek` | ≈ 9e-6 (2e-5 at k1–2), random-walk-like | 3.35 | 2.77× |
+| `lean32ek` + trigger + 3-slot ring | same numerics, untested | ≈ 2.7 (estimate) | ≈ 3.4× |
+| `mixed` | ≈ 9e-6 | 4.73 | 1.96× |
+| `lean32` / `lean32_u1_ring3` | 5.5e-4 (3.6e-3 at k1–2), accumulating | 3.20 / 2.52 | 2.9× / 3.7× |
+
+**Recommendation:**
+- **Do not use plain float32 (`lean32`, with or without the trigger) for o1.2's targets.**
+- If a pre-set tolerance at the `mixed` / `lean32ek` level (≈ 1e-5 of Δ) is acceptable to jesswan / Weidong,
+  `lean32ek` is the float32 candidate, and the trigger and ring apply to it unchanged.
+- Otherwise stay on float64: `lean_u1` now, round 2 next.
+
+**Before either choice is final,** rerun `delta_fidelity.py --state-in` on 2–3 archived checkpoints (staged from
+Midway), and add a long-run (≥ 1 time unit) bias comparison from the saved state.

@@ -114,6 +114,32 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-06** — **SQG delta-fidelity job 7819310 DONE (`DELTA_JOB_DONE failures=0`), notes Part XI. Plain float32
+  damages o1.2's training delta; a compensated float32 state fixes 98% of it.** Results in
+  `SQG/analysis/results/polaris_delta_7819310/`.
+  - **Median e_Δ at the 4,000-step lag over 8 pairs** (spun-up synthetic state):
+
+    | variant | all | k1–2 | k2–4 | ms/step |
+    |---|---|---|---|---|
+    | `lean32` | **5.5e-4** | **3.6e-3** | **2.0e-3** | 3.20 |
+    | `lean32e` (expm1 damping) | 4.3e-4 | 3.2e-3 | 1.4e-3 | 3.20 |
+    | `lean32ek` (compensated) | **8.8e-6** | 2.2e-5 | 5.2e-6 | **3.35** |
+    | `mixed` | 8.7e-6 | 2.2e-5 | 5.2e-6 | 4.73 |
+    | float64 from a once-rounded state (floor) | 2.3e-7 | | | |
+  - **`lean32`'s error is systematic:** its frame error grows 160× over 100× the steps; `lean32ek`'s grows 13×.
+    Its 1-step increment error at k1–2 is 5.3e-3, vs 4.3e-6 for `lean32ek` / `mixed`. The compensation survives
+    XLA.
+  - **Pre-set gate (≤ 2× floor): all four FAIL.** `mixed` / `lean32ek` are 37–38× the floor (float32 FFT term).
+    Verdicts stand; the gate is not loosened.
+  - **Predictions:** 5 confirmed, 2 half, 4 refuted. The floor and rms(Δ) were off, and `mixed` / `lean32ek` were
+    predicted to pass.
+  - **Decision is the user's / jesswan / Weidong's:**
+    - **Do not use plain float32 (`lean32`, `lean32_u1_ring3`) for o1.2's targets.**
+    - If a pre-set tolerance at ≈ 1e-5 of Δ is acceptable, use `lean32ek` (2.77×; with the trigger + ring
+      ≈ 3.4×, untested).
+    - Otherwise stay on float64: `lean_u1` 1.45×, round 2 ≈ 1.7×.
+  - **Caveat:** the start state is not archive-like (rms(Δ) 0.825 vs 0.27). A definitive rerun needs 2–3 archived
+    checkpoints staged from Midway (`delta_fidelity.py --state-in`), plus a long-run bias check.
 - **2026-11-05** — **SQG Nsight job 7819082 DONE (`NSIGHT_DONE failures=0`), notes Part X.** Results in
   `SQG/analysis/results/polaris_nsight_lean_7819082/`. Predictions: 14 confirmed, 6 half, 1 refuted.
   - **`lean32` 3.198 ms/step, by op:** AB3 fusion 926 µs (28.8%), 2 RFFT 615, C2C 540, IRFFT 503, products 253,
