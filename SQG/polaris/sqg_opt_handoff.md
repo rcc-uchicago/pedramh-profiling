@@ -1,5 +1,9 @@
 # SQG solver optimization + multi-node on Polaris: handoff (written 2026-11-05)
 
+> **Superseded for current work (2026-11-06 evening).** The live task is item 3 of the 2026-11-06 team plan, the
+> generator-error taxonomy: archive run job 7824121. Start from `SQG/analysis/opt/taxonomy/HANDOFF_taxonomy.md`
+> and its paste prompt. This file stays as the record of rounds 1–1c.
+
 **Prompt for the fresh session (paste as-is):**
 
 > Continue the SQG Polaris optimization work. Call EnterWorktree with
