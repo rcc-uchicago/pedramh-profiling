@@ -114,6 +114,40 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-06** — **SQG: the math of the delta table, a three-agent "what else to test" plan, and analogues from
+  other fields** (no jobs submitted). Everything is in `SQG/analysis/opt/team_2026-11-06/` and
+  `SQG/analysis/opt/delta/MATH_delta.md`.
+  - **Math (`MATH_delta.md`).**
+    - e_Δ = e_frame · ‖F‖/‖Δ‖ exactly. The measured ratio is identical across variants: 32 at lag 40, 1.83 at 4,000.
+    - The state-rounding estimate u|θ|/|i| reproduces `lean32`'s 1-step error band by band (6.1e-3 vs 5.3e-3 at
+      k1–2).
+    - `lean32`'s k1–2 error is flat or rising with lag, i.e. a bias. TwoSum/Fast2Sum leaves `lean32ek` with only
+      the float32 tendency error.
+  - **Team (workflow `wf_0391b43a-95e`: Opus NUMERICS + Opus LEARNING + Fable PS, 5 rounds, read-only).**
+    - **The finding that reframes the program:** o1.2's `[::16]` subsample aliases 4096² k ≥ 128 content into the
+      target. That puts **0.00222 (lo) / 0.00377 (central)** of o1.1's 0.0043 val MSE out of reach of any data,
+      step or precision change. Main session independently got ≈ 0.0020.
+    - **PS plan** (8 items, ~26 node-h; the decisive five ≈ 4 node-h):
+      1. free stdout/checkpoint parse: pins 168 vs ~142 h, counts restarts, retrieves the final vals;
+      2. per-band val vs the floor table: the pivot test, replay + fewer steps vs online value;
+      3. noise-vs-bias taxonomy of generators on 16 archived states, with two positive controls;
+      4. an owner-signed acceptance protocol before unblinding;
+      5. a 4.3 TB tee/replay of the 256² stream;
+      6. compile + activation checkpointing;
+      7. resume from `last.pt`;
+      8. compressed OneCycle + the first two-seed replication.
+    - **Rejected:** 2048² restarts, densification, a custom f64 FFT, offset views.
+    - **Main-session check:** the solver's own "2.2e8 steps ~287 h on an H100" gives 4.7 ms/step, which leaves
+      ≈ 0.45 s/step (≈ 24 h of 168 h) of non-solver overhead.
+    - **Correction:** channels_last is 38.5% *slower*, not a gain. The R1 brief had it backwards; memory fixed.
+  - **Analogues (`ANALOGUES.md`, 14 systems).**
+    - Klöwer et al. 2022 used compensated time integration in Float16 shallow water, i.e. `lean32ek`. It beat mixed
+      precision there too (3.6× vs 2.75×).
+    - Stochastic rounding (Paxton 2022) turns the bias into noise. Proposed as a calibration arm for item 3.
+    - Melissa's online gain is new-data diversity, which o1.2 (re-integrating the archive) does not buy.
+    - The online loop that adds information is on-policy (Rasp 2020; Frezat 2022).
+  - **Next:** owners' answers to the 8 questions in `TEAM_REPORT.md`. Item 1 needs the user to point at the o1.2 /
+    o1.1 logs.
 - **2026-11-06** — **SQG delta-fidelity job 7819310 DONE (`DELTA_JOB_DONE failures=0`), notes Part XI. Plain float32
   damages o1.2's training delta; a compensated float32 state fixes 98% of it.** Results in
   `SQG/analysis/results/polaris_delta_7819310/`.

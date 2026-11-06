@@ -1,0 +1,175 @@
+# Online learning against DE solvers in other fields: what transfers to o1.2 (literature, 2026-11-06)
+
+**Ask (user, 2026-11-06):** find analogues in other sciences that train ML models online against expensive
+differential-equation solvers, for example cosmology, astronomy or applied physics. Any field with a similar focus
+counts.
+
+**Method.**
+- **Search:** 14 web searches.
+- **Primary sources opened** (marked ✔): Klöwer et al. 2022 (full text on PMC) and Meyer et al. 2023 (arXiv
+  abstract).
+- **Everything else** comes from search-result summaries. Treat it as a lead and open the paper before quoting a
+  number from it.
+
+## 1. Map: field → system → the idea that transfers
+
+| field | system (solver) | what it does | o1.2 lever it informs |
+|---|---|---|---|
+| Weather/climate numerics | Klöwer et al. 2022 ✔, ShallowWaters.jl (Float16) | compensated time integration: one compensation array per prognostic variable | **= `lean32ek`** (independently derived; §2.1) |
+| Weather/climate numerics | Paxton et al. 2022, Kimpson et al. 2023 (SPEEDY, Lorenz, shallow water) | stochastic rounding: zero-mean rounding, so a bias becomes a random walk | alternative to compensation; noise-vs-bias taxonomy (§2.1) |
+| HPC surrogates | Melissa (Meyer et al. ICML 2023 ✔; SC'23 Reservoir) | ensemble runs stream to a data-parallel trainer, no disk; a buffer policy fights streaming bias | decoupled sims:trainer; buffer policy; **diversity is what pays** (§2.2) |
+| CFD / turbulence (RL) | Relexi + FLEXI + SmartSim | solver ↔ learner over an in-memory database on HPC (PBS/Slurm) | decouple layout, orchestration (§2.2) |
+| CFD in-situ training | SmartSim/SmartRedis in-situ framework (arXiv 2306.12900) | asynchronous in-memory training while the CFD runs; only the data loader changes | o1.2's host FIFO is the same pattern |
+| Ocean/climate | Rasp 2020 "coupled online learning"; SmartSim + MOM6 (Partee et al. 2022, inference only) | pretrain offline, then keep training on the states the *ML model itself* visits | the one thing offline data cannot give (§2.5) |
+| Geophysical turbulence (QG!) | Frezat et al. 2022 (JAMES); Yan et al. 2024 (two-layer QG, **pyqg-JAX**) | "a posteriori" learning: the loss is differentiated through several solver steps; a priori models went unstable in rollouts, a posteriori models stayed stable | rollout-bias concern; the same solver library as o1.2 (§2.5) |
+| Neural PDE solvers | AL4PDE (Musekamp et al. ICLR 2025); Breed (MelissaDL); OGAS (arXiv 2606.09949) | active learning chooses which ICs/parameters to simulate; up to 71% lower error, or ~4× fewer samples | which checkpoints/segments to integrate (§2.3) |
+| Materials / MD | FLARE (Vandermause et al. 2020), FLARE++ | the GP's epistemic uncertainty triggers a DFT call; ~100 DFT calls build a force field | uncertainty-triggered solver calls (§2.3) |
+| Fusion plasma | ADEPT (Nucl. Fusion 2024); MIT/UKAEA simulator-in-the-loop AL (PoP 2025); TGLF-SINN/WINN | uncertainty-driven acquisition of gyrokinetic labels: ~10% of random sampling's compute; 75% less data | same (§2.3) |
+| Cosmology | CONNECT (Nygaard et al. JCAP 2023); OLÉ (arXiv 2503.13183); Rogers et al. Ly-α Bayesian emulator optimisation; Bartlett et al. 2025 simulation budgeting | the emulator is trained alongside the sampler, and new solver calls go where the posterior or the error is; sim-count forecasts | trajectory-time scaling curve L11 (§2.4) |
+| Gravitational waves | DINGO / GNPE (Dax et al. PRL 2021) | the *expensive* waveforms are precomputed once; the *cheap* extrinsic parameters and noise are re-drawn every epoch; an exact time-translation symmetry is factored out via proxies | tee + replay (L2), symmetry conditioning (§2.4) |
+| Combustion | on-the-fly ANN chemistry in DNS (Combust. Flame ~2021); Neural-ISAM (arXiv 2605.10028); ISAT | the network learns the run's own state distribution while a reference solver stays in the loop for unseen states | a solver fallback / error trigger (§2.3) |
+| RL with GPU physics | IMPALA, Parallel Q-Learning (ICML 2023, Isaac Gym), FastTD3 | decoupled actors/learners; the update-to-data (replay) ratio trades sample efficiency against wall-clock | S / reuse knob (L8), decoupling (§2.2) |
+
+## 2. The five lessons, with what we could test
+
+### 2.1 Low-precision solvers: two other groups hit our "mechanism B"
+
+- **Klöwer et al. (✔, PMC9287017).**
+  - The problem, in their words: "tendencies are often several times smaller than the prognostic variables …
+    small increments can only be poorly resolved in low precision".
+  - The fix: a compensation variable per prognostic variable (c_u, c_v, c_η) carries the lost bits to the next
+    step. That is `lean32ek`'s hi + lo.
+  - Without it, the Float16 error vs Float64 grows 100-fold in 150 days. With it, the error matches mixed
+    precision.
+  - Speed: Float16 3.8×, compensated 3.6×, Float16/32 mixed ≈ 2.75×. Compensation beat mixed precision there, the
+    same ordering as our `lean32ek` 2.77× vs `mixed` 1.96× on A100.
+  - *So `lean32ek` is not exotic: it is the published fix for exactly this failure.*
+- **Stochastic rounding (Paxton 2022; Kimpson 2023).**
+  - Round-to-nearest "may contribute to systemic biases". Stochastic rounding (SR) is unbiased, E[SR(x)] = x, so a
+    systematic error becomes a zero-mean random walk.
+  - Kimpson: 100-yr SPEEDY, half-precision mean bias in global mean temperature −3.5e-2 K, and +1.8e-2 K with SR.
+- **For us** (our estimate, not run):
+  - SR on `lean32`'s state update would turn mechanism B from **bias** into **noise**.
+  - Per step the rms error is ≈ ulp/√6 ≈ 3.5e-8 of θ. After 4,000 steps that is √4000 × 3.5e-8 ≈ 2.2e-6 of θ.
+  - At k = 1–2, Δ ≈ 3.9e-2 of θ, so e_Δ ≈ 6e-5. That is 60× better than `lean32` (3.6e-3) but ≈ 3× worse than
+    `lean32ek` (2.2e-5). Overall it would be ≈ `lean32ek` (≈ 1e-5), where the float32 tendency dominates.
+  - It saves `lean32ek`'s extra 67 MB array, but needs random bits (threefry in the fusion), so it is a similar
+    cost class.
+  - **Recommendation:** `lean32ek` stays the better candidate (u² vs u). An SR arm is worth adding to the "delta
+    v2" job only as a calibrated *noise-only* control for the noise-vs-bias taxonomy (§3).
+
+### 2.2 Online pays through *diversity*, and o1.2 does not buy any
+
+- **Melissa (✔ abstract).** "exposing deep surrogate models to more dataset diversity, up to hundreds of GB, can
+  increase model generalization": +68% FC, +16% FNO, +7% MP-PDE.
+- **Their gain comes from new solver runs** (new parameters and ICs). o1.2 re-integrates the 3,500 archived
+  trajectories bitwise (its assert), so its online data are the offline data at 2e-4 instead of 0.02 spacing.
+- **Our numbers say the density adds ≈ 1.0× effective samples.** The m16 increment's C(0.02) = −0.066, and its
+  integral time is 0.0096 time units (`decorrelation_multigrid_summary.json`).
+- **Transfer:** spend the solver on **new trajectory time** (team item L11), not on re-generating the archive.
+  Melissa's buffer design (FIFO vs a reservoir that mitigates "the inherent bias of streaming learning") is
+  relevant if new-trajectory streaming is adopted. o1.2's FIFO is the plain-queue mode Melissa improves on.
+- **Systems precedent for the decoupled layout we measured** (Part IX: equal GPU-seconds):
+  - Relexi / SmartSim run simulators and learner as separate jobs over an in-memory store, on PBS and Slurm.
+  - IMPALA / PQL do the same in RL, with a single learner fed by many actors.
+
+### 2.3 Spend the solver where the model is uncertain
+
+- **The pattern recurs everywhere:**
+  - FLARE calls DFT only when the GP's epistemic uncertainty exceeds ~2× its noise.
+  - ADEPT gets QuaLiKiz labels with ~10% of random sampling's compute.
+  - AL4PDE: LCMD/SBAL/BAIT beat random by up to 71% error.
+  - CONNECT / OLÉ / Rogers concentrate CLASS / N-body calls where the posterior or the error is.
+  - Combustion keeps the reference integrator for out-of-distribution states.
+- **The transfer to o1.2 is not direct; three cautions:**
+  - **What can be chosen.** The pool is o1.2's choice of *which checkpoints / segments* to integrate (3,500
+    candidates).
+  - **Selection changes the training distribution.** o1.2 targets the attractor's invariant measure, so selecting
+    by model error shifts it. Importance weights, or an unbiased val set, are needed. That makes it a science
+    decision.
+  - **Use epistemic uncertainty only.** The team's floor analysis puts ≈ 50% of val MSE in irreducible aliasing
+    noise (Var(y_alias) ≈ 0.0021–0.0024), and that noise sits mostly at coarse |k| ≥ 64. FLARE and ADEPT use GP
+    variance or deep ensembles for exactly this reason.
+- **Possible test:** score the 3,500 checkpoints' segments by a small deep ensemble's disagreement (the epistemic
+  part) on stored frames. If disagreement is nearly uniform across checkpoints, active selection has nothing to
+  exploit. Cheap, offline, decisive.
+
+### 2.4 Store the expensive part once, augment the cheap part every epoch (DINGO)
+
+- **DINGO.** It precomputes 2.5e7 intrinsic waveforms (expensive: relativity solves) once. Extrinsic parameters,
+  detector projection, noise and the noise spectrum are re-drawn every epoch. The exact symmetry (time
+  translation) is handled by GNPE: it conditions on a proxy instead of hoping the network learns it.
+- **For o1.2, the expensive part is the 4096² integration:**
+  - Store its 256² stream once (team L2: 1.31 GB per segment, ≈ 4.3 TB).
+  - Replay it in ≈ 21 h per later run.
+- **Symmetry.**
+  - The team found the forced A-SQG has no exact symmetry with the fixed random-phase forcing ring.
+  - DINGO's route is to *condition* on the symmetry-breaking variable. For SQG that means feeding the forcing
+    pattern as an input channel, then augmenting with D4 × translations, (θ, F) → (−θ∘R, −F∘R) for reflections.
+  - That changes the architecture and the data: jesswan / Weidong's call.
+- **Budget planning.** Cosmology forecasts how many simulations an emulator needs (Bartlett et al.: < 225
+  N-body runs for an 8-parameter model). That is the same question as the team's trajectory-time scaling curve:
+  how many time units of trajectory before val stops improving.
+
+### 2.5 The one benefit only an online loop can give: the model's own states
+
+- **Rasp's "coupled online learning".** Pretrain offline. Then run the ML model coupled, and keep training on
+  high-resolution targets *for the states the ML model produces*. These lie off the training manifold, which is
+  where instabilities and biases come from. DAgger-like.
+- **Frezat et al. (QG turbulence).** A posteriori training, with the loss through several solver steps, gave
+  stable rollouts where a priori training diverged. Yan et al. did it on two-layer QG with **pyqg-JAX**, the
+  library o1.2's solver uses.
+- **For o1.2:**
+  - o1.2's "online" gives *more of the same distribution*, which the team argues is ≈ worthless.
+  - The online loop that adds information is **model-visited states**, or a multi-step rollout loss.
+  - **Obstacle:** the UViT emits 256², and the solver needs a 4096² state. Restarting the solver from a model
+    state needs a small-scale re-spin-up, which changes the trajectory distribution.
+  - A multi-step (unrolled) rollout loss on stored or replayed frames needs no solver at all. It targets exactly
+    the low-k rollout bias that `MATH_delta.md` §9 warns about.
+  - Both change the training objective: science owners' call.
+
+## 3. What this adds to the team's plan (for the PS report)
+
+1. **Cite Klöwer et al. in the precision memo to jesswan / Weidong.** Compensated time integration is the
+   established fix for small-tendency rounding. `lean32ek` is that method. Its residual error is the float32
+   tendency, not state rounding.
+2. **Delta v2 job:** add a stochastic-rounding `lean32` arm as a *noise-only* calibration control. Predicted:
+   k1–2 e_Δ ≈ 3e-5–1e-4 with zero signed mean; overall ≈ `lean32ek`.
+3. **Before any active-sampling idea:** run the ensemble-disagreement scan over checkpoint segments (offline,
+   stored frames). It decides whether "where to simulate" has any signal beyond the aliasing noise.
+4. **The online loop worth paying for is on-policy:** model-visited states (Rasp) or an unrolled rollout loss
+   (Frezat). Neither is "more of the archive at higher density". Raise it with the owners as a research direction.
+5. **If new trajectories are streamed:** use a reservoir-style buffer (Melissa SC'23), not a pure FIFO.
+
+## Sources
+
+- Klöwer, Hatfield, Croci, Düben (2022) JAMES, *Fluid simulations accelerated with 16 bits*:
+  https://pmc.ncbi.nlm.nih.gov/articles/PMC9287017/ ✔
+- Paxton et al. (2022) J. Climate, *Climate modeling in low precision: deterministic and stochastic rounding*:
+  https://journals.ametsoc.org/view/journals/clim/35/4/JCLI-D-21-0343.1.xml
+- Kimpson et al. (2023) QJRMS, *Climate-change modelling at reduced precision with stochastic rounding*:
+  https://rmets.onlinelibrary.wiley.com/doi/10.1002/qj.4435
+- Meyer et al. (2023) ICML, *Training deep surrogate models with large scale online learning*:
+  https://arxiv.org/abs/2306.16133 ✔; SC'23 Reservoir: https://arxiv.org/abs/2309.16743; Breed:
+  https://arxiv.org/abs/2410.05860; OGAS: https://arxiv.org/html/2606.09949v1
+- Relexi: https://github.com/flexi-framework/relexi; Kurz et al. (2023) IJHFF, *Deep RL for turbulence modeling in
+  LES*: https://www.researchgate.net/publication/366485150
+- SmartSim in-situ CFD training: https://arxiv.org/pdf/2306.12900; Partee et al. (2022) SmartSim + MOM6:
+  https://arxiv.org/abs/2104.09355
+- Rasp (2020) GMD, *Coupled online learning*: https://gmd.copernicus.org/articles/13/2185/2020/
+- Frezat et al. (2022) JAMES, *A posteriori learning for QG turbulence parametrization*:
+  https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2022MS003124; Yan et al. (2024), two-layer QG with
+  pyqg-JAX: https://arxiv.org/pdf/2411.14106
+- Musekamp et al. (2025) ICLR, *Active learning for neural PDE solvers* (AL4PDE): https://arxiv.org/abs/2408.01536
+- Vandermause et al. (2020) npj Comput. Mater., FLARE: https://www.nature.com/articles/s41524-020-0283-z
+- ADEPT (2024) Nucl. Fusion: https://iopscience.iop.org/article/10.1088/1741-4326/ad240d; simulator-in-the-loop
+  AL (2025) PoP: https://arxiv.org/abs/2507.15976; TGLF-WINN: https://arxiv.org/abs/2509.07024
+- CONNECT (Nygaard et al. 2023) JCAP: https://arxiv.org/abs/2205.15726; OLÉ: https://arxiv.org/pdf/2503.13183;
+  Rogers et al., Ly-α emulator optimisation: https://arxiv.org/html/1812.04631; Bartlett et al., simulation
+  budgeting: https://arxiv.org/pdf/2510.13962
+- Dax et al. (2021) PRL, DINGO: https://link.aps.org/doi/10.1103/PhysRevLett.127.241103; GNPE docs:
+  https://dingo-gw.readthedocs.io/en/latest/gnpe.html
+- On-the-fly ANN chemistry in DNS: https://www.sciencedirect.com/science/article/abs/pii/S0010218020305939;
+  Neural-ISAM: https://arxiv.org/abs/2605.10028
+- IMPALA: https://proceedings.mlr.press/v80/espeholt18a/espeholt18a.pdf; Parallel Q-Learning (ICML 2023):
+  https://proceedings.mlr.press/v202/li23f/li23f.pdf; FastTD3: https://arxiv.org/abs/2505.22642
