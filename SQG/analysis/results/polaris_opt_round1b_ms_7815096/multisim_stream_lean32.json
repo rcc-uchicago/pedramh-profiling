@@ -1,0 +1,169 @@
+{
+ "mode": "stream",
+ "solver": "lean32",
+ "world_size": 8,
+ "hosts": [
+  "x3001c0s1b0n0",
+  "x3001c0s1b1n0"
+ ],
+ "ref_ms_1gpu": 3.2048,
+ "ranks": [
+  {
+   "rank": 0,
+   "host": "x3001c0s1b0n0",
+   "local_rank": 0,
+   "cuda_visible_devices": "0",
+   "role": "trainer",
+   "fill_wait_s": 15.53,
+   "train_steps": 323,
+   "train_s_per_step_median": 0.4188,
+   "fresh_pairs_per_step_mean": 22.587,
+   "pairs_received": 7392,
+   "chunks_received": 616,
+   "receive_window_s": 135.46,
+   "pairs_per_s": 54.482,
+   "MB_per_s": 28.611,
+   "chunks_per_src": {
+    "1": 88,
+    "2": 88,
+    "3": 88,
+    "4": 88,
+    "5": 88,
+    "6": 88,
+    "7": 88
+   }
+  },
+  {
+   "rank": 1,
+   "host": "x3001c0s1b0n0",
+   "local_rank": 1,
+   "cuda_visible_devices": "1",
+   "role": "simulator",
+   "ms_per_step": 3.2336,
+   "steps": 46560,
+   "chunks_sent": 88,
+   "pairs_sent": 1056,
+   "first_send_s": 15.55,
+   "send_ms_median": 1.039,
+   "send_ms_max": 13.092,
+   "chunk_s_median": 1.5521
+  },
+  {
+   "rank": 2,
+   "host": "x3001c0s1b0n0",
+   "local_rank": 2,
+   "cuda_visible_devices": "2",
+   "role": "simulator",
+   "ms_per_step": 3.2341,
+   "steps": 46560,
+   "chunks_sent": 88,
+   "pairs_sent": 1056,
+   "first_send_s": 15.54,
+   "send_ms_median": 0.975,
+   "send_ms_max": 9.298,
+   "chunk_s_median": 1.5525
+  },
+  {
+   "rank": 3,
+   "host": "x3001c0s1b0n0",
+   "local_rank": 3,
+   "cuda_visible_devices": "3",
+   "role": "simulator",
+   "ms_per_step": 3.2374,
+   "steps": 46560,
+   "chunks_sent": 88,
+   "pairs_sent": 1056,
+   "first_send_s": 15.57,
+   "send_ms_median": 1.081,
+   "send_ms_max": 6.686,
+   "chunk_s_median": 1.5537
+  },
+  {
+   "rank": 4,
+   "host": "x3001c0s1b1n0",
+   "local_rank": 0,
+   "cuda_visible_devices": "0",
+   "role": "simulator",
+   "ms_per_step": 3.2311,
+   "steps": 46560,
+   "chunks_sent": 88,
+   "pairs_sent": 1056,
+   "first_send_s": 15.53,
+   "send_ms_median": 1.018,
+   "send_ms_max": 1.713,
+   "chunk_s_median": 1.5508
+  },
+  {
+   "rank": 5,
+   "host": "x3001c0s1b1n0",
+   "local_rank": 1,
+   "cuda_visible_devices": "1",
+   "role": "simulator",
+   "ms_per_step": 3.2292,
+   "steps": 46560,
+   "chunks_sent": 88,
+   "pairs_sent": 1056,
+   "first_send_s": 15.53,
+   "send_ms_median": 1.523,
+   "send_ms_max": 7.515,
+   "chunk_s_median": 1.5498
+  },
+  {
+   "rank": 6,
+   "host": "x3001c0s1b1n0",
+   "local_rank": 2,
+   "cuda_visible_devices": "2",
+   "role": "simulator",
+   "ms_per_step": 3.2294,
+   "steps": 46560,
+   "chunks_sent": 88,
+   "pairs_sent": 1056,
+   "first_send_s": 15.52,
+   "send_ms_median": 1.315,
+   "send_ms_max": 1.978,
+   "chunk_s_median": 1.55
+  },
+  {
+   "rank": 7,
+   "host": "x3001c0s1b1n0",
+   "local_rank": 3,
+   "cuda_visible_devices": "3",
+   "role": "simulator",
+   "ms_per_step": 3.2347,
+   "steps": 46560,
+   "chunks_sent": 88,
+   "pairs_sent": 1056,
+   "first_send_s": 15.54,
+   "send_ms_median": 1.221,
+   "send_ms_max": 7.628,
+   "chunk_s_median": 1.5527
+  }
+ ],
+ "errors": [],
+ "aggregate_steps_per_s": 2165.32,
+ "scaling_efficiency_vs_1gpu": 0.9913,
+ "ms_per_step_by_host": {
+  "x3001c0s1b0n0": 3.235,
+  "x3001c0s1b1n0": 3.2311
+ },
+ "ms_per_step_min_max": [
+  3.2292,
+  3.2374
+ ],
+ "simulated_time_units_per_hour": 38.976,
+ "senders_same_node": [
+  1,
+  2,
+  3
+ ],
+ "senders_other_node": [
+  4,
+  5,
+  6,
+  7
+ ],
+ "send_ms_median_same_node": 1.039,
+ "send_ms_median_other_node": 1.268,
+ "o12_fresh_pairs_per_step": 12,
+ "verdict": "trainer-bound: >= 12 fresh pairs per step"
+}

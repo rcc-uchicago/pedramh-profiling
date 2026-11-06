@@ -1,0 +1,69 @@
+{
+ "device": "NVIDIA A100-SXM4-40GB",
+ "torch": "2.3.1+cu121",
+ "jax": "0.4.28",
+ "init": "random",
+ "steps": 20,
+ "warmup": 4,
+ "buffer_pairs": 8192,
+ "batch": 16,
+ "results": {
+  "ml_only": {
+   "wall_s_median": 0.4174,
+   "wall_s_mean": 0.4174,
+   "ml_gpu_ms_median": 416.47,
+   "sample_host_ms_median": 1.18,
+   "sample_gpu_ms_median": 1.22,
+   "net_gpu_ms_median": 415.27
+  },
+  "solver_only_ref": {
+   "wall_s_median": 4.471,
+   "wall_s_mean": 4.4714
+  },
+  "solver_only_fixed": {
+   "wall_s_median": 4.5494,
+   "wall_s_mean": 4.5493
+  },
+  "serial_ref": {
+   "wall_s_median": 4.8868,
+   "wall_s_mean": 4.8874,
+   "ml_gpu_ms_median": 419.74,
+   "sample_host_ms_median": 1.23,
+   "sample_gpu_ms_median": 1.27,
+   "net_gpu_ms_median": 418.44
+  },
+  "serial_fixed": {
+   "wall_s_median": 4.9386,
+   "wall_s_mean": 4.9382,
+   "ml_gpu_ms_median": 773.11,
+   "sample_host_ms_median": 1.23,
+   "sample_gpu_ms_median": 1.27,
+   "net_gpu_ms_median": 771.73
+  },
+  "thread_ref": {
+   "wall_s_median": 4.8169,
+   "wall_s_mean": 4.8177,
+   "ml_gpu_ms_median": 1371.57,
+   "sample_host_ms_median": 1.38,
+   "sample_gpu_ms_median": 1.42,
+   "net_gpu_ms_median": 1370.16
+  },
+  "thread_fixed": {
+   "wall_s_median": 4.8797,
+   "wall_s_mean": 4.8797,
+   "ml_gpu_ms_median": 1910.05,
+   "sample_host_ms_median": 1.4,
+   "sample_gpu_ms_median": 1.45,
+   "net_gpu_ms_median": 1908.52
+  }
+ },
+ "overlap_efficiency": {
+  "serial_ref": 0.004,
+  "thread_ref": 0.171,
+  "serial_fixed": 0.068,
+  "thread_fixed": 0.209
+ },
+ "sample_fraction_of_ml_only": 0.003,
+ "torch_peak_GiB": 20.26,
+ "jax_peak_GiB": 3.23
+}

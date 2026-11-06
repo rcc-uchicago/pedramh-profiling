@@ -1,0 +1,1431 @@
+{
+ "sqlite": "/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/nsight_lean_7819082/nsys_lean_u1.sqlite",
+ "range_regex": "^lean_u1_rep_",
+ "ranges": 2,
+ "steps_per_range": 480,
+ "steps": 960,
+ "modules": [
+  "jit_advance#127"
+ ],
+ "per_step": {
+  "gpu_sum_us": 6397.76,
+  "busy_us": 6397.76,
+  "span_us": 6429.84,
+  "idle_us": 32.08,
+  "gpu_busy_fraction": 0.995,
+  "range_wall_us": 6431.0
+ },
+ "ops": [
+  {
+   "op": "fft.13.0",
+   "fft_type": "IRFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 327.0,
+   "share_of_gpu": 0.0511,
+   "activities_per_step": 1.625,
+   "first_start_us_in_range0": 18019.2,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.65,
+     "mean_us": 201.61,
+     "us_per_step": 131.05
+    },
+    {
+     "name": "vector_fft_c2r",
+     "grid_x_block": "4096x128",
+     "per_step": 0.325,
+     "mean_us": 208.51,
+     "us_per_step": 67.77
+    },
+    {
+     "name": "scal_kernel_val",
+     "grid_x_block": "43691x384",
+     "per_step": 0.325,
+     "mean_us": 196.9,
+     "us_per_step": 63.99
+    }
+   ],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.325,
+     "bytes_per_step": 43642060.8,
+     "us_per_step": 64.19
+    }
+   ]
+  },
+  {
+   "op": "fft.3.0",
+   "fft_type": "IRFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 326.91,
+   "share_of_gpu": 0.0511,
+   "activities_per_step": 1.625,
+   "first_start_us_in_range0": 4811.3,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.65,
+     "mean_us": 201.49,
+     "us_per_step": 130.97
+    },
+    {
+     "name": "vector_fft_c2r",
+     "grid_x_block": "4096x128",
+     "per_step": 0.325,
+     "mean_us": 208.66,
+     "us_per_step": 67.81
+    },
+    {
+     "name": "scal_kernel_val",
+     "grid_x_block": "43691x384",
+     "per_step": 0.325,
+     "mean_us": 196.88,
+     "us_per_step": 63.99
+    }
+   ],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.325,
+     "bytes_per_step": 43642060.8,
+     "us_per_step": 64.14
+    }
+   ]
+  },
+  {
+   "op": "fft.8.0",
+   "fft_type": "IRFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 326.9,
+   "share_of_gpu": 0.0511,
+   "activities_per_step": 1.625,
+   "first_start_us_in_range0": 11417.2,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.65,
+     "mean_us": 201.55,
+     "us_per_step": 131.01
+    },
+    {
+     "name": "vector_fft_c2r",
+     "grid_x_block": "4096x128",
+     "per_step": 0.325,
+     "mean_us": 208.57,
+     "us_per_step": 67.79
+    },
+    {
+     "name": "scal_kernel_val",
+     "grid_x_block": "43691x384",
+     "per_step": 0.325,
+     "mean_us": 196.87,
+     "us_per_step": 63.98
+    }
+   ],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.325,
+     "bytes_per_step": 43642060.8,
+     "us_per_step": 64.12
+    }
+   ]
+  },
+  {
+   "op": "fft.10.0",
+   "fft_type": "IRFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 325.69,
+   "share_of_gpu": 0.0509,
+   "activities_per_step": 1.625,
+   "first_start_us_in_range0": 16039.1,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.65,
+     "mean_us": 201.44,
+     "us_per_step": 130.93
+    },
+    {
+     "name": "vector_fft_c2r",
+     "grid_x_block": "4096x128",
+     "per_step": 0.325,
+     "mean_us": 209.41,
+     "us_per_step": 68.06
+    },
+    {
+     "name": "scal_kernel_val",
+     "grid_x_block": "43691x384",
+     "per_step": 0.325,
+     "mean_us": 196.4,
+     "us_per_step": 63.83
+    }
+   ],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.325,
+     "bytes_per_step": 43642060.8,
+     "us_per_step": 62.87
+    }
+   ]
+  },
+  {
+   "op": "fft.5.0",
+   "fft_type": "IRFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 325.59,
+   "share_of_gpu": 0.0509,
+   "activities_per_step": 1.625,
+   "first_start_us_in_range0": 9435.9,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.65,
+     "mean_us": 201.48,
+     "us_per_step": 130.96
+    },
+    {
+     "name": "vector_fft_c2r",
+     "grid_x_block": "4096x128",
+     "per_step": 0.325,
+     "mean_us": 208.77,
+     "us_per_step": 67.85
+    },
+    {
+     "name": "scal_kernel_val",
+     "grid_x_block": "43691x384",
+     "per_step": 0.325,
+     "mean_us": 196.56,
+     "us_per_step": 63.88
+    }
+   ],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.325,
+     "bytes_per_step": 43642060.8,
+     "us_per_step": 62.89
+    }
+   ]
+  },
+  {
+   "op": "fft.0.0",
+   "fft_type": "IRFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 325.55,
+   "share_of_gpu": 0.0509,
+   "activities_per_step": 1.625,
+   "first_start_us_in_range0": 2835.6,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.65,
+     "mean_us": 201.42,
+     "us_per_step": 130.92
+    },
+    {
+     "name": "vector_fft_c2r",
+     "grid_x_block": "4096x128",
+     "per_step": 0.325,
+     "mean_us": 208.73,
+     "us_per_step": 67.84
+    },
+    {
+     "name": "scal_kernel_val",
+     "grid_x_block": "43691x384",
+     "per_step": 0.325,
+     "mean_us": 196.48,
+     "us_per_step": 63.86
+    }
+   ],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.325,
+     "bytes_per_step": 43642060.8,
+     "us_per_step": 62.94
+    }
+   ]
+  },
+  {
+   "op": "fft.11.0",
+   "fft_type": "IRFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 324.82,
+   "share_of_gpu": 0.0508,
+   "activities_per_step": 1.625,
+   "first_start_us_in_range0": 14373.8,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.65,
+     "mean_us": 201.55,
+     "us_per_step": 131.01
+    },
+    {
+     "name": "vector_fft_c2r",
+     "grid_x_block": "4096x128",
+     "per_step": 0.325,
+     "mean_us": 208.72,
+     "us_per_step": 67.83
+    },
+    {
+     "name": "scal_kernel_val",
+     "grid_x_block": "43691x384",
+     "per_step": 0.325,
+     "mean_us": 197.25,
+     "us_per_step": 64.11
+    }
+   ],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.325,
+     "bytes_per_step": 43642060.8,
+     "us_per_step": 61.87
+    }
+   ]
+  },
+  {
+   "op": "fft.6.0",
+   "fft_type": "IRFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 324.81,
+   "share_of_gpu": 0.0508,
+   "activities_per_step": 1.625,
+   "first_start_us_in_range0": 7767.7,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.65,
+     "mean_us": 201.74,
+     "us_per_step": 131.13
+    },
+    {
+     "name": "vector_fft_c2r",
+     "grid_x_block": "4096x128",
+     "per_step": 0.325,
+     "mean_us": 208.34,
+     "us_per_step": 67.71
+    },
+    {
+     "name": "scal_kernel_val",
+     "grid_x_block": "43691x384",
+     "per_step": 0.325,
+     "mean_us": 197.25,
+     "us_per_step": 64.11
+    }
+   ],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.325,
+     "bytes_per_step": 43642060.8,
+     "us_per_step": 61.87
+    }
+   ]
+  },
+  {
+   "op": "fft.1.0",
+   "fft_type": "IRFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 324.55,
+   "share_of_gpu": 0.0507,
+   "activities_per_step": 1.625,
+   "first_start_us_in_range0": 1172.8,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.65,
+     "mean_us": 201.66,
+     "us_per_step": 131.08
+    },
+    {
+     "name": "vector_fft_c2r",
+     "grid_x_block": "4096x128",
+     "per_step": 0.325,
+     "mean_us": 208.91,
+     "us_per_step": 67.9
+    },
+    {
+     "name": "scal_kernel_val",
+     "grid_x_block": "43691x384",
+     "per_step": 0.325,
+     "mean_us": 197.16,
+     "us_per_step": 64.08
+    }
+   ],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.325,
+     "bytes_per_step": 43642060.8,
+     "us_per_step": 61.5
+    }
+   ]
+  },
+  {
+   "op": "loop_add_multiply_fusion",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 239.25,
+   "share_of_gpu": 0.0374,
+   "activities_per_step": 0.325,
+   "first_start_us_in_range0": 20000.2,
+   "kernels": [
+    {
+     "name": "loop_add_multiply_fusion",
+     "grid_x_block": "65568x128",
+     "per_step": 0.325,
+     "mean_us": 736.14,
+     "us_per_step": 239.25
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "loop_multiply_fusion",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 205.38,
+   "share_of_gpu": 0.0321,
+   "activities_per_step": 0.325,
+   "first_start_us_in_range0": 13750.6,
+   "kernels": [
+    {
+     "name": "loop_multiply_fusion_1",
+     "grid_x_block": "65568x128",
+     "per_step": 0.325,
+     "mean_us": 631.93,
+     "us_per_step": 205.38
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "loop_multiply_fusion.1",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 205.37,
+   "share_of_gpu": 0.0321,
+   "activities_per_step": 0.325,
+   "first_start_us_in_range0": 7146.2,
+   "kernels": [
+    {
+     "name": "loop_multiply_fusion_1",
+     "grid_x_block": "65568x128",
+     "per_step": 0.325,
+     "mean_us": 631.92,
+     "us_per_step": 205.37
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "fft.4.0",
+   "fft_type": "RFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 198.17,
+   "share_of_gpu": 0.031,
+   "activities_per_step": 0.975,
+   "first_start_us_in_range0": 6154.1,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.65,
+     "mean_us": 201.6,
+     "us_per_step": 131.04
+    },
+    {
+     "name": "vector_fft_r2c",
+     "grid_x_block": "4096x128",
+     "per_step": 0.325,
+     "mean_us": 206.57,
+     "us_per_step": 67.13
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "fft.14.0",
+   "fft_type": "RFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 198.0,
+   "share_of_gpu": 0.0309,
+   "activities_per_step": 0.975,
+   "first_start_us_in_range0": 19366.5,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.65,
+     "mean_us": 201.32,
+     "us_per_step": 130.86
+    },
+    {
+     "name": "vector_fft_r2c",
+     "grid_x_block": "4096x128",
+     "per_step": 0.325,
+     "mean_us": 206.57,
+     "us_per_step": 67.14
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "fft.9.0",
+   "fft_type": "RFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 197.72,
+   "share_of_gpu": 0.0309,
+   "activities_per_step": 0.975,
+   "first_start_us_in_range0": 12759.7,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.65,
+     "mean_us": 200.92,
+     "us_per_step": 130.6
+    },
+    {
+     "name": "vector_fft_r2c",
+     "grid_x_block": "4096x128",
+     "per_step": 0.325,
+     "mean_us": 206.54,
+     "us_per_step": 67.12
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "fft.2.0",
+   "fft_type": "RFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 197.5,
+   "share_of_gpu": 0.0309,
+   "activities_per_step": 0.975,
+   "first_start_us_in_range0": 4175.5,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.65,
+     "mean_us": 201.85,
+     "us_per_step": 131.2
+    },
+    {
+     "name": "vector_fft_r2c",
+     "grid_x_block": "4096x128",
+     "per_step": 0.325,
+     "mean_us": 204.0,
+     "us_per_step": 66.3
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "fft.7.0",
+   "fft_type": "RFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 197.07,
+   "share_of_gpu": 0.0308,
+   "activities_per_step": 0.975,
+   "first_start_us_in_range0": 10782.7,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.65,
+     "mean_us": 201.04,
+     "us_per_step": 130.67
+    },
+    {
+     "name": "vector_fft_r2c",
+     "grid_x_block": "4096x128",
+     "per_step": 0.325,
+     "mean_us": 204.3,
+     "us_per_step": 66.4
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "fft.12.0",
+   "fft_type": "RFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 196.8,
+   "share_of_gpu": 0.0308,
+   "activities_per_step": 0.975,
+   "first_start_us_in_range0": 17384.0,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.65,
+     "mean_us": 200.55,
+     "us_per_step": 130.36
+    },
+    {
+     "name": "vector_fft_r2c",
+     "grid_x_block": "4096x128",
+     "per_step": 0.325,
+     "mean_us": 204.42,
+     "us_per_step": 66.44
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "loop_multiply_fusion.3",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 190.43,
+   "share_of_gpu": 0.0298,
+   "activities_per_step": 0.325,
+   "first_start_us_in_range0": 2199.8,
+   "kernels": [
+    {
+     "name": "loop_multiply_fusion_3",
+     "grid_x_block": "16392x128",
+     "per_step": 0.325,
+     "mean_us": 585.92,
+     "us_per_step": 190.43
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "loop_multiply_fusion.4",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 190.28,
+   "share_of_gpu": 0.0297,
+   "activities_per_step": 0.325,
+   "first_start_us_in_range0": 8794.4,
+   "kernels": [
+    {
+     "name": "loop_multiply_fusion_3",
+     "grid_x_block": "16392x128",
+     "per_step": 0.325,
+     "mean_us": 585.46,
+     "us_per_step": 190.28
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "loop_multiply_fusion.5",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 189.7,
+   "share_of_gpu": 0.0297,
+   "activities_per_step": 0.325,
+   "first_start_us_in_range0": 15401.3,
+   "kernels": [
+    {
+     "name": "loop_multiply_fusion_3",
+     "grid_x_block": "16392x128",
+     "per_step": 0.325,
+     "mean_us": 583.7,
+     "us_per_step": 189.7
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "loop_add_fusion",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 106.12,
+   "share_of_gpu": 0.0166,
+   "activities_per_step": 0.325,
+   "first_start_us_in_range0": 13393.0,
+   "kernels": [
+    {
+     "name": "loop_add_fusion_1",
+     "grid_x_block": "16392x128",
+     "per_step": 0.325,
+     "mean_us": 326.53,
+     "us_per_step": 106.12
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "loop_add_fusion.1",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 106.02,
+   "share_of_gpu": 0.0166,
+   "activities_per_step": 0.325,
+   "first_start_us_in_range0": 6792.8,
+   "kernels": [
+    {
+     "name": "loop_add_fusion_1",
+     "grid_x_block": "16392x128",
+     "per_step": 0.325,
+     "mean_us": 326.2,
+     "us_per_step": 106.02
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "wrapped_multiply.3",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 102.0,
+   "share_of_gpu": 0.0159,
+   "activities_per_step": 0.325,
+   "first_start_us_in_range0": 10465.3,
+   "kernels": [
+    {
+     "name": "wrapped_multiply_1",
+     "grid_x_block": "1728x128",
+     "per_step": 0.325,
+     "mean_us": 313.86,
+     "us_per_step": 102.0
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "wrapped_multiply.1",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 101.71,
+   "share_of_gpu": 0.0159,
+   "activities_per_step": 0.325,
+   "first_start_us_in_range0": 3863.3,
+   "kernels": [
+    {
+     "name": "wrapped_multiply_1",
+     "grid_x_block": "1728x128",
+     "per_step": 0.325,
+     "mean_us": 312.95,
+     "us_per_step": 101.71
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "wrapped_multiply.5",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 101.7,
+   "share_of_gpu": 0.0159,
+   "activities_per_step": 0.325,
+   "first_start_us_in_range0": 17071.3,
+   "kernels": [
+    {
+     "name": "wrapped_multiply_1",
+     "grid_x_block": "1728x128",
+     "per_step": 0.325,
+     "mean_us": 312.93,
+     "us_per_step": 101.7
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "wrapped_multiply.4",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 100.2,
+   "share_of_gpu": 0.0157,
+   "activities_per_step": 0.325,
+   "first_start_us_in_range0": 19057.2,
+   "kernels": [
+    {
+     "name": "wrapped_multiply",
+     "grid_x_block": "1728x128",
+     "per_step": 0.325,
+     "mean_us": 308.3,
+     "us_per_step": 100.2
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "wrapped_multiply",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 100.19,
+   "share_of_gpu": 0.0157,
+   "activities_per_step": 0.325,
+   "first_start_us_in_range0": 5844.3,
+   "kernels": [
+    {
+     "name": "wrapped_multiply",
+     "grid_x_block": "1728x128",
+     "per_step": 0.325,
+     "mean_us": 308.28,
+     "us_per_step": 100.19
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "wrapped_multiply.2",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 100.0,
+   "share_of_gpu": 0.0156,
+   "activities_per_step": 0.325,
+   "first_start_us_in_range0": 12451.8,
+   "kernels": [
+    {
+     "name": "wrapped_multiply",
+     "grid_x_block": "1728x128",
+     "per_step": 0.325,
+     "mean_us": 307.68,
+     "us_per_step": 100.0
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "call",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 68.32,
+   "share_of_gpu": 0.0107,
+   "activities_per_step": 2.275,
+   "first_start_us_in_range0": 954.5,
+   "kernels": [
+    {
+     "name": "loop_multiply_fusion_15",
+     "grid_x_block": "65568x128",
+     "per_step": 0.325,
+     "mean_us": 200.03,
+     "us_per_step": 65.01
+    },
+    {
+     "name": "loop_add_fusion_6",
+     "grid_x_block": "1x1",
+     "per_step": 0.325,
+     "mean_us": 1.88,
+     "us_per_step": 0.61
+    },
+    {
+     "name": "loop_add_fusion_7",
+     "grid_x_block": "1x1",
+     "per_step": 0.325,
+     "mean_us": 1.87,
+     "us_per_step": 0.61
+    },
+    {
+     "name": "loop_multiply_fusion_13",
+     "grid_x_block": "1x1",
+     "per_step": 0.325,
+     "mean_us": 1.76,
+     "us_per_step": 0.57
+    },
+    {
+     "name": "loop_multiply_fusion_12",
+     "grid_x_block": "1x1",
+     "per_step": 0.325,
+     "mean_us": 1.71,
+     "us_per_step": 0.56
+    },
+    {
+     "name": "loop_multiply_fusion_14",
+     "grid_x_block": "1x1",
+     "per_step": 0.325,
+     "mean_us": 1.51,
+     "us_per_step": 0.49
+    },
+    {
+     "name": "loop_add_fusion_8",
+     "grid_x_block": "1x1",
+     "per_step": 0.325,
+     "mean_us": 1.46,
+     "us_per_step": 0.47
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "fft.18.0",
+   "fft_type": "IRFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 25.16,
+   "share_of_gpu": 0.0039,
+   "activities_per_step": 0.125,
+   "first_start_us_in_range0": 258345.9,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.05,
+     "mean_us": 201.85,
+     "us_per_step": 10.09
+    },
+    {
+     "name": "vector_fft_c2r",
+     "grid_x_block": "4096x128",
+     "per_step": 0.025,
+     "mean_us": 208.29,
+     "us_per_step": 5.21
+    },
+    {
+     "name": "scal_kernel_val",
+     "grid_x_block": "43691x384",
+     "per_step": 0.025,
+     "mean_us": 196.93,
+     "us_per_step": 4.92
+    }
+   ],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.025,
+     "bytes_per_step": 3357081.6,
+     "us_per_step": 4.94
+    }
+   ]
+  },
+  {
+   "op": "fft.15.0",
+   "fft_type": "IRFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 25.03,
+   "share_of_gpu": 0.0039,
+   "activities_per_step": 0.125,
+   "first_start_us_in_range0": 256411.5,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.05,
+     "mean_us": 201.2,
+     "us_per_step": 10.06
+    },
+    {
+     "name": "vector_fft_c2r",
+     "grid_x_block": "4096x128",
+     "per_step": 0.025,
+     "mean_us": 208.77,
+     "us_per_step": 5.22
+    },
+    {
+     "name": "scal_kernel_val",
+     "grid_x_block": "43691x384",
+     "per_step": 0.025,
+     "mean_us": 196.45,
+     "us_per_step": 4.91
+    }
+   ],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.025,
+     "bytes_per_step": 3357081.6,
+     "us_per_step": 4.84
+    }
+   ]
+  },
+  {
+   "op": "fft.16.0",
+   "fft_type": "IRFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 24.94,
+   "share_of_gpu": 0.0039,
+   "activities_per_step": 0.125,
+   "first_start_us_in_range0": 254814.8,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.05,
+     "mean_us": 201.57,
+     "us_per_step": 10.08
+    },
+    {
+     "name": "vector_fft_c2r",
+     "grid_x_block": "4096x128",
+     "per_step": 0.025,
+     "mean_us": 208.32,
+     "us_per_step": 5.21
+    },
+    {
+     "name": "scal_kernel_val",
+     "grid_x_block": "43691x384",
+     "per_step": 0.025,
+     "mean_us": 197.25,
+     "us_per_step": 4.93
+    }
+   ],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.025,
+     "bytes_per_step": 3357081.6,
+     "us_per_step": 4.72
+    }
+   ]
+  },
+  {
+   "op": "loop_add_multiply_fusion.1",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 18.39,
+   "share_of_gpu": 0.0029,
+   "activities_per_step": 0.025,
+   "first_start_us_in_range0": 260275.8,
+   "kernels": [
+    {
+     "name": "loop_add_multiply_fusion_1",
+     "grid_x_block": "65568x128",
+     "per_step": 0.025,
+     "mean_us": 735.55,
+     "us_per_step": 18.39
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "fft.19.0",
+   "fft_type": "RFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 15.24,
+   "share_of_gpu": 0.0024,
+   "activities_per_step": 0.075,
+   "first_start_us_in_range0": 259665.2,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.05,
+     "mean_us": 201.76,
+     "us_per_step": 10.09
+    },
+    {
+     "name": "vector_fft_r2c",
+     "grid_x_block": "4096x128",
+     "per_step": 0.025,
+     "mean_us": 205.94,
+     "us_per_step": 5.15
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "fft.17.0",
+   "fft_type": "RFFT",
+   "module": "jit_advance#127",
+   "us_per_step": 15.12,
+   "share_of_gpu": 0.0024,
+   "activities_per_step": 0.075,
+   "first_start_us_in_range0": 257737.6,
+   "kernels": [
+    {
+     "name": "regular_fft_factor",
+     "grid_x_block": "4098x256",
+     "per_step": 0.05,
+     "mean_us": 200.62,
+     "us_per_step": 10.03
+    },
+    {
+     "name": "vector_fft_r2c",
+     "grid_x_block": "4096x128",
+     "per_step": 0.025,
+     "mean_us": 203.51,
+     "us_per_step": 5.09
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "loop_multiply_fusion.10",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 14.62,
+   "share_of_gpu": 0.0023,
+   "activities_per_step": 0.025,
+   "first_start_us_in_range0": 255819.6,
+   "kernels": [
+    {
+     "name": "loop_multiply_fusion_3",
+     "grid_x_block": "16392x128",
+     "per_step": 0.025,
+     "mean_us": 584.85,
+     "us_per_step": 14.62
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "copy_fusion",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 14.62,
+   "share_of_gpu": 0.0023,
+   "activities_per_step": 0.075,
+   "first_start_us_in_range0": 363.8,
+   "kernels": [],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.075,
+     "bytes_per_step": 10071244.8,
+     "us_per_step": 14.62
+    }
+   ]
+  },
+  {
+   "op": "wrapped_multiply.7",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 7.82,
+   "share_of_gpu": 0.0012,
+   "activities_per_step": 0.025,
+   "first_start_us_in_range0": 257420.7,
+   "kernels": [
+    {
+     "name": "wrapped_multiply_1",
+     "grid_x_block": "1728x128",
+     "per_step": 0.025,
+     "mean_us": 312.72,
+     "us_per_step": 7.82
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "wrapped_multiply.6",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 7.7,
+   "share_of_gpu": 0.0012,
+   "activities_per_step": 0.025,
+   "first_start_us_in_range0": 259357.2,
+   "kernels": [
+    {
+     "name": "wrapped_multiply",
+     "grid_x_block": "1728x128",
+     "per_step": 0.025,
+     "mean_us": 308.02,
+     "us_per_step": 7.7
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "loop_multiply_fusion.9",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 5.02,
+   "share_of_gpu": 0.0008,
+   "activities_per_step": 0.025,
+   "first_start_us_in_range0": 254613.7,
+   "kernels": [
+    {
+     "name": "loop_multiply_fusion_15",
+     "grid_x_block": "65568x128",
+     "per_step": 0.025,
+     "mean_us": 200.81,
+     "us_per_step": 5.02
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "wrapped_add",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 0.06,
+   "share_of_gpu": 0.0,
+   "activities_per_step": 0.025,
+   "first_start_us_in_range0": 254603.7,
+   "kernels": [
+    {
+     "name": "wrapped_add",
+     "grid_x_block": "1x1",
+     "per_step": 0.025,
+     "mean_us": 2.41,
+     "us_per_step": 0.06
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "wrapped_copy",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 0.06,
+   "share_of_gpu": 0.0,
+   "activities_per_step": 0.025,
+   "first_start_us_in_range0": 351.2,
+   "kernels": [],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.025,
+     "bytes_per_step": 0.2,
+     "us_per_step": 0.06
+    }
+   ]
+  },
+  {
+   "op": "wrapped_copy.3",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 0.06,
+   "share_of_gpu": 0.0,
+   "activities_per_step": 0.025,
+   "first_start_us_in_range0": 261014.7,
+   "kernels": [],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.025,
+     "bytes_per_step": 0.0,
+     "us_per_step": 0.06
+    }
+   ]
+  },
+  {
+   "op": "loop_multiply_fusion.11",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 0.05,
+   "share_of_gpu": 0.0,
+   "activities_per_step": 0.025,
+   "first_start_us_in_range0": 254607.2,
+   "kernels": [
+    {
+     "name": "loop_multiply_fusion_12",
+     "grid_x_block": "1x1",
+     "per_step": 0.025,
+     "mean_us": 2.05,
+     "us_per_step": 0.05
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "loop_add_fusion.5",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 0.05,
+   "share_of_gpu": 0.0,
+   "activities_per_step": 0.025,
+   "first_start_us_in_range0": 254610.4,
+   "kernels": [
+    {
+     "name": "loop_add_fusion_5",
+     "grid_x_block": "1x1",
+     "per_step": 0.025,
+     "mean_us": 1.95,
+     "us_per_step": 0.05
+    }
+   ],
+   "copies": []
+  },
+  {
+   "op": "wrapped_copy.2",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 0.04,
+   "share_of_gpu": 0.0,
+   "activities_per_step": 0.025,
+   "first_start_us_in_range0": 355.8,
+   "kernels": [],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.025,
+     "bytes_per_step": 0.1,
+     "us_per_step": 0.04
+    }
+   ]
+  },
+  {
+   "op": "wrapped_copy.1",
+   "fft_type": "",
+   "module": "jit_advance#127",
+   "us_per_step": 0.04,
+   "share_of_gpu": 0.0,
+   "activities_per_step": 0.025,
+   "first_start_us_in_range0": 359.9,
+   "kernels": [],
+   "copies": [
+    {
+     "kind": "memcpy_dtod",
+     "per_step": 0.025,
+     "bytes_per_step": 0.1,
+     "us_per_step": 0.04
+    }
+   ]
+  }
+ ],
+ "execution_order_range0": [
+  "wrapped_copy",
+  "wrapped_copy.2",
+  "wrapped_copy.1",
+  "copy_fusion",
+  "call",
+  "fft.1.0",
+  "loop_multiply_fusion.3",
+  "fft.0.0",
+  "wrapped_multiply.1",
+  "fft.2.0",
+  "fft.3.0",
+  "wrapped_multiply",
+  "fft.4.0",
+  "loop_add_fusion.1",
+  "loop_multiply_fusion.1",
+  "fft.6.0",
+  "loop_multiply_fusion.4",
+  "fft.5.0",
+  "wrapped_multiply.3",
+  "fft.7.0",
+  "fft.8.0",
+  "wrapped_multiply.2",
+  "fft.9.0",
+  "loop_add_fusion",
+  "loop_multiply_fusion",
+  "fft.11.0",
+  "loop_multiply_fusion.5",
+  "fft.10.0",
+  "wrapped_multiply.5",
+  "fft.12.0",
+  "fft.13.0",
+  "wrapped_multiply.4",
+  "fft.14.0",
+  "loop_add_multiply_fusion",
+  "wrapped_add",
+  "loop_multiply_fusion.11",
+  "loop_add_fusion.5",
+  "loop_multiply_fusion.9",
+  "fft.16.0",
+  "loop_multiply_fusion.10",
+  "fft.15.0",
+  "wrapped_multiply.7",
+  "fft.17.0",
+  "fft.18.0",
+  "wrapped_multiply.6",
+  "fft.19.0",
+  "loop_add_multiply_fusion.1",
+  "wrapped_copy.3"
+ ],
+ "kernels_by_name": [
+  {
+   "name": "regular_fft_factor",
+   "per_step": 10.0,
+   "us_per_step": 2014.14
+  },
+  {
+   "name": "vector_fft_c2r",
+   "per_step": 3.0,
+   "us_per_step": 626.18
+  },
+  {
+   "name": "scal_kernel_val",
+   "per_step": 3.0,
+   "us_per_step": 590.58
+  },
+  {
+   "name": "loop_multiply_fusion_3",
+   "per_step": 1.0,
+   "us_per_step": 585.02
+  },
+  {
+   "name": "vector_fft_r2c",
+   "per_step": 2.0,
+   "us_per_step": 410.76
+  },
+  {
+   "name": "loop_multiply_fusion_1",
+   "per_step": 0.65,
+   "us_per_step": 410.75
+  },
+  {
+   "name": "wrapped_multiply_1",
+   "per_step": 1.0,
+   "us_per_step": 313.23
+  },
+  {
+   "name": "wrapped_multiply",
+   "per_step": 1.0,
+   "us_per_step": 308.09
+  },
+  {
+   "name": "loop_add_multiply_fusion",
+   "per_step": 0.325,
+   "us_per_step": 239.25
+  },
+  {
+   "name": "loop_add_fusion_1",
+   "per_step": 0.65,
+   "us_per_step": 212.14
+  },
+  {
+   "name": "loop_multiply_fusion_15",
+   "per_step": 0.35,
+   "us_per_step": 70.03
+  },
+  {
+   "name": "loop_add_multiply_fusion_1",
+   "per_step": 0.025,
+   "us_per_step": 18.39
+  },
+  {
+   "name": "loop_add_fusion_6",
+   "per_step": 0.325,
+   "us_per_step": 0.61
+  },
+  {
+   "name": "loop_multiply_fusion_12",
+   "per_step": 0.35,
+   "us_per_step": 0.61
+  },
+  {
+   "name": "loop_add_fusion_7",
+   "per_step": 0.325,
+   "us_per_step": 0.61
+  },
+  {
+   "name": "loop_multiply_fusion_13",
+   "per_step": 0.325,
+   "us_per_step": 0.57
+  },
+  {
+   "name": "loop_multiply_fusion_14",
+   "per_step": 0.325,
+   "us_per_step": 0.49
+  },
+  {
+   "name": "loop_add_fusion_8",
+   "per_step": 0.325,
+   "us_per_step": 0.47
+  },
+  {
+   "name": "wrapped_add",
+   "per_step": 0.025,
+   "us_per_step": 0.06
+  },
+  {
+   "name": "loop_add_fusion_5",
+   "per_step": 0.025,
+   "us_per_step": 0.05
+  }
+ ],
+ "api_calls_in_ranges": 28670,
+ "activities_outside_ranges": 0
+}

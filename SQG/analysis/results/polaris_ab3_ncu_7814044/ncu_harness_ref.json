@@ -1,0 +1,15 @@
+{
+ "device": "cuda:0",
+ "device_kind": "NVIDIA A100-SXM4-40GB",
+ "jax": "0.4.28",
+ "init": "random",
+ "checkpoint": null,
+ "variant": "ref",
+ "stride": 40,
+ "warm_optsteps": 2,
+ "profiled_calls": 2,
+ "profiled_steps": 80,
+ "import_s": 5.8,
+ "warm_s": 11.49,
+ "profiled_range_s_under_profiler": 9.82
+}

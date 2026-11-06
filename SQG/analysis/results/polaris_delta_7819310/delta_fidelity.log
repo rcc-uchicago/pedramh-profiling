@@ -1,0 +1,31 @@
+DELTA_SPINUP t=0.050 SPE=105.972 CFL=0.382
+DELTA_SPINUP t=0.100 SPE=101.147 CFL=0.379
+DELTA_SPINUP t=0.150 SPE=96.5948 CFL=0.453
+DELTA_SPINUP t=0.200 SPE=92.5051 CFL=0.410
+DELTA_SPINUP t=0.250 SPE=88.8638 CFL=0.435
+DELTA_SPINUP t=0.300 SPE=85.5993 CFL=0.337
+DELTA_SPINUP t=0.350 SPE=82.6254 CFL=0.445
+DELTA_SPINUP t=0.400 SPE=79.9258 CFL=0.315
+DELTA_SPINUP t=0.450 SPE=77.5594 CFL=0.347
+DELTA_SPINUP t=0.500 SPE=75.3894 CFL=0.323
+DELTA_SPINUP_OK SPE=75.3894 CFL=0.323 (646 s)
+DELTA_INC size of the 1-step increment / theta: all 8.44e-04, k1-2 9.76e-06, k2-4 1.61e-05, k8-16 1.71e-04 (float32 rounding of theta: ~6e-8)
+DELTA_INC mixed: 1-step increment rel err all 3.29e-05, k1-2 4.12e-06, k2-4 2.17e-06, k8-16 2.41e-06; 40-step all 1.20e-05, k1-2 2.00e-06
+DELTA_INC lean32: 1-step increment rel err all 7.82e-05, k1-2 5.35e-03, k2-4 3.82e-03, k8-16 3.56e-04; 40-step all 5.72e-05, k1-2 4.29e-03
+DELTA_INC lean32e: 1-step increment rel err all 5.80e-05, k1-2 5.35e-03, k2-4 2.69e-03, k8-16 2.05e-04; 40-step all 3.44e-05, k1-2 4.62e-03
+DELTA_INC lean32ek: 1-step increment rel err all 3.28e-05, k1-2 4.27e-06, k2-4 2.21e-06, k8-16 2.39e-06; 40-step all 1.20e-05, k1-2 2.06e-06
+DELTA_PAIR j=0 (149 s) rms(Delta)=0.8279: mixed=8.52e-06 lean32=5.59e-04 lean32e=3.64e-04 lean32ek=8.75e-06 f64ic32=2.34e-07 ref_bitwise=True
+DELTA_PAIR j=1 (109 s) rms(Delta)=0.8242: mixed=8.32e-06 lean32=5.36e-04 lean32e=3.47e-04 lean32ek=8.52e-06 f64ic32=2.25e-07
+DELTA_PAIR j=2 (109 s) rms(Delta)=0.8289: mixed=8.73e-06 lean32=5.23e-04 lean32e=4.38e-04 lean32ek=8.91e-06 f64ic32=2.15e-07
+DELTA_PAIR j=3 (109 s) rms(Delta)=0.8357: mixed=8.33e-06 lean32=5.32e-04 lean32e=4.56e-04 lean32ek=8.53e-06 f64ic32=2.72e-07
+DELTA_PAIR j=4 (109 s) rms(Delta)=0.8261: mixed=8.63e-06 lean32=5.35e-04 lean32e=4.32e-04 lean32ek=8.81e-06 f64ic32=2.65e-07
+DELTA_PAIR j=5 (109 s) rms(Delta)=0.8182: mixed=8.71e-06 lean32=6.07e-04 lean32e=4.65e-04 lean32ek=8.90e-06 f64ic32=2.29e-07
+DELTA_PAIR j=6 (109 s) rms(Delta)=0.8074: mixed=9.10e-06 lean32=6.45e-04 lean32e=4.54e-04 lean32ek=9.25e-06 f64ic32=2.07e-07
+DELTA_PAIR j=7 (109 s) rms(Delta)=0.7937: mixed=8.73e-06 lean32=5.55e-04 lean32e=3.95e-04 lean32ek=8.87e-06 f64ic32=2.46e-07
+DELTA_SUMMARY lag=4000 rms(Delta)=0.8252 (o1.2 units); UViT val rel error ~0.079; f64ic32 floor e_delta=2.32e-07; gated bands ['4-8', '8-16', '16-32', '32-64', '64-182']; lean_u1 == ref bitwise True
+DELTA_GATE mixed FAIL e_delta=8.67e-06 (1.1e-04 of the UViT's error) bands k1-2=2.2e-05 k2-4=5.2e-06 k4-8=3.1e-06 k8-16=2.8e-06 k16-32=3.9e-06 k32-64=7.4e-06 k64-182=1.7e-05 | all 8.67e-06>1.00e-06; k4-8 3.06e-06>1.00e-06; k8-16 2.82e-06>1.00e-06; k16-32 3.85e-06>1.00e-06; k32-64 7.39e-06>1.00e-06; k64-182 1.72e-05>1.00e-06
+DELTA_GATE lean32 FAIL e_delta=5.46e-04 (6.9e-03 of the UViT's error) bands k1-2=3.6e-03 k2-4=2.0e-03 k4-8=4.5e-04 k8-16=2.1e-04 k16-32=2.1e-04 k32-64=4.3e-04 k64-182=1.0e-03 | all 5.46e-04>1.00e-06; k4-8 4.46e-04>1.00e-06; k8-16 2.09e-04>1.00e-06; k16-32 2.06e-04>1.00e-06; k32-64 4.27e-04>1.00e-06; k64-182 1.00e-03>1.00e-06
+DELTA_GATE lean32e FAIL e_delta=4.35e-04 (5.5e-03 of the UViT's error) bands k1-2=3.2e-03 k2-4=1.4e-03 k4-8=3.3e-04 k8-16=1.4e-04 k16-32=1.7e-04 k32-64=3.5e-04 k64-182=8.1e-04 | all 4.35e-04>1.00e-06; k4-8 3.34e-04>1.00e-06; k8-16 1.35e-04>1.00e-06; k16-32 1.67e-04>1.00e-06; k32-64 3.49e-04>1.00e-06; k64-182 8.13e-04>1.00e-06
+DELTA_GATE lean32ek FAIL e_delta=8.84e-06 (1.1e-04 of the UViT's error) bands k1-2=2.2e-05 k2-4=5.2e-06 k4-8=3.1e-06 k8-16=2.9e-06 k16-32=3.9e-06 k32-64=7.5e-06 k64-182=1.8e-05 | all 8.84e-06>1.00e-06; k4-8 3.08e-06>1.00e-06; k8-16 2.86e-06>1.00e-06; k16-32 3.91e-06>1.00e-06; k32-64 7.54e-06>1.00e-06; k64-182 1.76e-05>1.00e-06
+DELTA_BENCH mixed=4.7324 lean32=3.2024 lean32e=3.2025 lean32ek=3.3514
+DELTA_DONE /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/delta_7819310/delta_fidelity.json pass=0/4 wall=1633s

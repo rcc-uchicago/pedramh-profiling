@@ -1,0 +1,21 @@
+Time (%),Total Time (ns),Instances,Avg (ns),Med (ns),Min (ns),Max (ns),StdDev (ns),Name
+34.7,1933577590,9600,201414.3,201278.0,197055,207455,1608.9,"void regular_fft_factor<(unsigned int)64, EPT<(unsigned int)8>, (unsigned int)32, (unsigned int)4, (padding_t)1, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)1, unsigned int, double>(kernel_arguments_t<T9>)"
+10.8,601136954,2880,208728.1,208286.0,206111,229727,2948.8,"void vector_fft_c2r<(unsigned int)4096, EPT<(unsigned int)32>, (unsigned int)1, (unsigned int)3, (padding_t)8, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)0, unsigned int, double>(kernel_arguments_t<T9>)"
+10.2,566959245,2880,196860.8,196831.0,194719,199582,611.8,"void scal_kernel_val<double, double>(cublasScalParamsVal<T1, T2>)"
+10.1,561622249,960,585023.2,583997.0,576348,640476,7863.5,loop_multiply_fusion_3
+7.1,394334337,1920,205382.5,205006.5,201503,228863,3404.6,"void vector_fft_r2c<(unsigned int)4096, EPT<(unsigned int)32>, (unsigned int)1, (unsigned int)3, (padding_t)8, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)0, unsigned int, double>(kernel_arguments_t<T9>)"
+7.1,394322767,624,631927.5,632028.0,619389,635901,1931.1,loop_multiply_fusion_1
+5.4,300702856,960,313232.1,313150.0,308190,321854,1784.7,wrapped_multiply_1
+5.3,295763179,960,308086.6,307903.0,303550,314782,1609.6,wrapped_multiply
+4.1,229675398,312,736139.1,736347.0,721564,739611,2160.1,loop_add_multiply_fusion
+3.7,203650584,624,326363.1,325598.5,319486,360446,4902.3,loop_add_fusion_1
+1.2,67227396,336,200081.5,199679.0,195391,206143,1643.6,loop_multiply_fusion_15
+0.3,17653175,24,735549.0,735420.0,734524,736764,758.7,loop_add_multiply_fusion_1
+0.0,586844,312,1880.9,1856.0,1824,2368,81.6,loop_add_fusion_6
+0.0,582268,336,1732.9,1728.0,1600,2336,127.6,loop_multiply_fusion_12
+0.0,582203,312,1866.0,1856.0,1823,2400,81.5,loop_add_fusion_7
+0.0,549435,312,1761.0,1728.0,1696,2208,78.8,loop_multiply_fusion_13
+0.0,471454,312,1511.1,1504.0,1472,1984,68.8,loop_multiply_fusion_14
+0.0,454175,312,1455.7,1472.0,1376,1920,79.2,loop_add_fusion_8
+0.0,57887,24,2412.0,2432.0,2304,2591,71.0,wrapped_add
+0.0,46848,24,1952.0,1952.0,1920,2016,23.1,loop_add_fusion_5

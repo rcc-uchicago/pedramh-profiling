@@ -1,0 +1,12 @@
+seed1: NVIDIA A100-SXM4-40GB, jax 0.4.28; preconditions OK (forcing in k_x columns < 5); synthetic IC: CFL 0.30, theta_rms 14.4
+SEED1_GATE_OK lean 1step_max_rel_l2=0.00e+00 40step_max_rel_l2=0.00e+00 bitwise480_random=True bitwise480_synthetic=True t_exact=True/True
+SEED1_GATE_OK lean_u1 1step_max_rel_l2=0.00e+00 40step_max_rel_l2=0.00e+00 bitwise480_random=True bitwise480_synthetic=True t_exact=True/True
+SEED1_GATE_OK lean_split 1step_max_rel_l2=0.00e+00 40step_max_rel_l2=0.00e+00 bitwise480_random=True bitwise480_synthetic=True t_exact=True/True
+SEED1_BENCH lean ms_ref=9.2882 ms_cand=7.9695 speedup=1.165 gate=OK
+SEED1_BENCH lean_u1 ms_ref=9.2882 ms_cand=6.4003 speedup=1.451 gate=OK
+SEED1_BENCH lean_split ms_ref=9.2882 ms_cand=7.0779 speedup=1.312 gate=OK
+SEED1_OPTSTEP lean_u1 s_ref=4.470 s_cand=3.086 speedup=1.449 (12 x 40 steps + coarse, median of 5)
+SEED1_LONG lean_u1 steps=4000 coarse_rel_l2=0.000e+00 energy_rel_diff=+0.000e+00 qh_rel_l2=0.000e+00 finite=True
+SEED1_LONG lean_split steps=4000 coarse_rel_l2=0.000e+00 energy_rel_diff=+0.000e+00 qh_rel_l2=0.000e+00 finite=True
+SEED1_LONG lean steps=4000 coarse_rel_l2=0.000e+00 energy_rel_diff=+0.000e+00 qh_rel_l2=0.000e+00 finite=True
+SEED1_DONE -> /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/opt_round1c_7815637/seed1/seed1.json (9.0 min)

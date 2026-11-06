@@ -1,0 +1,13 @@
+seed2: NVIDIA A100-SXM4-40GB, jax 0.4.28, import 4 s; random: theta_rms 4.91e-05, CFL 0.000 -> 0.002 (4000 steps), SPE drift +3.982e+06; synthetic: theta_rms 14.9, CFL 0.300 -> 0.337 (4000 steps), SPE drift -1.370e-02
+SEED2_BANDS lean64 synthetic theta_hat worst |k| band 1024-2048: rel 2.10e-14 (report only)
+ERROR SEED2_GATE_FAIL lean64 t_tc_ablevel_40_steps_random;t_tc_ablevel_480_steps_random;t_tc_ablevel_4000_steps_random;t_tc_ablevel_40_steps_synthetic;t_tc_ablevel_480_steps_synthetic;t_tc_ablevel_4000_steps_synthetic | rel1 random=2.41e-22 synthetic=2.90e-14 (thr 1e-12); bitwise480=False/False; 4000-step coarse rel diff 0.00e+00/0.00e+00, dSPE +0.00e+00/+0.00e+00 (random/synthetic)
+SEED2_BANDS mixed synthetic theta_hat worst |k| band 1024-2048: rel 1.89e-05 (report only)
+ERROR SEED2_GATE_FAIL mixed t_tc_ablevel_40_steps_random;t_tc_ablevel_480_steps_random;t_tc_ablevel_4000_steps_random;rel1_synthetic=2.298e-05>1e-05;t_tc_ablevel_40_steps_synthetic;t_tc_ablevel_480_steps_synthetic;t_tc_ablevel_4000_steps_synthetic | rel1 random=1.75e-13 synthetic=2.30e-05 (thr 1e-05); bitwise480=False/False; 4000-step coarse rel diff 6.41e-08/6.37e-06, dSPE +2.86e-12/-2.59e-08 (random/synthetic)
+SEED2_BANDS lean32 synthetic theta_hat worst |k| band 1024-2048: rel 1.89e-05 (report only)
+ERROR SEED2_GATE_FAIL lean32 t_tc_ablevel_40_steps_random;t_tc_ablevel_480_steps_random;t_tc_ablevel_4000_steps_random;rel1_synthetic=2.302e-05>1e-05;t_tc_ablevel_40_steps_synthetic;t_tc_ablevel_480_steps_synthetic;t_tc_ablevel_4000_steps_synthetic | rel1 random=6.84e-08 synthetic=2.30e-05 (thr 1e-05); bitwise480=False/False; 4000-step coarse rel diff 6.58e-05/4.36e-04, dSPE -7.55e-05/-8.36e-05 (random/synthetic)
+SEED2_F32BASE original code in float32: rel1 random=6.84e-08 synthetic=2.48e-05; 4000-step coarse rel diff 6.58e-05/4.36e-04 (random/synthetic; report only)
+SEED2_BENCH lean64 ms_ref=9.2911 ms_cand=7.0731 speedup=1.314 gate=FAIL
+SEED2_BENCH mixed ms_ref=9.2911 ms_cand=4.6840 speedup=1.984 gate=FAIL
+SEED2_BENCH lean32 ms_ref=9.2911 ms_cand=3.2048 speedup=2.899 gate=FAIL
+ERROR SEED2_NO_PASSING_VARIANT
+SEED2_DONE /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/opt_round1_7814300/seed2/seed2.json passing=[] fastest=None wall=425 s

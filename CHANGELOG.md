@@ -59,8 +59,8 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   - **B** `profile_overlap_midway.sh` (does the solver overlap the UViT step? serial vs background thread, pyqg AB3 vs
     fixed level) and **C** `profile_uvit_midway.sh` (torch.profiler of the UViT step) — built, CPU-smoked (C), **not
     submitted**.
-  - **Polaris route (unblocks GPUs):** paste `SQG/polaris/PROFILING_PROMPT.md` into a session on a Polaris
-    login node (branch `sqg`). Code-only profiling on the `debug` queue; no checkpoint or data transfer needed.
+  - **Polaris route: DONE 2026-11-03** (branch `sqg-polaris-profiling`, draft PR against `sqg`; see the dated
+    entry below and `SQG/polaris/polaris_sqg_notes.md`). All three jobs PASS on Polaris debug, n = 2 each.
   - **Blocked on GPUs:** pedramh-gpu midway3-0423 is fully held by Weidong's no-time-limit generator job; midway3-0608
     is reserved (`node_test`, user ndtrung) until 2026-11-04 00:00. The `gpu` partition is V100 (not representative).
   - Hypothesis under test (two independent Opus reviews): pyqg_jax `AB3Stepper.apply_updates` uses a runtime
@@ -113,6 +113,330 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-11-06** — **SQG: the math of the delta table, a three-agent "what else to test" plan, and analogues from
+  other fields** (no jobs submitted). Everything is in `SQG/analysis/opt/team_2026-11-06/` and
+  `SQG/analysis/opt/delta/MATH_delta.md`.
+  - **Math (`MATH_delta.md`).**
+    - e_Δ = e_frame · ‖F‖/‖Δ‖ exactly. The measured ratio is identical across variants: 32 at lag 40, 1.83 at 4,000.
+    - The state-rounding estimate u|θ|/|i| reproduces `lean32`'s 1-step error band by band (6.1e-3 vs 5.3e-3 at
+      k1–2).
+    - `lean32`'s k1–2 error is flat or rising with lag, i.e. a bias. TwoSum/Fast2Sum leaves `lean32ek` with only
+      the float32 tendency error.
+  - **Team (workflow `wf_0391b43a-95e`: Opus NUMERICS + Opus LEARNING + Fable PS, 5 rounds, read-only).**
+    - **The finding that reframes the program:** o1.2's `[::16]` subsample aliases 4096² k ≥ 128 content into the
+      target. That puts **0.00222 (lo) / 0.00377 (central)** of o1.1's 0.0043 val MSE out of reach of any data,
+      step or precision change. Main session independently got ≈ 0.0020.
+    - **PS plan** (8 items, ~26 node-h; the decisive five ≈ 4 node-h):
+      1. free stdout/checkpoint parse: pins 168 vs ~142 h, counts restarts, retrieves the final vals;
+      2. per-band val vs the floor table: the pivot test, replay + fewer steps vs online value;
+      3. noise-vs-bias taxonomy of generators on 16 archived states, with two positive controls;
+      4. an owner-signed acceptance protocol before unblinding;
+      5. a 4.3 TB tee/replay of the 256² stream;
+      6. compile + activation checkpointing;
+      7. resume from `last.pt`;
+      8. compressed OneCycle + the first two-seed replication.
+    - **Rejected:** 2048² restarts, densification, a custom f64 FFT, offset views.
+    - **Main-session check:** the solver's own "2.2e8 steps ~287 h on an H100" gives 4.7 ms/step, which leaves
+      ≈ 0.45 s/step (≈ 24 h of 168 h) of non-solver overhead.
+    - **Correction:** channels_last is 38.5% *slower*, not a gain. The R1 brief had it backwards; memory fixed.
+  - **Analogues (`ANALOGUES.md`, 14 systems).**
+    - Klöwer et al. 2022 used compensated time integration in Float16 shallow water, i.e. `lean32ek`. It beat mixed
+      precision there too (3.6× vs 2.75×).
+    - Stochastic rounding (Paxton 2022) turns the bias into noise. Proposed as a calibration arm for item 3.
+    - Melissa's online gain is new-data diversity, which o1.2 (re-integrating the archive) does not buy.
+    - The online loop that adds information is on-policy (Rasp 2020; Frezat 2022).
+  - **Next:** owners' answers to the 8 questions in `TEAM_REPORT.md`. Item 1 needs the user to point at the o1.2 /
+    o1.1 logs.
+- **2026-11-06** — **SQG delta-fidelity job 7819310 DONE (`DELTA_JOB_DONE failures=0`), notes Part XI. Plain float32
+  damages o1.2's training delta; a compensated float32 state fixes 98% of it.** Results in
+  `SQG/analysis/results/polaris_delta_7819310/`.
+  - **Median e_Δ at the 4,000-step lag over 8 pairs** (spun-up synthetic state):
+
+    | variant | all | k1–2 | k2–4 | ms/step |
+    |---|---|---|---|---|
+    | `lean32` | **5.5e-4** | **3.6e-3** | **2.0e-3** | 3.20 |
+    | `lean32e` (expm1 damping) | 4.3e-4 | 3.2e-3 | 1.4e-3 | 3.20 |
+    | `lean32ek` (compensated) | **8.8e-6** | 2.2e-5 | 5.2e-6 | **3.35** |
+    | `mixed` | 8.7e-6 | 2.2e-5 | 5.2e-6 | 4.73 |
+    | float64 from a once-rounded state (floor) | 2.3e-7 | | | |
+  - **`lean32`'s error is systematic:** its frame error grows 160× over 100× the steps; `lean32ek`'s grows 13×.
+    Its 1-step increment error at k1–2 is 5.3e-3, vs 4.3e-6 for `lean32ek` / `mixed`. The compensation survives
+    XLA.
+  - **Pre-set gate (≤ 2× floor): all four FAIL.** `mixed` / `lean32ek` are 37–38× the floor (float32 FFT term).
+    Verdicts stand; the gate is not loosened.
+  - **Predictions:** 5 confirmed, 2 half, 4 refuted. The floor and rms(Δ) were off, and `mixed` / `lean32ek` were
+    predicted to pass.
+  - **Decision is the user's / jesswan / Weidong's:**
+    - **Do not use plain float32 (`lean32`, `lean32_u1_ring3`) for o1.2's targets.**
+    - If a pre-set tolerance at ≈ 1e-5 of Δ is acceptable, use `lean32ek` (2.77×; with the trigger + ring
+      ≈ 3.4×, untested).
+    - Otherwise stay on float64: `lean_u1` 1.45×, round 2 ≈ 1.7×.
+  - **Caveat:** the start state is not archive-like (rms(Δ) 0.825 vs 0.27). A definitive rerun needs 2–3 archived
+    checkpoints staged from Midway (`delta_fidelity.py --state-in`), plus a long-run bias check.
+- **2026-11-05** — **SQG Nsight job 7819082 DONE (`NSIGHT_DONE failures=0`), notes Part X.** Results in
+  `SQG/analysis/results/polaris_nsight_lean_7819082/`. Predictions: 14 confirmed, 6 half, 1 refuted.
+  - **`lean32` 3.198 ms/step, by op:** AB3 fusion 926 µs (28.8%), 2 RFFT 615, C2C 540, IRFFT 503, products 253,
+    `build_w` 235, copies 99. GPU busy 99.4%. Ideal 2.82 GB/step ≈ 2.09 ms at 1.35 TB/s.
+  - **The AB3 fusion over-fetches 2.2–2.9×** (4 elements per thread; ncu: 75% excessive sectors). **Seed 1's cos
+    trigger fixes it:** the fusion reads exactly its 369 MB, at 89% of peak.
+  - **Bitwise rewrites of `lean32`:** trigger **2.641 ms (1.211×)**; 3-slot ring 3.104 (0 copies); both
+    **2.524 ms = 3.68× production**.
+  - **cuFFT column passes run at 41–52% of DRAM peak** (uncoalesced global on the half-plane, shared bank
+    conflicts on the full plane). Only a custom FFT reaches them (≈ 0.43 ms).
+  - **cuFFT 11.4.1 via `LD_PRELOAD`:** confirmed mapped, no change (< 1%). **Not a lever.**
+  - **Float64 `lean_u1` 6.40 ms:** 3 IRFFTs = 47%. Next is `lean64`'s C2C packing (≈ −0.9 ms) + the trigger on its
+    last 4-element fusion (≈ −0.15) → ≈ 5.3–5.5 ms.
+  - Ranked list: notes Part X. `lean32_u1_ring3`'s precision question is still Part XI (job 7819310).
+- **2026-11-05** — **SQG float32 vs o1.2's training delta: two mechanisms found; delta-fidelity job built**
+  (`SQG/analysis/opt/delta/`). The user: "we need to be sure that fp32 is not impacting δ as it is very small".
+  Round 1b compared frames, not deltas.
+  - **Damping quantization.** `decay` stored in float32 quantizes each mode's damping rate, because rate·DT ≈
+    1e-7..5e-6 and float32 spacing below 1 is 6e-8. Rate error: up to ±20% at k = 4–16 (rms 11–13%), ±5% in
+    the forcing ring, 0.1% at k = 1. It is deterministic per mode, applies every step, and is present in plain
+    float32 too.
+  - **Sub-ulp rounding.** A float32 state rounds sub-ulp per-step changes systematically wherever the increments
+    vary slowly, i.e. the large scales, where Δ is smallest (k = 1–2: Δ ≈ 4% of θ).
+    `test_f32_update.py` (emulated float32, one forced k = 8.4 mode, 100k steps): the 4,000-step delta is
+    **31% off** for `lean32`'s update and **also for expm1 damping alone**. The compensated (TwoSum hi + lo)
+    update gives 8.8e-8. So any float32 *state* has this; the fixes are a float64 state (`mixed`) or a
+    compensated float32 state (`lean32ek`, +1 complex64 array).
+  - **The GPU test** (`delta_fidelity.py`, `run_delta_polaris.pbs`):
+    - spin-up of a synthetic −5/3 field (no archived checkpoint on Polaris);
+    - per-band increments;
+    - 8 × 4,000-step pairs on o1.2's coarse frames for `mixed` / `lean32` / `lean32e` / `lean32ek` vs float64,
+      with a float64-from-rounded-state floor.
+
+    Pre-set gate: e_Δ ≤ max(2 × floor, 1e-6), overall and in each band holding ≥ 1% of Δ energy.
+    Predictions: `PREDICTIONS_delta.md` (written first). It is auto-submitted when 7819082 starts (debug allows
+    one waiting job per user).
+  - **Until it reports: do not ship `lean32` to o1.2.** `lean_u1` (float64, bitwise) is unaffected.
+- **2026-11-05** — **SQG Nsight job on `lean32` submitted: 1-node debug job 7819082**
+  (`SQG/analysis/opt/nsight/run_nsight_lean_polaris.pbs`, walltime 0:55). The user asked for an Nsight analysis of
+  `lean32` and where the solver can still improve. End token `NSIGHT_DONE failures=N`; results →
+  `SQG/analysis/results/polaris_nsight_lean_7819082/`. Predictions: `SQG/analysis/opt/nsight/PREDICTIONS_nsight.md`
+  (written first). Don't edit `SQG/analysis/opt/nsight/` or the two new summarizers while it is queued.
+  - **New tools.**
+    - `summarize_nsys_ops.py`: GPU time per XLA op per step, via the XLA thunk NVTX ranges. Validated on job E's
+      real f32 capture: AB3 fusion 649.8 µs/step (job E: 650), GPU busy 98.1%.
+    - `summarize_ncu_window.py`: every kernel of one loop period, from an unfiltered ncu window.
+    - `lean32_probes.py`: exact rewrites of `lean32` (seed 1's cos trigger, seed 1's 3-slot ring, both).
+  - **Leads going in.**
+    - `lean32`'s byte model is ≈ 2.8 GB/step ≈ 2.1 ms at 1.35 TB/s, vs 3.19 ms measured.
+    - Its HLO still has 2 full-size tendency copies per 2-step iteration.
+    - Job E's half-plane column FFT pass (`regular_fft_factor<4096>`) runs at ≈ 0.68 TB/s, half its neighbours.
+      Hypothesis: a 2,049-wide complex64 row is 16,392 B, so rows are not 32 B-aligned.
+    - `decay` is an exact circular 2/3 truncation, so most of the half-plane is zero every step.
+    - CUDA 12.9.1's cuFFT 11.4.1 (the env has 11.0.2) can be swapped in by `LD_PRELOAD`: XLA dlopens
+      `libcufft.so.11` by soname. Phase 3 is report-only.
+- **2026-11-05** — **SQG round 1c (7815637) DONE, `OPT_R1C_DONE failures=0`.** Notes Part IX; summaries in
+  `SQG/analysis/results/polaris_opt_round1c_7815637/`.
+  - **Seed 1: all three pass, bitwise at 1/40/480/4,000 steps, `t` exact.** `lean` 7.970 ms (1.165×),
+    **`lean_u1` 6.400 ms (1.451×; optimizer step 4.470 → 3.086 s)**, `lean_split` 7.078 (1.312×). So `lean_u1` is a
+    bitwise float64 speed-up that needs no science sign-off. The run-time `dt` fixed `t` in both seeds.
+  - **NCCL over CXI is solved.**
+    - A (7815096's env + FI_LOG) fails again, and FI_LOG shows `cuda_hmem_dl_init(): Failed to dlopen
+      libcudart.so` on 8/8 ranks. That confirms the cause.
+    - **B, a dir holding `libcudart.so` → the env's own `libcudart.so.12`, passes at 31.5 GB/s:** GDRDMA on 24/24
+      NET lines, CUDA HMEM up 8/8, 0 errors.
+    - C (`GDR_LEVEL=LOC`) passes at 17.2 GB/s, host-staged; combine_handoffs' 2-node 18.0 GB/s was GDR 0.
+    - D (`cuda-12.9.1` prepend) passes at 32.6 GB/s.
+    - B and D log 24 harmless-looking `cuPointerSetAttribute … CUDA_ERROR_NOT_SUPPORTED` warnings each.
+  - **Replicate vs decouple (DDP over B, GDR):**
+    - replicate `lean32`: 1.946 s/step on 8 GPUs; DDP cost 5.2 ms. 0.514 rank-steps/s per GPU.
+    - replicate `ref`: 4.897 s/step (vs 4.887 s on 1 GPU); DDP cost 4.8 ms.
+    - decouple `lean32` (2 cross-node DDP trainers + 6 simulators): 0.4235 s/step free-running; ≈ 0.515 s paced to
+      12 fresh pairs/step (derived). That is ≈ 0.485 rank-steps/s per GPU, 0.94× replicate, so equal GPU-seconds
+      holds: 3.8× shorter steps at a 4× smaller global batch.
+  - **Harness bug found and fixed (separate commit).** The paced phase was reported by its median (0.424 s, wait
+    median 0.0). The simulators' bursts hide the waits, so the trainer now records the phase mean.
+  - **Predictions:** 9 confirmed, 3 half (#6 busbw above range, #8 s/step 1–2% faster than the 1-GPU sum, #9
+    paced s/step not measured as stated), 0 refuted.
+  - **Next (the user's):** ship `lean_u1` (bitwise) to o1.2 while `lean32` waits for validation? Round 2 = the u1
+    trigger + C2C packing. Size a decoupled run at ≥ 3.7 `lean32` simulators per trainer.
+  - **Open, cheap (combine_handoffs):** were the 24 `cuPointerSetAttribute … NOT_SUPPORTED` warnings in B/D from
+    NCCL's cuMem buffers? Test with an arm `B_shim` + `NCCL_CUMEM_ENABLE=0` in the next 2-node job; the warnings
+    should disappear if so. Don't silence them with `disable_cuda_sync_memops` in gated runs before that A/B.
+- **2026-11-05** — **SQG round 1c submitted: 2-node debug job 7815637** (`SQG/analysis/opt/run_round1c_polaris.pbs`,
+  walltime 0:59).
+  - **User decisions (11-05):** rerun seed 1; carry `lean32` toward o1.2 (precision in production still needs
+    statistical validation + jesswan / Weidong's sign-off); measure both replicate and decouple; submit without a
+    further approval once the critics' changes were in.
+  - **Phase 1:** seed 1 (`lean` / `lean_u1` / `lean_split`) under round 1b's `t` rule (run-time `dt`; `t` within
+    1e-6).
+  - **Phase 2: four NCCL probe arms**, each judged by `multisim/probe_verdict.py` (NCCL_PROBE_OK needs a completed
+    all_reduce + busbw, which fixes round 1b's token bug):
+    - A: 7815096's env + `FI_LOG_LEVEL=info`;
+    - B: a `libcudart.so` shim pointing at the env's own `.so.12` (combine_handoffs' preferred fix);
+    - C: `GDR_LEVEL=LOC`;
+    - D: makani/ACE2's `cuda-12.9.1/lib64` prepend.
+  - **Phase 3:** replicate `lean32` / decouple `lean32` / replicate `ref`, with DDP over the first passing arm (order
+    B, D, A, C).
+  - **Library check (readelf):**
+    - the aws-ofi-nccl plugin needs `libcudart.so.12`, and its RUNPATH dir no longer exists, so torch's
+      already-loaded 12.1 copy satisfies it;
+    - libfabric 2.3.1 dlopens the unversioned `libcudart.so` and `libgdrapi.so`, both absent.
+  - **combine_handoffs' answers:**
+    - their GDR runs were nccl-tests (NCCL 2.28.3, cudart 12.9), not torch, with libfabric resolving a
+      `cuda-13.0.1` `libcudart.so`;
+    - gdrcopy is opt-in and harmless; the RDZV vars are ruled out;
+    - FI_LOG's `Number of CUDA devices detected` marks a working CUDA HMEM.
+  - **Pre-submission review:** 2 read-only Fable critics; 3 minor harness fixes applied (receiver join timeout,
+    guarded rank-0 aggregation, NCCL-timeout docstrings); the job script had 0 defects.
+  - Predictions: `SQG/analysis/opt/PREDICTIONS_round1c.md`. Results →
+    `SQG/analysis/results/polaris_opt_round1c_7815637/`. Don't edit `SQG/analysis/opt/` while it is queued.
+- **2026-11-05** — **SQG job 7815096 DONE (`OPT_R1B_MS_DONE failures=1`).** Round 1b passed. Of the 2-node arms, 4/5
+  passed; the NCCL-over-CXI probe failed. Notes Part VIII; summaries in
+  `SQG/analysis/results/polaris_opt_round1b_ms_7815096/`.
+  - **Round 1b (one A100): all three pass their pre-set gates.** ms per solver step vs ref 9.290:
+
+    | variant | ms/step | speedup | optimizer step |
+    |---|---|---|---|
+    | `lean64` | 7.051 | 1.318× | 3.40 s |
+    | `mixed` | 4.714 | 1.971× | 2.28 s |
+    | `lean32` | 3.189 | 2.913× | 1.55 s (vs 4.47) |
+
+    - `t` is now exact for all three (run-time `dt`).
+    - `lean64`'s 256² float32 frames are **bitwise** equal to production's after 4,000 steps (fields ≤ 1e-13).
+    - `lean32` is float32 itself: its 1-step and 4,000-step differences equal the original step run in float32 to 3
+      digits (4.36e-4 coarse, −8.36e-5 SPE).
+    - `mixed` keeps a float64 state and is 70× closer at 4,000 steps.
+  - **2-node arms.**
+    - **Independent simulators:** scaling efficiency 0.9999 (ref) / 1.0024 (lean32).
+    - **Stream (7 simulators → 1 trainer, gloo over hsn0, RAM only, nothing written to disk):** the trainer stays
+      at its standalone 0.419 s/step. A send is ≈1 ms per 6.3 MB message. Fresh pairs per trainer step:
+      `ref` 8.14 (solver-bound), `lean32` 22.6 (trainer-bound). One trainer needs 10.7 / 8.1 / 5.4 / 3.7
+      simulators (ref / lean64 / mixed / lean32) to get o1.2's 12 fresh pairs per step.
+    - **Decoupling trades GPUs for wall-clock at equal GPU-hours.** Replicating o1.2 only grows the global batch.
+  - **NCCL probe FAILED: cxi can't register NCCL's GPU buffers.**
+    - Stack: torch 2.3.1's NCCL 2.20.5 + aws-ofi-nccl 1.6.0, under `NCCL_NET_GDR_LEVEL=PHB`.
+    - Plugin v6 and the cxi provider loaded on 8/8 ranks. Intra-node is `P2P/CUMEM/read` ×24, SHM 0.
+    - Every inter-node hop chose GDRDMA. On all 4 network ranks: `cxil_map: write error`, then
+      `NET/OFI Unable to register memory (type = 2) … RC: -14, Error: Bad address`.
+    - `Connected all rings` was never reached, so there is no busbw. No arm ran without `NCCL_PROTO=Simple`.
+    - `NCCL_CXI_OK providers=8` only means the provider was selected.
+    - These answers went to combine_handoffs (SendMessage, 11-05).
+    - **Their reply.** GDR works on their stack (7629096: 4 nodes, NCCL 2.28.3, `GDRDMA`, `GDR 1`), with cuMem on
+      too. Their leading cause: cray libfabric 2.3.1 dlopens the unversioned `libcudart.so`, and sqg-env has only
+      `libcudart.so.12`, so CUDA HMEM init fails and cxi pins GPU addresses as host memory (EFAULT).
+    - **Checked here:** the libfabric strings, and that no dir on the job's `LD_LIBRARY_PATH` has `libcudart.so`.
+      The mechanism itself is unconfirmed (no `FI_LOG`).
+    - **Next probe:** A `FI_LOG_LEVEL=info`; B a `libcudart.so` → env `libcudart.so.12` shim; C
+      `NCCL_NET_GDR_LEVEL=LOC`. Gate the probe's token on a completed all_reduce + busbw.
+  - **Predictions scored without edits.**
+    - Round 1: the gates all mispredicted (cause: the gates); 2/6 speed ranges hit; every speed miss was slower.
+    - Round 1b: 7 confirmed, 1 confirmed with two edge misses (≤ 2%), 1 half (#5: cxi yes, bandwidth never measured).
+  - **Open (the user's):** a seed-1 `lean_u1` rerun under round 1b's `t` rule; which precision goes into o1.2
+    (precision is jesswan / Weidong's call); replicate vs decouple.
+- **2026-11-05** — **SQG handoff for a fresh session: `SQG/polaris/sqg_opt_handoff.md`.** It gives the state, the
+  steps after 7815096 (scoring, the NCCL answers owed to combine_handoffs, notes Part VIII), the open decisions (seed 1
+  rerun, which variant goes into o1.2, replicate vs decouple), and the Polaris multi-node recipe.
+- **2026-11-05** — **SQG round 1b + 2-node independent-simulation smoke submitted: debug job 7815096** (2 nodes,
+  8 A100s). Phase 1 reruns `lean64` / `mixed` / `lean32` under gates written before the rerun (user request):
+  float32 variants ≤ min(1e-4, 2 × the ORIGINAL step's float32 error from the same state, same run); `lean64` ≤
+  1e-12; `tc`/`_ablevel` exact, `t` within 1e-6 relative (exact `t` reported as information); `t` now advances
+  by a run-time `dt`. Phase 2 (`SQG/analysis/opt/multisim/`) runs an NCCL-over-CXI probe (aws-ofi-nccl v1.6.0
+  with torch 2.3.1's bundled NCCL, never tried before; recipe from combine_handoffs), 8 independent trajectories (ref
+  and lean32), and an o1.2-style stream: 7 simulators send pairs over gloo/hsn0 to 1 trainer GPU running o1.2's
+  UViT from an in-RAM FIFO, with nothing written to disk, as online training does. Predictions:
+  `SQG/analysis/opt/PREDICTIONS_round1b.md`. Results → `SQG/analysis/results/polaris_opt_round1b_ms_7815096/`.
+  **Do not edit `SQG/analysis/opt/` while it is queued** (the job reads it at start).
+- **2026-11-05** — **SQG round 1 (7814300) DONE: every variant FAILED its pre-set gate; verdicts stand.** Measured
+  ms/step vs ref 9.29: `lean` 8.00, `lean_u1` 6.40 (1.45×, bitwise fields), `lean_split` 7.07, `lean64` 7.07 (≤
+  2.9e-14), `mixed` 4.68 (1.98×), `lean32` 3.20 (2.90×). Two causes. (1) All of them fail on the float32 time
+  counter `t` (`tc`/`_ablevel` were fine), which the step never reads; the likely cause is XLA folding the
+  unrolled `(t + dt) + dt`. (2) `mixed` and `lean32` (2.30e-5) also fail the 1e-5 float32 limit, which was below
+  plain float32's own error: the original step run in float32 scores 2.48e-5 from the same state. So the limit
+  measured float32, not the variants. Projected o1.2 online wall-clock on the H200 (7 days today, solver ≈ 87%):
+  `lean_u1` ≈ 5.1 d, `mixed` ≈ 4.0 d, `lean32` ≈ 3.0 d; the offline floor is 21 h if the solver is hidden on
+  extra simulation GPUs. Results: `SQG/analysis/results/polaris_opt_round1_7814300/`.
+- **2026-11-04** — **SQG solver-optimization round 1 submitted: debug job 7814300.** Built by two Opus seeds and
+  reviewed by a Fable principal scientist (user's design; user policy: bitwise not required, a tolerance fixed
+  before the run decides). Six variants: seed 1 float64 JAX `lean` / `lean_u1` / `lean_split` (drop exact ×1/+0
+  terms, 3-slot AB3 ring, unroll-1 and split tricks against the AB3 fusion's over-fetch); seed 2 `lean64` (u, v from
+  one forward C2C FFT, 2-slot ring), `mixed` (float32 nonlinear term), `lean32`. Gates: ≤ 1e-12 (f64) / ≤ 1e-5 (f32)
+  after 1 step from a random and a synthetic CFL-0.3 state. Report-only: per-|k|-band errors and a float32 baseline
+  of the original step. Predictions in `SQG/analysis/opt/PREDICTIONS_round1.md`; results →
+  `SQG/analysis/results/polaris_opt_round1_7814300/`.
+- **2026-11-04** — **SQG: the 5 full-field copies per solver step are traced** (job A capture, each copy attributed to
+  its issuing XLA thunk). 2/step are the AB3 history rotation inside the AB3 update graph (pyqg_jax
+  `AB3Stepper.apply_updates`, steppers.py:501, under `lax.scan`'s one-buffer-per-slot carry). 3/step are the three
+  inverse (C2R) FFTs copying their inputs (θ̂, û, v̂); the forward FFTs copy nothing. Removable: rotation ≈0.39 ms
+  bitwise (unroll by 3 / ring index); û, v̂ ≈0.39 ms only with an input-overwriting FFT call; θ̂'s copy is needed.
+  This **corrects** the "≈1 ms, all loop-carry" estimate to ≈0.4–0.8 ms. Notes Part IV addendum.
+- **2026-11-04** — **SQG job E 7813816 PASS: a float32 solver step is 2.6× faster (9.30 → 3.61 ms; 4.47 → 1.74 s of
+  solver per optimizer step).** Checks pass: the builder is bitwise equal to `GD.inner`, and there is no hidden f64 in
+  the f32 HLO. Every kernel scales ≈2× with its bytes (cuFFT 3,059 → 1,512 µs/step) **except the AB3 fusion: 3,288 →
+  650 µs (5.1×)**. So ≈2 ms/step of the f64 fusion is float64-specific, not data. Both precisions still evaluate the
+  no-op filter's sqrt/exp, which is software-emulated in f64. Job F (Nsight Compute, **7814044**, submitted)
+  separates that from register pressure. Prediction 2 (1.6–2.0×) refuted; notes Part VI. Float32 is timing only.
+- **2026-11-04** — **SQG: a STRIDE-400 online run reportedly overfit** (user report; run details not seen here).
+  This contradicts the decorrelation entry's advice to sample online pairs at Δt/10–Δt/4. In o1.2, `STRIDE` also sets
+  the data *quantity*: pairs per segment 4,901 → 491, the start buffer (4 segments) 19,604 → 1,964 pairs, fresh pairs
+  per optimizer step S/STRIDE 12 → 1 (S must be a multiple of STRIDE). The 262,144-pair buffer then never fills, so
+  the first pairs are sampled ≈150× (vs ≈7× at STRIDE 40). The 40-step near-duplicates cost no extra solver time
+  and probably also act as augmentation (untested). **Keep STRIDE 40 for online training; do not thin a saved frame
+  store without a test.** No translation augmentation: the forcing is a fixed spatial pattern. A discriminating test
+  is STRIDE 40 with every 10th pair buffered (same solver cost, STRIDE-400 density).
+- **2026-11-04** — **SQG jobs E and F: the solver's GPU work.** E (`profile_solver_fp32.py`, debug **7813816**,
+  queued) times the production step in float32 vs float64. It reports only if its builder is bitwise equal to
+  `GD.inner` and the f32 HLO holds no full-size f64/c128 field. F (`profile_ab3_ncu*.py/.pbs`, `summarize_ncu.py`;
+  written by a subagent, reviewed; `NCU_TEST_OK`) is Nsight Compute on the AB3 fusion and three contrast kernels. It
+  is **not yet submitted**, because the debug queue allows 1 queued job per user (`queued_jobs_threshold`). Predictions
+  in notes Part VI. Also answered: torchdiffeq / PyG do not touch the bottleneck (CFL-bound stepping; FFTs on a
+  regular periodic grid).
+- **2026-11-04** — **SQG job D 7813332 PASS (`PHASES_OK` × 3), 4 of 5 predictions confirmed, 1 half refuted.** In
+  the production order there are 507 syncs and 506 DtoH per optimizer step. 480 of each come from one HLO op
+  (`conditional.277.0`, the `lax.switch`) and block 4,412 of 4,920 ms. The other 27 are cheap (`flush` 24, 0.08 ms;
+  `loss_item` 2, waiting on the network's own GPU work; harness 1). The network phases issue 0 syncs. Without the
+  switch the wait moves into `cuLaunchKernel` (91% of launches slow, 3.84 s/step), not into `flush`. Parser counts
+  equal nsys `cuda_api_sum` ÷ 6. Notes Part V; summaries in `SQG/analysis/results/polaris_phases_7813332/`.
+- **2026-11-04** — **SQG job D: per-phase sync audit of the online optimizer step, tooling done, job 7813332
+  submitted** (`debug`, 1 A100, 40 min; branch `sqg-polaris-profiling`; notes Part V). Jobs A/B counted syncs
+  for the solver alone. D attributes every CUDA API call, and the GPU work it issued, to the NVTX phase open on its
+  thread (`SQG_NVTX=1` in `profile_overlap.py`). Every sync and DtoH is also attributed to the XLA op that issued it
+  (`summarize_nsys_phases.py`, stdlib sqlite3; `PHASES_TEST_OK`). **Validated on job A's capture:** 480.0
+  `cuStreamSynchronize` + 480.0 4-byte pinned DtoH per 480 steps, all inside `conditional.277.0
+  (while/body/cond)`, equal to A's totals. Five predictions are pre-registered (`flush` = 24 pageable DtoH + 24
+  syncs/step, `loss_item` = 2, ML phases 0, …). Also found while explaining the solver: XLA's "68 GFLOP/step" is
+  its FFT cost model, 8·(log₂4096)² flops per element (3 IRFFT × 8.4 M + 2 RFFT × 16.8 M = 67.6 GFLOP), not real
+  arithmetic (≈5 GFLOP textbook). The cuFFT kernels run at ≈1.3 TB/s, close to the HBM limit, but
+  `loop_add_multiply_fusion_1` (3.27 ms, 39.5%) is far below it. Nsight Compute on that kernel is the next solver
+  lead. Next: read 7813332 (`PHASES_OK` ×3), score Part V.
+  - **The largest solver kernel is the whole AB3 update** (notes Part IV addendum, from `hlo_ref.txt`). It moves
+    ≈1.27 GB in 3.27 ms (≈390 GB/s, vs ≈1.3 TB/s for cuFFT). Three parts of it cannot change the answer: pyqg's
+    filter (sqrt + f64 exp per coefficient; exactly 1 at `filterfac=0`), a dense 134 MB F̂ read every step
+    (24 nonzero modes), and a probable zero background-gradient term (unverified). Candidate: a lean step in o1.2
+    behind a bitwise gate, estimated headroom ≤ ≈2.5 ms/step; ncu on the fusion first.
+- **2026-11-03** — **SQG online-training profiling ran on Polaris (jobs A/B/C, n = 2 each, `debug`, 1 A100 per
+  job)** (branch `sqg-polaris-profiling`; write-up `SQG/polaris/polaris_sqg_notes.md`; summaries in
+  `SQG/analysis/results/polaris_*`). Code findings only, with no cross-GPU ratios:
+  - **The `lax.switch` hypothesis: mechanism confirmed, consequence incomplete.** `ref` does 1 DtoH + 1
+    `cuStreamSynchronize` per solver step, so Python is blocked for every 40-step call. The `fixed` AB3 level is
+    bitwise identical and has 0 syncs, but the host still cannot run more than ~1 call ahead: ~1,000 launches per
+    call fill the CUDA launch queue (`cuLaunchKernel` 414 µs vs 2.7 µs).
+  - **Overlap is limited by the GPU, not the host.** `serial_ref` = solver + ML exactly (4.887 s). A background-
+    thread solver hides at most 21% of the ML step, because the solver alone keeps the GPU 99% busy. The best arm
+    is −1.4%. `sample()` is 0.3% of the ML step.
+  - **~5 × 134 MB loop-carry D2D copies per solver step** = 10.6% of solver time; `donate` removes a different
+    3 × 134 MB copy per call.
+  - **UViT:** batch 32 OOMs a 40 GB A100, so ML numbers are at batch 16 (416 ms/step). Kernel time is spread
+    (GEMM 26%, elementwise 20%, native depthwise conv 19%, LayerNorm 15%; 3,562 launches/step). `channels_last`
+    is +38.5%, and `cudnn.benchmark` −0.3%.
+  - Of the 6 pre-registered predictions, #2, #3 and #5 are confirmed in full. #1, #4 and #6 are confirmed in part;
+    the refuted sub-claims are #1's `fixed` half, #4's `thread_fixed` ≈ max, #6's "few kernels dominate" and #6's
+    `channels_last` < 15%. The scorecard is in the notes. Ranked code changes with their
+    gates are in the notes' Part IV. None are implemented.
+  - **Env:** `module load conda` works again (ALCF fixed the modulefile 2026-09-16; makani jobs already log
+    `MAKANI_ENV_SOURCE = module-conda`). SQG has its own `$MEMBER_ROOT/conda-envs/sqg-env` (py3.10, pip copy of
+    wdenv; CUDA from the wheels, no modules at run time; `SQG/polaris/setup_sqg_env.sh`). The login-node import
+    check was replaced by a GPU probe job (09-24 ruling).
+  - **Gotchas:** `profile_uvit.py`'s `top_ops` percentages double-count (ops + kernels + ranges); use
+    `summarize_uvit_trace.py`. `SQG/analysis/results/` is gitignored, so add results with `git add -f`. The brief's
+    default `MEMBER_ROOT=/eagle/lighthouse-uchicago/members/$USER` doesn't exist for every user (rmehta1987 →
+    mehta5).
+  - Optional NUMA arm not run: the step is GPU-bound. Jobs: probe 7809334, C 7809340 (OOM @32) / 7809341 /
+    7809408, A 7809356 / 7809412, B 7809385 / 7809433.
 
 - **2026-11-02** — **SQG Polaris `debug`-queue profiling prompt** (`SQG/polaris/PROFILING_PROMPT.md`, commit
   41570a38). Self-contained handoff for a Polaris session to port jobs A/B/C to PBS. Scope is the **code**: solver
@@ -214,6 +538,18 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 ## Known issues / failed approaches (do NOT re-attempt)
 
 Each is attributed to its source doc — verify there before acting.
+
+- **(Polaris, SQG env) NCCL over CXI with torch 2.3.1's bundled NCCL 2.20.5 + aws-ofi-nccl v1.6.0 +
+  `NCCL_NET_GDR_LEVEL=PHB` fails at connect.**
+  - Symptom: `cxil_map: write error` → `NET/OFI Unable to register memory (type = 2) … RC: -14, Error: Bad address`
+    on every rank that does an inter-node hop; the rest hang.
+  - **Cause CONFIRMED (job 7815637):** libfabric's `cuda_hmem_dl_init()` cannot dlopen the unversioned
+    `libcudart.so`, which a wheel-based env lacks.
+  - **FIXED:** put a dir holding `libcudart.so` → the env's own `libcudart.so.12` first on `LD_LIBRARY_PATH`
+    (`run_round1c_polaris.pbs`, `arm_env B_shim`). That gave 31.5 GB/s with GDRDMA, and DDP works. Fallbacks:
+    `NCCL_NET_GDR_LEVEL=LOC` (17.2 GB/s), or prepending `cuda-12.9.1/lib64` (32.6 GB/s, but two CUDA runtimes).
+  - Don't use the bare env block for cross-node NCCL from a wheel env.
+  - Source: job 7815096; `SQG/polaris/polaris_sqg_notes.md` Part VIII.
 
 - **(Polaris) `torch_harmonics` version box** — makani 0.2.0 imports the *public*
   `torch_harmonics.quadrature.precompute_latitudes`, which does NOT exist in 0.7.4 or

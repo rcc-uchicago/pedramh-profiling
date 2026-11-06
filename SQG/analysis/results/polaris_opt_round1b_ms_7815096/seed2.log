@@ -1,0 +1,13 @@
+seed2: NVIDIA A100-SXM4-40GB, jax 0.4.28, import 12 s; random: theta_rms 4.91e-05, CFL 0.000 -> 0.002 (4000 steps), SPE drift +3.982e+06; synthetic: theta_rms 14.9, CFL 0.300 -> 0.337 (4000 steps), SPE drift -1.370e-02
+SEED2_F32BASE original code in float32: rel1 random=6.84e-08 synthetic=2.48e-05; 4000-step coarse rel diff 6.58e-05/4.36e-04 (random/synthetic); sets the float32 gates (x2, cap 0.0001)
+SEED2_BANDS lean64 synthetic theta_hat worst |k| band 1024-2048: rel 2.10e-14 (report only)
+SEED2_GATE_OK lean64 rel1 random=2.41e-22 synthetic=2.90e-14 (thr 1.0e-12/1.0e-12); t exact=True/True; bitwise480=False/False; 4000-step coarse rel diff 0.00e+00/0.00e+00, dSPE +0.00e+00/+0.00e+00 (random/synthetic)
+SEED2_BANDS mixed synthetic theta_hat worst |k| band 1024-2048: rel 1.89e-05 (report only)
+SEED2_GATE_OK mixed rel1 random=1.75e-13 synthetic=2.30e-05 (thr 1.4e-07/5.0e-05); t exact=True/True; bitwise480=False/False; 4000-step coarse rel diff 6.41e-08/6.37e-06, dSPE +2.86e-12/-2.59e-08 (random/synthetic)
+SEED2_BANDS lean32 synthetic theta_hat worst |k| band 1024-2048: rel 1.89e-05 (report only)
+SEED2_GATE_OK lean32 rel1 random=6.84e-08 synthetic=2.30e-05 (thr 1.4e-07/5.0e-05); t exact=True/True; bitwise480=False/False; 4000-step coarse rel diff 6.58e-05/4.36e-04, dSPE -7.55e-05/-8.36e-05 (random/synthetic)
+SEED2_BENCH lean64 ms_ref=9.2898 ms_cand=7.0507 speedup=1.318 gate=OK
+SEED2_BENCH mixed ms_ref=9.2898 ms_cand=4.7144 speedup=1.971 gate=OK
+SEED2_BENCH lean32 ms_ref=9.2898 ms_cand=3.1890 speedup=2.913 gate=OK
+SEED2_OPTSTEP lean32 s_ref=4.4681 s_cand=1.5456 speedup=2.891 (fastest passing; 12 x 40 steps + coarse)
+SEED2_DONE /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/opt_round1b_ms_7815096/seed2/seed2.json passing=['lean64', 'mixed', 'lean32'] fastest=lean32 wall=480 s

@@ -1,0 +1,8 @@
+Capture range started in the application.
+Capture range ended in the application.
+Generating '/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/nsys-report-530d.qdstrm'
+[1/1] [0%                          ] nsys_lean32.nsys-repProcessing events...
+[1/1] [0%                          ] nsys_lean32.nsys-rep[1/1] [6%                          ] nsys_lean32.nsys-rep[1/1] [5%                          ] nsys_lean32.nsys-rep[1/1] [7%                          ] nsys_lean32.nsys-rep[1/1] [9%                          ] nsys_lean32.nsys-rep[1/1] [11%                         ] nsys_lean32.nsys-rep[1/1] [==20%                       ] nsys_lean32.nsys-rep[1/1] [=======36%                  ] nsys_lean32.nsys-rep[1/1] [===========52%              ] nsys_lean32.nsys-rep[1/1] [==============64%           ] nsys_lean32.nsys-rep[1/1] [================71%         ] nsys_lean32.nsys-rep[1/1] [========================100%] nsys_lean32.nsys-rep[1/1] [========================100%] nsys_lean32.nsys-rep
+NSIGHT_CAPTURE_OK lean32 reps=2 calls=12 steps_per_rep=480 warm=3s
+Generated:
+	/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/nsight_lean_7819082/nsys_lean32.nsys-rep

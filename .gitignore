@@ -22,6 +22,7 @@ env/
 
 # --- Profiling artifacts (large binary captures) ---
 *.nsys-rep
+*.ncu-rep
 *.sqlite
 *.qdrep
 *.qdstrm
