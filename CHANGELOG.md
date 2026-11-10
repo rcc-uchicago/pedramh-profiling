@@ -114,6 +114,36 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-10 (night)** — **SQG item 4: gates A and B run by us, on the user's decision. Item 3's sealed file is
+  opened. lean32ek passes A, and fails B on detection only.**
+  - **User decisions:**
+    - the user decides item 4 ("ignore weidong/jesswan");
+    - results are not hidden ("do not seal anything we don't need to hide results");
+    - gate C later.
+  - **How it was run.** The rules were pushed before opening: `ACCEPTANCE_gates_AB.md` + `gates_ab.py`, 09970f75.
+    The sha256 matched `6f1d0e51…`.
+  - **The yardstick.** The alias floor of o1.2's frames (production only) stands in for the trained model's error:
+    ε_floor = 0.087 … 0.730, T_b = (0.1/√n_b)·ε_floor = 1.2e-3 … 7.3e-2. That is conservative.
+  - **Gate A (noise): PASS for all arms.** Var(e)/A_b is 8e-10 to 6e-8, against < 1e-2.
+  - **Gate B (bias): NOT_PASS for all arms, on B3 (detection) only. Magnitudes pass by ≥ 100×.**
+    - `lean32ek` has a real, detectable bias: |z| up to 16; on alias-free frames z_d −15 to −23 and 75–88% of shells
+      flagged at k 4–32.
+    - Its size is ≤ 4.4e-6 of Δ (sub) and ≈ 4–6e-7 (af), d-aligned: the delta is ≈ 5e-7 too small. That is 73–509×
+      below plain float32 and ≥ 100× below T_b.
+    - The dt arms miss B3 by 1–2 shells with only 8 pairs. Every |z| ≤ 3.
+  - **Predictions:**
+    - **P2 REFUTED.** lean32ek is not bias-free; the team's theory bound of ≤ 1e-7 was too low.
+    - **P5 CONFIRMED.** The dt order ratio is −1.42 to −1.51 in all bands: o1.2's dt sensitivity is first order (the
+      operator split), not AB3's third order.
+    - **Item 3 final:** 9 confirmed / 2 half / 1 refuted.
+  - **Decision state.**
+    - Under the pre-set rules, lean32ek_fast is not admitted yet. The next step is gate D (dose-response fine-tune,
+      which needs stored frames and a trained model).
+    - Admitting it on magnitude would be a post-hoc rule change: the user's call, to be recorded as such.
+  - **Unresolved.** Our alias floor is ≈ 1.9× TEAM_REPORT's table in every band, though the fractions agree. If the
+    table missed a half-plane factor, o1.1's val 0.0043 would sit at ≈ 1.0× the floor, not 1.9×. That matters for
+    item 2.
+
 - **2026-11-10 (evening)** — **SQG: verified citations for `lean32ek` / `lean32ek_fast` / `lean32sr`, written into
   the code and docs.**
   - **What was checked, and how.** Seven references, each against its Crossref record. Klöwer et al. 2022 was also

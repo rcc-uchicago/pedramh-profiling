@@ -1728,6 +1728,89 @@ If `lean32ek` is admitted, its fast form needs no further sign-off, because the 
   - Any change to that reading has to be fixed in a dated addendum before the sealed file is opened. It is the user's
     and the owners' call, not this session's.
 
+## Unsealed (2026-11-10): gates A and B, P2 and P5
+
+**Decisions (user):**
+- The user decides item 4 ("ignore weidong/jesswan").
+- Results are not hidden ("do not seal anything we don't need to hide results").
+- Gate C later.
+
+**The record.**
+- **Rules:** fixed in `SQG/analysis/opt/taxonomy/ACCEPTANCE_gates_AB.md` and `gates_ab.py`, pushed as 09970f75
+  **before** the file was opened.
+- **The opening:** sha256 matched `6f1d0e51…78be1`.
+- **Outputs:** `SQG/analysis/results/polaris_taxonomy_7824121/gates_ab/`, with `gates_ab.json` and the unsealed JSON.
+
+**The yardstick.** The alias floor of o1.2's own frames stands in for the trained model's per-band error. No model
+beats it, so gate B is conservative.
+- **The numbers:** ε_floor = 0.087 / 0.033 / 0.029 / 0.042 / 0.064 / 0.132 / 0.412 / 0.730 from k 1–2 to the corner.
+  The tolerance is T_b = (0.1/√n_b)·ε_floor = 1.2e-3 … 7.3e-2.
+- **Cross-check:** the floor's alias fractions match TEAM_REPORT's table. Its absolute values are ≈ 1.9× the table's.
+  That is unresolved (a different state sample, or a missed half-plane Parseval factor), and it cancels in these
+  gates.
+
+**Gate A (noise): every arm PASSES by more than five orders of magnitude.** Var_b(e)/A_b:
+
+| arm | values per band | limit |
+|---|---|---|
+| `lean32ek` | 8e-10 to 6.1e-8 | < 1e-2 |
+| dt30 | 1.4e-8 to 3.9e-8 | < 1e-2 |
+| dt32 | 8e-9 to 2.2e-8 | < 1e-2 |
+
+**Gate B (bias): every arm is NOT_PASS under the rules as written. The magnitude criteria pass; the detection
+criterion fails.** For `lean32ek` (sub frames, 64 pairs, 16 clusters):
+
+| band | T_b | \|B_x\| / \|B_d\| | z_x / z_d | learnable bias | shells flagged (limit) | verdict |
+|---|---|---|---|---|---|---|
+| k 1–2 | 1.2e-3 | 1.4e-6 / 6.3e-7 | −0.9 / +0.6 | 1.2e-6 | 0 of 2 (n/a) | PASS |
+| k 2–4 | 4.4e-4 | 4.1e-6 / 2.3e-7 | **−12.3** / −0.6 | 4.4e-6 | **6 of 6** (0.060) | FAIL_FLOOR (B3) |
+| k 4–8 | 7.1e-4 | 1.2e-6 / 7.5e-7 | **−16.4 / −6.2** | 1.4e-6 | **0.35** (0.035) | FAIL_FLOOR (B3) |
+| k 8–16 | 1.9e-3 | 2.0e-7 / 5.9e-7 | **−3.9 / −10.6** | 5.8e-7 | **0.13** (0.021) | FAIL_FLOOR (B3) |
+| k 16–32 | 4.7e-3 | 8e-9 / 3.8e-7 | +0.2 / **−12.2** | 3.9e-7 | **0.062** (0.013) | FAIL_FLOOR (B3) |
+| k 32–64 | 1.3e-2 | 3.5e-8 / 1.9e-7 | +1.4 / **−7.7** | 1.9e-7 | **0.012** (0.009) | FAIL_FLOOR (B3) |
+| k 64–128 | 4.1e-2 | 9.6e-8 / 1.6e-7 | −2.8 / −5.2 | 1.2e-7 | 0.004 (0.007) | PASS |
+| k 128–182 | 7.3e-2 | 5.1e-8 / 1.6e-7 | −1.2 / −4.2 | 2.4e-7 | 0.004 (0.008) | PASS |
+
+- **B1 and B2 pass in every band, by 100× to 3 × 10⁵×.** The bias is ≤ 4.4e-6 of Δ, against T_b ≥ 4.4e-4.
+- **Every FAIL_FLOOR is B3, detection.** The bias is real and the test sees it plainly.
+- **A trained model's ε cannot change a B3 failure,** because B3 does not depend on ε. Under the rules, only gate D
+  (dose-response) can settle it.
+- **The dt arms (8 pairs each) also read NOT_PASS on B3 alone,** in k 4–8, 32–64 and 128–182. Each miss is one or two
+  shells over the limit. Every |z| ≤ 3.0, and B1/B2 hold everywhere. With 8 clusters these misses
+  look like false flags; the negative-control rate was measured with 16.
+
+**What the bias is** (`lean32ek` vs plain `lean32`, unsealed):
+- **It is real, not aliasing.** On alias-free frames it is stronger in z: z_d −15.3 at k 4–8 and −23.0 at k 8–16, with
+  75–88% of shells flagged at k 4–32.
+- **Its shape.** The learnable bias is ≈ 4–6e-7 of Δ at k ≤ 32, mostly d-aligned and negative: the 0.02 delta comes
+  out ≈ 5e-7 too small. `lean32sr` showed a similar d-term (B_d −1e-7 to −9e-7), which points at the float32 tendency
+  they share. That is a hypothesis, not measured.
+- **The x-aligned part at k 2–8 appears only on the subsampled frames** (af z_x −0.8 / +1.2), so it is folded in by
+  aliasing.
+- **The team's theory bound was too low.** It expected ≤ ~1e-7 of Δ. Measured: up to 4.4e-6 (sub, k 2–4) and ≈ 5e-7
+  (af).
+- **It is 73–509× smaller than plain float32's in every band** (`lean32` learnable 2.2e-3 at k 2–4, `lean32ek`
+  4.4e-6).
+
+**Scored:**
+- **P2 (P 0.8): REFUTED.** |z| reaches 16.4; shells are flagged above 1% at k 2–64; learnable bias > MDE in every
+  band except k 1–2.
+  `lean32ek` does have a detectable learnable bias.
+- **P5 (P 0.6): CONFIRMED.** The dt order ratio D80/D30 is −1.42 to −1.51 in all 8 bands, inside [−1.6, −0.55]. The
+  value identifies **first order** (theory −1.50): o1.2's dt sensitivity is the split between the AB3 step and the
+  damping step, not AB3's third-order truncation.
+- **The final item-3 scorecard:** **9 confirmed** (1, 3, 5, 6, 7, 9, 10, 12, 13), 2 half (8, 11), **1 refuted (2)**.
+  P4: LEARNING.
+
+**What it means for the decision (the user's).**
+- **Under the pre-set rules,** `lean32ek_fast` is **not admitted yet**. Gate A passes; gate B fails detection only.
+  The rules send it to gate D: does a model trained on it absorb a ≈ 5e-7 to 4e-6 bias, and does that matter over
+  5–50 time-unit rollouts? Gate D needs stored frames and a trained model.
+- **Deciding on magnitude instead** (B1 and B2 pass by ≥ 100×) is a rule change made after seeing the data. It is the
+  user's to make, but it must be recorded as post hoc.
+- **What is at stake:** 191 h (`lean_u1`, bitwise) vs 94 h (`lean32ek_fast`) per full o1.2 schedule on 14 A100s
+  (Part XIII).
+
 ---
 
 # Part XIII — o1.2 itself on Polaris A100s, and a full run's A100 wall-clock (job 7835278, 2026-11-10)
