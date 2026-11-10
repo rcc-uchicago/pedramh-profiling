@@ -114,6 +114,29 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-10 (late night)** — **SQG gate D: smoke 7835759 passed (failures=0); production submitted as capacity job
+  7835786.**
+  - **The ask (user).** "Can we check if rollouts overfit and drift": the training dose-response, on capacity.
+  - **The harness:** `SQG/analysis/opt/gateD/`, with predictions and the decision rule in `PREDICTIONS_gateD.md`
+    (committed first).
+  - **What the smoke (debug, 6 min, tiny sizes) checked.**
+    - The tests pass on the GPU; torch matches numpy to 5e-7.
+    - Stored frames are bitwise equal to job 7824121's production frames.
+    - Training runs at 0.434 s/step, so 195,250 steps ≈ 23.5 h.
+    - Rollouts, blow-up handling and both analyses produce verdicts.
+    - Its science is meaningless by design (300 steps on 453 pairs).
+  - **The production run:**
+    - 16 one-time-unit `lean_u1` segments, about 20 GB in `sqg_profile/gateD_frames`;
+    - arms `a0_sA`, `a0_sB`, `a1000_sA`, `a10000_sA`, each 195,250 steps;
+    - 16 × 50-time-unit rollouts per arm;
+    - run name `gateD_v1` (resumable);
+    - end token `DOSE_JOB_DONE`.
+  - **Do not edit `SQG/analysis/opt/gateD/*.py` until it ends.** It reads them at each stage.
+  - **Also added:** a molecular-dynamics section to ANALOGUES.md (§2.6). AMBER SPFP, OpenMM, GROMACS and LAMMPS all
+    use single-precision forces with higher-precision accumulation, which is `lean32ek`'s design. AMBER deprecated its
+    all-single mode, matching our rejection of plain float32. MD's acceptance test is long-run energy drift; our
+    analogue is the steady-state energy budget.
+
 - **2026-11-10 (night)** — **SQG item 4: gates A and B run by us, on the user's decision. Item 3's sealed file is
   opened. lean32ek passes A, and fails B on detection only.**
   - **User decisions:**

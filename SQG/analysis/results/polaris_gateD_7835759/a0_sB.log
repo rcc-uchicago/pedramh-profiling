@@ -1,0 +1,5 @@
+DOSE_ARM alpha=0 seed=2 steps=300 batch=16 train_pairs=453 val=128 persistence=0.06549 params=40.81M fp32={'conv': 2.1572044648709485e-06, 'matmul': 4.069747790803995e-07}
+DOSE_VAL alpha=0 seed=2 step=100 train=0.065866 val_clean=0.072300 val_own=0.072300 lr=4.19e-04 s_step=0.4629
+DOSE_VAL alpha=0 seed=2 step=200 train=0.024103 val_clean=0.102626 val_own=0.102626 lr=1.48e-04 s_step=0.4338
+DOSE_VAL alpha=0 seed=2 step=300 train=0.017075 val_clean=0.107192 val_own=0.107192 lr=2.00e-09 s_step=0.4338
+DOSE_ARM_DONE alpha=0 seed=2 step=300 best_val_own=0.0722997
