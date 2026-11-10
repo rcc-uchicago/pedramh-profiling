@@ -128,6 +128,56 @@ counts.
     the low-k rollout bias that `MATH_delta.md` §9 warns about.
   - Both change the training objective: science owners' call.
 
+### 2.6 Molecular dynamics on GPUs: the same precision problem, solved the same way (added 2026-11-10)
+
+**Ask (user, 2026-11-10):** check MD as an analogue, since it is GPU-heavy with similar equations. The 11-06 pass had MD
+only for active learning (FLARE).
+
+**The shared problem.** MD adds tiny increments to a large state every step (x += v·Δt), the same as our mechanism B.
+**What MD's GPU codes do** (each quote checked in the code's own documentation on 2026-11-10):
+
+| code | computed in single precision | kept in higher precision | what the code says |
+|---|---|---|---|
+| AMBER pmemd.cuda, SPFP (default) | "single precision for calculation" | "fixed (integer) precision for accumulation" | "energy conservation is equivalent to the full double precision code". The all-single SPSP is deprecated. Bitwise reproducibility is used to validate cards. |
+| OpenMM, `Precision=mixed` | "forces are computed in single precision" | "integration is done in double precision" | "much better energy conservation with only a slight decrease in speed". A "deterministic forces" option fixes the summation order. |
+| GROMACS, mixed (default) | "particle coordinates, velocities and forces" | "critical variables", e.g. the virial | Double is needed for "long-term energy conservation, especially for large systems". Mixed-precision trajectories diverge faster, since MD is chaotic. |
+| LAMMPS GPU package, mixed | "pairwise forces" | "accumulated into double-precision force vectors" | The docs recommend checking that single or mixed is accurate enough. |
+
+**How it maps onto ours:**
+- **Ours `mixed`** (float32 FFTs, float64 state) is OpenMM's and LAMMPS's mixed mode.
+- **`lean32ek`** keeps the tendencies (our "forces") in float32 and makes the *accumulation* exact by compensation
+  (hi + lo). AMBER's SPFP does the same with 64-bit fixed point.
+  - MD found accumulation-only precision as good as double for energy conservation.
+  - We found `lean32ek` equal to `mixed` at the 0.02 lag, and faster (2.77× vs 1.96×).
+- **Plain float32 (`lean32`)** is AMBER's SPSP or OpenMM's single. Both are fastest and least accurate, and AMBER
+  deprecated SPSP. That matches our rejection of plain float32.
+- **Fixed point vs compensation, for us.** Fixed point needs a fixed scale. Our spectral state spans many orders of
+  magnitude between k = 1 and k = 1,365, so it would need a scale per mode. TwoSum adapts automatically, so
+  compensation is the more natural choice for a spectral solver. This is our reasoning, not tested.
+
+**What MD does that we have not yet done.** MD accepts a precision model on **long-run energy conservation** (NVE drift
+against double precision), not on short paired errors. Our system is forced and dissipative, so nothing is conserved.
+The analogue is the **energy budget in statistical steady state**: injection P = ε_ν + ε_μ, with the mean energies
+SPE / VIE.
+- `A-SQG_data.py`'s `diagnostics()` already returns SPE, VIE, eps_nu, eps_mu and P.
+- A long `lean32ek_fast` run against `lean_u1` (≥ 10 time units from the archived states), comparing those budget terms
+  within their statistical error, is MD's acceptance test in our terms. It is the solver-side half of gate C.
+
+**Sources:**
+- Le Grand, S., Götz, A. W., & Walker, R. C. (2013). SPFP: Speed without compromise -- A mixed precision model for
+  GPU accelerated molecular dynamics simulations. *Comput. Phys. Commun.*, 184(2), 374–380.
+  https://doi.org/10.1016/j.cpc.2012.09.022 (citation from ambermd.org/GPUSupport.php; the model's description from
+  ambermd.org/gpus12/)
+- Eastman, P., et al. (2017). OpenMM 7: Rapid development of high performance algorithms for molecular dynamics.
+  *PLOS Comput. Biol.*, 13(7), e1005659. https://doi.org/10.1371/journal.pcbi.1005659 (precision modes from
+  docs.openmm.org, platform-specific properties)
+- GROMACS reference manual, "Mixed or Double precision": https://manual.gromacs.org/current/reference-manual/definitions.html
+- Brown, W. M., Wang, P., Plimpton, S. J., & Tharrington, A. N. (2011). Implementing molecular dynamics on hybrid high
+  performance computers -- short range forces. *Comput. Phys. Commun.*, 182(4), 898–911.
+  https://doi.org/10.1016/j.cpc.2010.12.021 (precision modes from docs.lammps.org/Speed_gpu.html)
+- Abstracts were not available through the APIs used. The quotes come from the codes' own documentation pages, so the
+  papers' contents beyond the titles were not read.
+
 ## 3. What this adds to the team's plan (for the PS report)
 
 1. **Cite Klöwer et al. in the precision memo to jesswan / Weidong.** Compensated time integration is the
