@@ -1452,3 +1452,268 @@ What it says:
 
 **Before either choice is final,** rerun `delta_fidelity.py --state-in` on 2–3 archived checkpoints (staged from
 Midway), and add a long-run (≥ 1 time unit) bias comparison from the saved state.
+
+---
+
+# Part XII — Noise or learnable bias? The generator-error taxonomy on 16 archived states (job 7824121, 2026-11-06)
+
+**Ask:** item 3 of the 2026-11-06 team plan (`SQG/analysis/opt/team_2026-11-06/TEAM_REPORT.md`), at the user's request
+("do item 3"). Part XI left two things open:
+- Its numbers came from one synthetic state (rms(Δ) 0.825 vs the archive's ≈ 0.27).
+- Its gate asked "as good as float64?", and nothing in float32 is.
+
+For o1.2 the question is different: is a faster solver's error noise or bias? Noise has zero conditional mean given the
+learner's input and averages out in training. A bias can be learned by the UViT.
+
+**Run.**
+- **Job:** `SQG/analysis/opt/taxonomy/run_taxonomy_polaris.pbs`, 1-node debug, x3001c0s13b0n0, 2026-11-06 22:15–22:44.
+  The workers took 1,631–1,692 s. It ended `TAXO_JOB_DONE failures=0` and `TAXO_ANALYSIS_DONE valid=True`.
+- **Predictions and validity gates:** `SQG/analysis/opt/taxonomy/PREDICTIONS_taxonomy.md`, written before the smoke.
+  Its addendum was written after the smoke and before this run.
+- **Results:** `SQG/analysis/results/polaris_taxonomy_7824121/`. The raw pairs and the sealed file stay in
+  `$MEMBER_ROOT/sqg_profile/taxonomy_7824121/`.
+- **Sealed (the user's choice).** These stay sealed until jesswan / Weidong sign item 4's gates:
+  - the bias statistics of `lean32ek` and its fast form, dt = 2e-4/30 and dt = 2e-4/32;
+  - the dt order ratio.
+
+  The file's sha256 is `6f1d0e5153918a3b14faf6e29795d91263a032479121bf87a4417fb173b78be1`, and nobody has opened it.
+  Predictions 2 and 5 stay unscored.
+
+## Design
+
+- **States.** 16 archived A-SQG checkpoints, members 1–4 × t = 100, 200, 300, 400, loaded with o1.2's own
+  `GD.load_checkpoint`.
+  - They are spread over the 4 GPUs as a Latin square. CFL is 0.18–0.37 and SPE 24–48.
+  - The user staged them from Midway. They are symlinked into `sqg_stage`.
+- **Pairs.** 4 consecutive 0.02 pairs per state along float64 `lean_u1` (bitwise production): 64 pairs, clustered by
+  state.
+
+| arm | what it is | pairs |
+|---|---|---|
+| `lean_u1` | the reference (float64, bitwise production) | 64 |
+| `lean32ek` | compensated float32 state: the candidate (sealed) | 64 |
+| `inj` / `inj64` | control b: a planted damping shift, on `lean32ek` / on float64 (the truth) | 64 / 16 |
+| `dquant` | control a: float64 with only `decay` rounded to float32 (mechanism A alone) | 16 |
+| `lean32` | plain float32 (seed 2) | 16 |
+| `f64ic32` | float64 from the state rounded once to complex64: the floor, and negative control 1 | 16 |
+| `lean32sr` | float32 with stochastic rounding: negative control 2 | 16 |
+| `prod`, `lean32ek_fast` | production (bitwise check); `lean32ek` + u1 trigger + 3-slot ring | 4 |
+| dt ladder, n = 40 / 30 / 32 / 80 | n = 40 is the bitwise control; 30 and 32 are sealed; 80 (dt 2.5e-6) gives production's own dt sensitivity | 8 |
+
+**Statistics** (`analyze_taxonomy.py` docstring).
+- **Quantities.** x = F_ref(0), d = the reference Δ, and e = the variant's paired error at 4,000 steps, all on 256²
+  spectra.
+- **Level 1, per band.** e = αx + βd with cluster-robust SE (16 clusters), in units of the band's Δ. MDE = 2.8 SE.
+- **Level 2, per shell** (one kx² + ky²). A Wald F(2, 15) p-value, then per band:
+  - the fraction of shells at p < 0.0027;
+  - the debiased learnable bias √(Σ(θᵀAθ − tr VA) / Σ|d|²);
+  - its **noise level** √(Σ tr VA / Σ|d|²), which is what pure noise would show before debiasing.
+- **Frames.** o1.2's `sub` (θ[::16, ::16] / 8) and the alias-free `af` (|kx|, |ky| ≤ 127).
+
+## Validity: all four gates pass
+
+Any failure would have voided the bias conclusions.
+
+| gate | pre-set criterion | result |
+|---|---|---|
+| V1 | `prod` == `lean_u1` bit for bit, every lag, every GPU | ✅ at 40 / 400 / 1,000 / 2,000 / 4,000 steps on 4 of 4 GPUs |
+| V2, control a | κ ∈ [0.8, 1.2] at k < 8 | ✅ 1.036 / 0.997 / 0.992; above k 8: 0.926, 0.646, 0.355, 0.140, 0.048 |
+| V3, control b (paired, addendum) | recovery ∈ [0.7, 1.3] and power z ≥ 3 in every band | ✅ recovery 0.961–1.007; power z 5.2–17.6 |
+| V4, dt ladder | n = 40 == `lean_u1` (frame and state hash) | ✅ on 8 of 8 states |
+
+Control a falls off above k 8, as pre-registered. There 0.02 is no longer short against the flow, so the static
+prediction −δr · 0.02 stops holding.
+
+**MDE from `lean32ek`'s own scatter** (sub frames, x-coefficient, units of Δ), against the team's R4 prediction:
+
+| band | k 1–2 | k 2–4 | k 4–8 | k 8–16 | k 16–32 | k 32–64 | k 64–128 | k 128–182 |
+|---|---|---|---|---|---|---|---|---|
+| MDE | 4.44e-6 | 9.35e-7 | 1.98e-7 | 1.39e-7 | 1.10e-7 | 7.04e-8 | 9.60e-8 | 1.17e-7 |
+| predicted | 8.0e-6 | 8.8e-7 | 2.6e-7 | 1.2e-7 | 1.2e-7 | 1.2e-7 | 1.2e-7 | 1.2e-7 |
+| ratio | 0.55 | 1.06 | 0.76 | 1.16 | 0.92 | 0.59 | 0.80 | 0.97 |
+
+**Calibration on the two negative controls.** The nominal false-flag rate is 0.27%.
+- **Shells (k < 64).**
+  - f64ic32 flags 6 of 1,196 (0.50%), and lean32sr 5 of 1,196 (0.42%). Pooled, that is 0.46%.
+  - That is below 1%, so the addendum's reading rule for P2 / P8 does not trigger.
+  - The flags fall in small bands: f64ic32 has 2 of 68 at k 8–16, and lean32sr 1 of 6 at k 2–4.
+- **Band cells, x-coefficient.** Calibrated: 0 of 16 cells per arm have |z_x| > 3. The largest is 2.74 (f64ic32,
+  k 64–128).
+- **Band cells, d-coefficient.** This one runs hot: 3 of 16 cells, against about 0.04 expected (0.14 with a t(15)
+  reference).
+  - f64ic32: one cell, −3.3 at k 64–128. That is unremarkable on its own.
+  - lean32sr: two cells, **−4.6 at k 8–16 and −5.5 at k 16–32**. Its z_d is negative in 6 of 8 bands, from k 4 up.
+  - So stochastic rounding most likely carries a small real d-aligned term, B_d ≈ −1e-7 to −9e-7 of Δ. A
+    miscalibrated test is the less likely reading.
+  - A single arm cannot separate the two. Keep both readings in mind when P2's |z_d| < 3 criterion is unsealed.
+
+## Archive-like states, and how big each error is
+
+**The states are archive-like.** Median rms(Δ) is 0.2733, range [0.173, 0.381], over 64 pairs. The synthetic state in
+Part XI had 0.825.
+
+| e_Δ at 4,000 steps (sub) | all | k 1–2 | k 2–4 | k 4–8 | k 8–16 | k 16–32 | k 32–64 | k 64–128 | k 128–182 |
+|---|---|---|---|---|---|---|---|---|---|
+| `f64ic32` floor | 2.05e-7 | 6.20e-7 | 5.91e-7 | 2.03e-7 | 9.14e-8 | 8.80e-8 | 1.41e-7 | 2.97e-7 | 4.32e-7 |
+| `lean32ek` (size only) | **9.43e-6** | 1.91e-5 | 7.87e-6 | 5.31e-6 | 5.07e-6 | 5.69e-6 | 8.02e-6 | 1.50e-5 | 1.92e-5 |
+| `lean32sr` | 1.43e-5 | 5.84e-5 | 4.89e-5 | 1.97e-5 | 8.20e-6 | 7.19e-6 | 9.90e-6 | 1.94e-5 | 2.69e-5 |
+| `dquant` (mechanism A alone) | 3.79e-4 | 3.65e-4 | 2.23e-3 | 6.17e-4 | 2.23e-4 | 1.31e-4 | 1.85e-4 | 3.64e-4 | 5.18e-4 |
+| `lean32` | **5.84e-4** | 1.88e-3 | 3.09e-3 | 9.50e-4 | 3.14e-4 | 1.82e-4 | 2.65e-4 | 5.20e-4 | 7.50e-4 |
+| production's dt sensitivity \|D(2.5e-6)\|/\|Δ\|, sub | — | 2.49e-5 | 8.50e-6 | 7.77e-6 | 1.00e-5 | 1.52e-5 | 2.71e-5 | 6.61e-5 | 1.03e-4 |
+| the same, alias-free | — | 9.27e-7 | 1.71e-7 | 5.64e-8 | 6.13e-8 | 2.75e-7 | 1.50e-6 | 9.48e-6 | 2.61e-5 |
+
+What the table shows:
+- **`lean32ek`'s error does not depend on the state.**
+  - It is 9.43e-6 here and 8.8e-6 on the synthetic state, although rms(Δ) is 3× smaller here.
+  - The magnification argument behind P11 (×3.9/1.83, ≈ 1.9e-5) did not hold.
+- **On o1.2's own frames, `lean32ek`'s error is smaller than production's dt sensitivity in every band.** The ratio is
+  0.77 at k 1–2, 0.93 at k 2–4, and falls to 0.19 at k 128–182.
+  - D(2.5e-6) is how much production's targets change if dt is halved. The targets already carry that much
+    time-discretization error.
+  - This is context, not one of item 4's gates.
+- **Both the float32 error and the dt error reach the targets' large scales mostly through aliasing.**
+  - `lean32ek` at k 1–2: alias-free / sub = 1.31e-6 / 1.91e-5 = **0.068**. On alias-free large scales it is 2.2× the
+    float64 floor (5.95e-7).
+  - Production's dt sensitivity at k 1–2: sub 2.49e-5 vs alias-free 9.27e-7, a factor of 27.
+  - `lean32` differs: alias-free and sub are both 1.88e-3 at k 1–2. Its large-scale error is real, not folded.
+- **Error spectra.** The max/min spread of mean |e|² over bands is 29 for `lean32ek`, the flattest of all arms. It is
+  2,639 for `lean32` (synthetic: 5 and 260), 697 for `lean32sr` and 353 for `f64ic32`.
+- **How e_Δ changes with lag** (overall, 40 → 4,000 steps):
+  - `lean32ek` 4.07e-5 → 9.43e-6. Its error grows more slowly than Δ does.
+  - `lean32` 2.74e-4 → 5.84e-4. Its error grows faster than Δ does.
+
+## Bias of the non-candidates (unsealed)
+
+Each cell reads z_x / z_d · shells flagged · learnable bias (noise level). `lean32`, `lean32sr` and `f64ic32` are read
+on sub frames, mechanism B on af frames.
+
+| band | `lean32` | mechanism B (`lean32 − dquant`) | `lean32sr` | `f64ic32` |
+|---|---|---|---|---|
+| k 1–2 (2 shells) | −2.1 / −0.8 · 0 · 4.8e-4 (3.4e-4) | −1.2 / −0.6 · 0 · 2.1e-4 (3.5e-4) | 0.9 / 0.0 · 0 · 0 (1.9e-5) | 1.5 / −0.2 · 0 · 7e-8 (1.2e-7) |
+| k 2–4 (6) | **−8.4** / 1.0 · **4** · **2.2e-3** (4.4e-4) | −3.0 / 0.5 · 0 · 4.8e-4 (4.4e-4) | −1.0 / 0.1 · 1 · 1.3e-5 (1.0e-5) | −2.7 / 0.1 · 0 · 0 (1.2e-7) |
+| k 4–8 (20) | **−7.2** / −4.6 · **14** · **6.6e-4** (1.4e-4) | −3.0 / 0.4 · **7** · 2.1e-4 (1.4e-4) | −1.6 / −2.8 · 0 · 0 (3.5e-6) | 2.4 / 0.1 · 0 · 0 (3.8e-8) |
+| k 8–16 (68) | **10.3** / −1.4 · **50** · **2.2e-4** (3.3e-5) | −3.0 / −3.9 · **18** · 5.4e-5 (2.9e-5) | −2.3 / **−4.6** · 1 · 7e-7 (1.1e-6) | −0.1 / −0.3 · 2 · 3e-9 (1.2e-8) |
+| k 16–32 (240) | −1.4 / −7.4 · 74 · 5.2e-5 (2.1e-5) | −2.8 / −4.8 · 6 · 1.3e-5 (1.4e-5) | −0.4 / **−5.5** · 0 · 3e-7 (8.4e-7) | −1.1 / 0.0 · 1 · 1e-9 (9.7e-9) |
+| k 32–64 (860) | 4.3 / −5.3 · 16 · 2.3e-5 (3.0e-5) | 2.4 / −4.4 · 3 · 5.6e-6 (1.9e-5) | −0.5 / −2.6 · 3 · 5e-8 (1.1e-6) | −2.0 / −0.8 · 3 · 9e-10 (1.5e-8) |
+
+The learnable bias of mechanism A alone (`dquant`, af, control a) is 3.14e-4, 2.14e-3, 6.15e-4 and 1.87e-4 at k 1–2,
+2–4, 4–8 and 8–16.
+
+What it says:
+- **Plain float32 is a learnable bias on archived states, not only on the synthetic one.**
+  - 67–74% of shells are flagged at k 2–16.
+  - Its learnable bias is 2.2e-3 of Δ at k 2–4, which is 5× its noise level; 6.6e-4 at k 4–8 (4.7×); and 2.2e-4 at
+    k 8–16 (6.7×).
+- **Most of it is mechanism A, the float32 `decay` table.** A and B add in quadrature to `lean32`'s learnable bias:
+
+  | band | A ⊕ B | `lean32` |
+  |---|---|---|
+  | k 2–4 | 2.19e-3 | 2.22e-3 |
+  | k 4–8 | 6.50e-4 | 6.57e-4 |
+  | k 8–16 | 1.95e-4 | 2.21e-4 |
+  | k 1–2 (2 shells) | 3.78e-4 | 4.80e-4 |
+
+  `lean32` is read on sub frames and A and B on af frames. The two frames agree for `lean32` at k 1–2 (1.88e-3 in
+  both), the only band where its af / sub split is printed.
+- **This corrects one line of Part XI.** Part XI said "state rounding is the cause, not the damping table".
+  - That was read off `lean32e`. Its expm1 decrement is still rounded onto a float32 state, so inside a float32 state
+    the two mechanisms cannot be separated.
+  - `dquant` keeps a float64 state and separates them. The rate table alone gives 72% of `lean32`'s e_Δ at k 2–4
+    (2.23e-3 of 3.09e-3).
+  - `lean32ek` is built to remove both: an expm1 decrement and a compensated state. Whether any bias is left in it is
+    the sealed question.
+- **Mechanism B (state rounding) is learnable too, but smaller.**
+  - It flags 35% of shells at k 4–8 and 26% at k 8–16, and its band-level z_x is ≈ −3.0 from k 2 to k 16.
+  - Its learnable bias is only 0.6–1.9× its noise level at k ≤ 16. It is detectable shell by shell but small in
+    aggregate.
+  - P4: LEARNING's prediction is the one the data favour.
+- **Stochastic rounding removes the learnable x-bias, at a noise cost.**
+  - Its |z_x| stays below 3 in every band, and its shell rate (0.42%) matches the float64 control's (0.50%).
+  - Its error is 1.5× `lean32ek`'s overall and 3× at k 1–2.
+  - It carries the small d-aligned term described under calibration.
+  - It runs at 2.79 ms. It was not pre-registered as a candidate.
+
+## Speed (A100; the median of 4 GPUs; GPU 3 ran 3–8% slower than the others on every arm)
+
+| arm | ms/step | vs production 9.29 |
+|---|---|---|
+| `lean_u1` (bitwise production) | 6.404 | 1.45× |
+| `lean32` | 3.196 | 2.91× |
+| `lean32ek` | 3.346 | 2.78× |
+| `lean32sr` | 2.793 | 3.33× |
+| **`lean32ek_fast`** | **2.698** | **3.44×**, bitwise equal to `lean32ek` at 40 / 400 / 4,000 steps on all 4 GPUs |
+
+If `lean32ek` is admitted, its fast form needs no further sign-off, because the two are bitwise equal.
+
+## What the harness smoke (7823653) taught, before this run
+
+- **Control b had two design flaws.** Both were fixed in the addendum before any archive state ran.
+  - **Sign.** "z_x ≥ 3" was unsigned, but the planted shift adds damping, so α < 0. Every band failed only for that
+    reason.
+  - **Ratio.** α_inj / α_inj64 contains `lean32ek`'s own coefficient, so it would have voided the run exactly when
+    `lean32ek` is biased.
+  - **The leak.** On the smoke, z was 25.5 at k 2–4 (≈ 10 expected) and 58.7 at k 4–8 (≈ 24 expected). That hinted at
+    an x-aligned part of `lean32ek`'s error on 4 near-duplicate states, and it was more leakage than the "±1 SE"
+    accepted beforehand.
+  - **The paired form fixed it.** Recovery α(inj − `lean32ek`) / α(inj64) cancels the candidate. It passed here at
+    0.961–1.007, so the run now leaks nothing about `lean32ek`'s coefficient.
+- **Negative-control calibration.**
+  - With 4 clusters of near-duplicate states, the controls flagged 2.1–2.3% of shells. That motivated the reading rule.
+  - With 16 archived clusters they flag 0.42–0.50%, and the rule does not trigger.
+- **Production's dt sensitivity is aliasing.**
+  - At k 1–2, sub vs alias-free: 2.3e-4 vs 9e-7 on the smoke, and 2.49e-5 vs 9.3e-7 here.
+  - Aliasing, not the solver's time step, puts most of the large-scale dt variation into o1.2's targets.
+  - On archived states the subsampled sensitivity is 9× smaller than on the smoke's state.
+
+## Scorecard (`PREDICTIONS_taxonomy.md`, read with its addendum)
+
+- **Confirmed (8):**
+  - **1 (P 0.9).** V2 and V3 (paired form) both pass. κ is 0.99–1.04 at k < 8, recovery 0.961–1.007, power z
+    5.2–17.6.
+  - **3 (0.85).** `lean32` is detected at k ≤ 4.
+    - Its learnable bias at k 1–2 is 4.8e-4 ≥ 1e-4.
+    - 67% of shells are flagged at k 2–4 and 70% at k 4–8.
+    - Caveats: the k 1–2 point estimate is only 1.4× its noise level (2 shells, |z_x| 2.1), and mechanism A there
+      measured 3.1e-4, not the ≈ 7e-4 predicted. The detection itself is strong from k 2 up (z_x −8.4).
+  - **6 (0.5).** `lean32ek_fast` is bitwise equal to `lean32ek` at 40 / 400 / 4,000 steps on 4 of 4 GPUs, at 2.698 ms
+    (≤ 2.9).
+  - **7 (0.6).** Alias split 0.068 ≤ 0.3.
+  - **9 (0.6).** The MDE is within 3× of MDE_PRED in every band (ratio 0.55–1.16).
+  - **10 (0.85).** Median rms(Δ) 0.2733 ∈ [0.2, 0.35].
+  - **12 (0.7).** f64ic32 floor 2.05e-7 ∈ [1e-7, 2e-6].
+  - **13 (0.7).** `lean_u1` 6.404 (6.40 ± 3%), `lean32ek` 3.346 (3.35 ± 3%), `lean32sr` 2.793 ≤ 5.
+- **Half (2):**
+  - **8 (0.6).** Stochastic rounding.
+    - Passed: |z_x| < 3 in every band (max 2.3); k 1–2 e_Δ 5.84e-5 ∈ [3e-5, 1e-4]; overall error 1.52× `lean32ek`'s
+      (≤ 2×).
+    - The "≤ 1% of shells" criterion fails if read per band, as P2 words it: 1 of 6 at k 2–4 and 1 of 68 at k 8–16.
+    - It passes if read pooled: 0.42%.
+    - The addendum's rule does not trigger (pooled controls 0.46% < 1%). The criterion's wording does not settle the
+      reading, so the score is half.
+  - **11 (0.6).** `lean32` 5.84e-4 ∈ [5e-4, 3e-3] ✅. `lean32ek` 9.43e-6 is just under the [1e-5, 4e-5] range ❌: the
+    predicted magnification did not happen.
+- **Refuted:** none.
+- **Sealed:** 2 (`lean32ek` has no learnable bias) and 5 (the dt order ratio). They wait for item 4's signatures.
+- **Decided, no prior (4):** mechanism B has a learnable part (35% / 26% of shells at k 4–8 / 8–16), which favours
+  LEARNING. NUMERICS' magnitude criterion (≤ 3× noise level) does hold; its shell criterion does not.
+
+## What this means, and what waits on whom
+
+- **Never use plain float32 (`lean32`, with or without the trigger / ring) for o1.2's targets.** It is now rejected on
+  two independent grounds:
+  - its size (Part XI);
+  - its learnability (here).
+
+  Any float32 path must avoid a float32-rounded rate table and must compensate the state. `lean32ek` does both.
+- **`lean32ek` is the only float32 candidate.**
+  - Its admission is item 4's decision. The unsealed facts that go into the memo: its size (≈ 9e-6 of Δ, below
+    production's own dt sensitivity on o1.2's frames in every band), this run's MDE table, and both controls passing.
+  - Gate B needs eps_model,b from item 2. Item 2 needs item 1's logs and checkpoints, which are still owed by the user.
+- **One thing to settle before unsealing: P2's per-band shell criterion is very strict in small bands.**
+  - Bands up to k 16 hold 2 / 6 / 20 / 68 shells, so one false flag is 50% / 17% / 5% / 1.5%.
+  - A truly unbiased `lean32ek` would fail "≤ 1% of shells in each band up to k 64" with probability ≈ 25% at the
+    nominal rate. At the observed pooled control rate of 0.46% that rises to ≈ 43%.
+  - f64ic32, unbiased by construction, already fails it at k 8–16 (2 of 68).
+  - Any change to that reading has to be fixed in a dated addendum before the sealed file is opened. It is the user's
+    and the owners' call, not this session's.
+

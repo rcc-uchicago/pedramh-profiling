@@ -114,6 +114,59 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-10** — **SQG item 3: archive run 7824121 scored (notes Part XII). The run is valid. Plain float32 is a
+  learnable bias. The candidates stay sealed.**
+  - **The run.** 1-node debug, x3001c0s13b0n0, 2026-11-06 22:15–22:44. `TAXO_JOB_DONE failures=0`,
+    `TAXO_ANALYSIS_DONE valid=True`. 16 archived states (members 1–4 × t = 100–400), 64 pairs. Summaries are in
+    `SQG/analysis/results/polaris_taxonomy_7824121/`.
+  - **Validity.** All gates pass.
+    - V1: prod == lean_u1 bitwise.
+    - V2: κ 1.036 / 0.997 / 0.992 at k < 8.
+    - V3, paired: recovery 0.961–1.007, power z 5.2–17.6.
+    - V4: dt40 == lean_u1 on 8 of 8 states.
+  - **Sealed, unopened:** the bias statistics of lean32ek (and its fast form), dt 2e-4/30 and 2e-4/32, and the dt order
+    ratio. sha256 `6f1d0e5153918a3b14faf6e29795d91263a032479121bf87a4417fb173b78be1`.
+  - **Measured, unsealed.**
+    - **lean32 is a learnable bias.** 67–74% of shells are flagged at k 2–16. Its learnable bias is 2.2e-3 of Δ at
+      k 2–4, 5× its noise level.
+    - **It is mostly mechanism A.** The float32 `decay` table alone (`dquant`) gives 2.14e-3. A ⊕ B in quadrature
+      reproduces lean32's learnable bias to within 2% at k 2–8.
+    - **Mechanism B (state rounding) is learnable too, but small.** It flags 35% / 26% of shells at k 4–8 / 8–16, at
+      ≤ 1.9× its noise level.
+    - **This corrects Part XI's "state rounding is the cause, not the damping table".** That line was read off
+      lean32e, inside a float32 state, where the two mechanisms cannot be separated.
+    - **lean32ek's size.** e_Δ 9.43e-6 overall, the same as on the synthetic state (8.8e-6). On o1.2's frames it is
+      below production's own dt-halving sensitivity in every band (ratio 0.19–0.93). Its k 1–2 error is mostly folded
+      small-scale noise: alias-free / sub = 0.068.
+    - **lean32ek_fast:** 2.698 ms = 3.44× production, bitwise equal to lean32ek at 40 / 400 / 4,000 steps.
+    - **Negative controls.**
+      - Shells: 0.50% / 0.42% flagged (nominal 0.27%).
+      - z_x is calibrated: 0 of 32 cells over 3.
+      - z_d runs hot: 3 of 16 cells over 3. Most likely this is stochastic rounding's own small d-term (negative in 6
+        of 8 bands, −4.6 / −5.5 at k 8–32).
+  - **Scorecard.**
+    - Confirmed (8): 1, 3, 6, 7, 9, 10, 12, 13.
+    - Half (2):
+      - 8: stochastic rounding's shell rate is above 1% at k 2–4 (1 of 6) and k 8–16 (1 of 68) per band, but 0.42%
+        pooled.
+      - 11: lean32ek's e_Δ, 9.43e-6, is just under the [1e-5, 4e-5] range.
+    - Refuted: none.
+    - Sealed: 2 and 5.
+    - P4 (no prior): LEARNING.
+  - **Raise before anyone unseals.** P2's "≤ 1% of shells in each band up to k 64" would fail a truly unbiased lean32ek
+    with probability ≈ 25% at the nominal rate, or ≈ 43% at the observed 0.46%.
+    - The reason is that bands to k 16 hold only 2 / 6 / 20 / 68 shells.
+    - f64ic32, unbiased by construction, already fails it at k 8–16.
+    - Any new reading has to go in a dated addendum before the sealed file is opened. That is the user's / owners'
+      call.
+  - **Next (waiting on people):**
+    - item 4: the acceptance-protocol memo for jesswan / Weidong (gates A–D, the floor table, this MDE table, the
+      controls);
+    - item 1: the user's o1.2 / o1.1 / offline logs and `*_best.pt` / `*_last.pt` (gate B's eps_model,b needs items
+      1 → 2);
+    - where the 6.4 GB of staged checkpoints should live. They are in the main checkout's root, symlinked into
+      `sqg_stage`.
+
 - **2026-11-06 (later)** — **SQG item 3 (generator-error taxonomy): harness built, pre-registered and smoked (job
   7823653, `failures=0`); the archive run waits on staging.**
   - **Smoke facts** (synthetic state, 4 near-duplicate copies, unscored; `SQG/analysis/results/polaris_taxonomy_smoke_7823653/`).

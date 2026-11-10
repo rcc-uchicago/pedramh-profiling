@@ -18,7 +18,7 @@ This file is a starting point. The record is:
 |---|---|
 | Branch / worktree | `sqg-polaris-profiling` (sparse: cone `SQG` + root files), pushed. Draft PR #25 → base `sqg`. |
 | Commits | `3854307c` harness + pre-registration; `3afd9eed` smoke results + paired control b + addendum; this handoff after. |
-| **Archive run** | **job 7824121 DONE 22:44:08: `TAXO_JOB_DONE failures=0`, `TAXO_ANALYSIS_DONE valid=True control_a=True control_b=True prod_bitwise=True dt_valid=True fast=True`.** It ran 22:15–22:44 on x3001c0s13b0n0. Sealed sha256 `6f1d0e5153918a3b14faf6e29795d91263a032479121bf87a4417fb173b78be1`. The summaries are committed. **Start at §3 step 2: scoring.** |
+| **Archive run** | **job 7824121 DONE 22:44:08: `TAXO_JOB_DONE failures=0`, `TAXO_ANALYSIS_DONE valid=True control_a=True control_b=True prod_bitwise=True dt_valid=True fast=True`.** It ran 22:15–22:44 on x3001c0s13b0n0. Sealed sha256 `6f1d0e5153918a3b14faf6e29795d91263a032479121bf87a4417fb173b78be1`. The summaries are committed. **Scored 2026-11-10 in notes Part XII (steps 2–4 done): 8 confirmed / 2 half / 0 refuted / 2 sealed; P4 → LEARNING.** Next is §3 step 6 (the user's decisions), plus Part XII's last point: P2's per-band shell criterion should be settled in a dated addendum BEFORE unsealing. |
 | Log | `/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/logs/7824121.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov.OU`. It appears when the job STARTS; key on the end token `TAXO_JOB_DONE failures=N`, not on the file existing. |
 | Raw outputs | `$MEMBER_ROOT/sqg_profile/taxonomy_7824121/`: `pair_w*_s*_p*.npz`, `tables_w*.npz`, `worker_*.json` / `.log`, `analyze_taxonomy.log`, and the **sealed file `sealed/sealed_taxonomy.json`**. |
 | Committed summaries | `SQG/analysis/results/polaris_taxonomy_7824121/`, written by the job. The results dir is gitignored, so use `git add -f`. |
@@ -136,7 +136,8 @@ says to unseal (`analyze_taxonomy.py --unseal`). Predictions 2 and 5 stay unscor
 - **Alias split** 0.068. Spectrum spread: lean32ek 29, lean32 2,639.
 - **Production's own dt sensitivity** |D(2.5e-6)|/|Δ|: 2.49e-5 at k 1–2 on subsampled frames, 9.3e-7 alias-free.
   That is about lean32ek's own subsampled error at k 1–2 (1.91e-5). Both are mostly aliasing.
-- **Timing.** Worker 3's GPU was about 5% slower than the others (lean_u1 6.58 vs 6.40). Report the median.
+- **Timing.** Worker 3's GPU was 3–8% slower than the others, depending on the arm (lean_u1 6.58 vs 6.40 is 2.7%;
+  lean32sr is 8.2%). Report the median. (Corrected 2026-11-10; this line first said "about 5%".)
 
 ## 5b. Key numbers from the smoke (7823653, synthetic state; not scored)
 
