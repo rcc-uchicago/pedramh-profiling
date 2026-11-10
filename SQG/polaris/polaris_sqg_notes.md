@@ -1341,6 +1341,17 @@ compared frames, not deltas.
 | `lean32ek` | `lean32e` + compensated hi + lo complex64 state (`f32_update.compensated_update`) | **3.351** |
 | `f64ic32` (control) | float64 from the state rounded once to complex64: the floor | — |
 
+**Prior art** (added 2026-11-10, checked against Crossref and the full text):
+- **The compensation is published.** `lean32ek`'s hi + lo state is "compensated time integration", from Klöwer,
+  Hatfield, Croci, Düben & Palmer (2022), *J. Adv. Model. Earth Syst.* 14(2), e2021MS002684,
+  https://doi.org/10.1029/2021MS002684.
+  - They used it for Float16 shallow water, with one compensation variable per prognostic variable.
+  - Uncompensated, their error grew 100-fold in 150 days. Compensated, it matched mixed precision.
+  - It ran 3.6× faster on A64FX, against ≈ 2.75× for mixed precision.
+- **The building blocks:** TwoSum (Møller 1965; Knuth, *TAOCP* vol. 2 §4.2.2), Fast2Sum (Dekker 1971) and
+  compensated summation (Kahan 1965; Higham 1993). Full list in `SQG/analysis/opt/team_2026-11-06/ANALOGUES.md`.
+- **Ours, with no external source:** the expm1 damping table, and the fast form's cos(x·0) trigger and 3-slot ring.
+
 **Method.**
 - **Reference:** float64 `lean_u1`, confirmed bitwise equal to production on pair 0.
 - **Start state:** seed 2's synthetic −5/3 field, spun up 0.5 time units in float64. CFL 0.31–0.45, SPE 106 → 75.

@@ -114,6 +114,20 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-10 (evening)** — **SQG: verified citations for `lean32ek` / `lean32ek_fast` / `lean32sr`, written into
+  the code and docs.**
+  - **What was checked, and how.** Seven references, each against its Crossref record. Klöwer et al. 2022 was also
+    checked against its full text.
+  - **Where they now appear:** the docstrings of `lean32_precise.py`, `f32_update.py` and `lean32_fast.py`;
+    `MATH_delta.md` §6; notes Part XI; and ANALOGUES.md's sources.
+  - **Corrections.** ANALOGUES.md had abbreviated or slightly wrong titles for Klöwer 2022, Paxton 2022 and Kimpson
+    2023. They are fixed.
+  - **The attribution, as recorded.**
+    - The compensated state is published (Klöwer et al. 2022, doi:10.1029/2021MS002684).
+    - So are TwoSum (Møller 1965 / Knuth), Fast2Sum (Dekker 1971) and compensated summation (Kahan 1965 / Higham 1993).
+    - The expm1 damping table and the fast form's cos-trigger and 3-slot ring are ours, with no external source.
+  - **Checks:** the edited files compile; `test_f32_update.py` prints `F32_UPDATE_TEST_OK`.
+
 - **2026-11-10 (later)** — **SQG: o1.2 itself runs on Polaris A100s (job 7835278, `failures=0`, notes Part XIII).
   A full o1.2 schedule extrapolates to 268 h (production solver), 191 h (`lean_u1`) or 94 h (`lean32ek_fast`) on 14
   A100s.**

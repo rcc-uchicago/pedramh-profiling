@@ -6,12 +6,24 @@
                  same as lean32ek's, so the job checks it bit for bit against lean_precise's lean32ek. Estimate ~2.7 ms
                  per step (lean32_u1_ring3 2.524 ms + the hi/lo array's ~0.15 ms); unmeasured.
   lean32sr       lean32e with the state rounded STOCHASTICALLY (the noise-only control from ANALOGUES.md; Paxton 2022,
-                 Kimpson 2023): s = theta + inc and u = s - e*s are formed in float64 (exact for s at these
+                 Kimpson 2023, refs below): s = theta + inc and u = s - e*s are formed in float64 (exact for s at these
                  magnitudes), then u is rounded to one of its two float32 neighbours with probability proportional to
                  closeness, so E[SR(u)] = u. Mechanism B's systematic sub-ulp loss becomes a zero-mean random walk. The
                  random bits are jax.random.bits(fold_in(key, tc)), one uint64 per real component per step.
 The tendency code is lean32_precise.make_step's, line for line. Valid where lean32 is (AB3 level 2; filterfac = beta
 = U = rek = 0; forcing in the 8x8 corners).
+
+References (checked against Crossref 2026-11-10):
+  lean32ek_fast's arithmetic = lean32ek = compensated time integration: Klöwer, M., Hatfield, S., Croci, M., Düben,
+    P. D., & Palmer, T. N. (2022). J. Adv. Model. Earth Syst. 14(2), e2021MS002684.
+    https://doi.org/10.1029/2021MS002684 (details in lean32_precise.py and f32_update.py). Its two schedule changes
+    (the cos(x*0) trigger, the 3-slot ring) are this project's XLA-specific work (seed 1, notes Part X), not from the
+    literature.
+  lean32sr: Paxton, E. A., Chantry, M., Klöwer, M., Saffin, L., & Palmer, T. (2022). Climate modeling in low
+    precision: Effects of both deterministic and stochastic rounding. J. Climate 35(4), 1215-1229.
+    https://doi.org/10.1175/JCLI-D-21-0343.1 ; Kimpson, T., Paxton, E. A., Chantry, M., & Palmer, T. (2023).
+    Climate-change modelling at reduced floating-point precision with stochastic rounding. Q. J. R. Meteorol. Soc.
+    149(752), 843-855. https://doi.org/10.1002/qj.4435
 """
 import os
 import sys

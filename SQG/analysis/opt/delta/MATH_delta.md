@@ -133,8 +133,21 @@ The job's per-lag numbers show the bias. Coarse-frame e_Δ, median of 8:
 **The idea.** Carry θ as an unevaluated sum hi + lo of two complex64 arrays, with |lo| ≤ ½ ulp(hi). Then use two
 error-free transformations, which are exact in IEEE round-to-nearest:
 
-- **TwoSum(a, b)** (Knuth): s = fl(a + b), b' = s − a, r = (a − (s − b')) + (b − b'). Then s + r = a + b **exactly**.
-- **Fast2Sum(a, b)** (Dekker), needs |a| ≥ |b|: s = fl(a + b), r = b − (s − a). Then s + r = a + b **exactly**.
+- **TwoSum(a, b)** (Møller 1965; Knuth): s = fl(a + b), b' = s − a, r = (a − (s − b')) + (b − b'). Then
+  s + r = a + b **exactly**.
+- **Fast2Sum(a, b)** (Dekker 1971), needs |a| ≥ |b|: s = fl(a + b), r = b − (s − a). Then s + r = a + b **exactly**.
+
+**Where this comes from** (checked against Crossref 2026-11-10; full list in `../team_2026-11-06/ANALOGUES.md`):
+- **Prior art.** Carrying the lost bits of a small tendency into the next step is "compensated time integration".
+  Klöwer, Hatfield, Croci, Düben & Palmer (2022), *JAMES* 14(2), e2021MS002684,
+  https://doi.org/10.1029/2021MS002684, did it for Float16 shallow water. Their result: as precise as mixed
+  precision, and faster.
+- **The algorithms:**
+  - Møller (1965), *BIT* 5(1), 37–50, https://doi.org/10.1007/BF01975722 (TwoSum);
+  - Knuth, *TAOCP* vol. 2, 3rd ed. (1997), §4.2.2 (TwoSum);
+  - Dekker (1971), *Numer. Math.* 18(3), 224–242, https://doi.org/10.1007/BF01397083 (Fast2Sum);
+  - Kahan (1965), *Comm. ACM* 8(1), 40, https://doi.org/10.1145/363707.363723 (compensated summation);
+  - Higham (1993), *SIAM J. Sci. Comput.* 14(4), 783–799, https://doi.org/10.1137/0914050 (accuracy of summation).
 
 **The step** (`f32_update.compensated_update`, componentwise on real and imaginary parts):
 

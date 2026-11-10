@@ -143,12 +143,36 @@ counts.
 
 ## Sources
 
-- Klöwer, Hatfield, Croci, Düben (2022) JAMES, *Fluid simulations accelerated with 16 bits*:
-  https://pmc.ncbi.nlm.nih.gov/articles/PMC9287017/ ✔
-- Paxton et al. (2022) J. Climate, *Climate modeling in low precision: deterministic and stochastic rounding*:
-  https://journals.ametsoc.org/view/journals/clim/35/4/JCLI-D-21-0343.1.xml
-- Kimpson et al. (2023) QJRMS, *Climate-change modelling at reduced precision with stochastic rounding*:
-  https://rmets.onlinelibrary.wiley.com/doi/10.1002/qj.4435
+*The three low-precision entries below were re-checked against Crossref on 2026-11-10, and Klöwer et al. also against
+its full text. The first version of this list had abbreviated or slightly wrong titles for all three.*
+- Klöwer, M., Hatfield, S., Croci, M., Düben, P. D., & Palmer, T. N. (2022). Fluid simulations accelerated with 16
+  bits: Approaching 4x speedup on A64FX by squeezing ShallowWaters.jl into Float16. *Journal of Advances in
+  Modeling Earth Systems*, 14(2), e2021MS002684. https://doi.org/10.1029/2021MS002684 (open access:
+  https://pmc.ncbi.nlm.nih.gov/articles/PMC9287017/) ✔
+  - Checked in the full text on 2026-11-10:
+    - one compensation variable per prognostic variable (c_u, c_v, c_η);
+    - uncompensated Float16 error "exponentially increases 100-fold in the first 150 days";
+    - compensated error "matches well with the error growth of mixed-precision";
+    - speed on A64FX: Float16 3.8×, compensated 3.6×, mixed ≈ 2.75×;
+    - the method is credited to Kahan (1965), Møller (1965) and Higham (1993).
+- Paxton, E. A., Chantry, M., Klöwer, M., Saffin, L., & Palmer, T. (2022). Climate modeling in low precision:
+  Effects of both deterministic and stochastic rounding. *Journal of Climate*, 35(4), 1215–1229.
+  https://doi.org/10.1175/JCLI-D-21-0343.1
+- Kimpson, T., Paxton, E. A., Chantry, M., & Palmer, T. (2023). Climate-change modelling at reduced floating-point
+  precision with stochastic rounding. *Quarterly Journal of the Royal Meteorological Society*, 149(752), 843–855.
+  https://doi.org/10.1002/qj.4435
+- The error-free transformations used by `lean32ek` (`f32_update.compensated_update`), re-checked against Crossref on
+  2026-11-10:
+  - Kahan, W. (1965). Pracniques: Further remarks on reducing truncation errors. *Communications of the ACM*, 8(1),
+    40. https://doi.org/10.1145/363707.363723 (compensated summation)
+  - Møller, O. (1965). Quasi double-precision in floating point addition. *BIT*, 5(1), 37–50.
+    https://doi.org/10.1007/BF01975722 (TwoSum)
+  - Dekker, T. J. (1971). A floating-point technique for extending the available precision. *Numerische
+    Mathematik*, 18(3), 224–242. https://doi.org/10.1007/BF01397083 (Fast2Sum)
+  - Knuth, D. E. (1997). *The Art of Computer Programming, Vol. 2: Seminumerical Algorithms* (3rd ed.), §4.2.2.
+    Addison-Wesley. (TwoSum. A book, no DOI)
+  - Higham, N. J. (1993). The accuracy of floating point summation. *SIAM Journal on Scientific Computing*, 14(4),
+    783–799. https://doi.org/10.1137/0914050
 - Meyer et al. (2023) ICML, *Training deep surrogate models with large scale online learning*:
   https://arxiv.org/abs/2306.16133 ✔; SC'23 Reservoir: https://arxiv.org/abs/2309.16743; Breed:
   https://arxiv.org/abs/2410.05860; OGAS: https://arxiv.org/html/2606.09949v1

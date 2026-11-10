@@ -7,6 +7,18 @@ plain_update: one rounding at theta's scale for the sum, and the damping as s - 
 float32 relative precision (storing decay itself rounds rate*DT ~ 1e-7..5e-6 to a multiple of 6e-8).
 compensated_update: theta is carried as hi + lo. TwoSum(hi, inc + lo) and Fast2Sum(a, -e*a) (|e*a| <= |a| since
 0 <= e <= 1) put each rounding error into lo, which is added back next step.
+
+References (checked against Crossref 2026-11-10):
+  TwoSum    Møller, O. (1965). Quasi double-precision in floating point addition. BIT 5(1), 37-50.
+            https://doi.org/10.1007/BF01975722 ; Knuth, D. E. (1997). The Art of Computer Programming, Vol. 2 (3rd
+            ed.), §4.2.2. Addison-Wesley.
+  Fast2Sum  Dekker, T. J. (1971). A floating-point technique for extending the available precision. Numer. Math.
+            18(3), 224-242. https://doi.org/10.1007/BF01397083
+  compensated summation: Kahan, W. (1965). Comm. ACM 8(1), 40. https://doi.org/10.1145/363707.363723 ; Higham, N. J.
+            (1993). The accuracy of floating point summation. SIAM J. Sci. Comput. 14(4), 783-799.
+            https://doi.org/10.1137/0914050
+  Applied to a fluid solver's time stepping: Klöwer et al. (2022), JAMES 14(2), e2021MS002684,
+            https://doi.org/10.1029/2021MS002684
 """
 
 

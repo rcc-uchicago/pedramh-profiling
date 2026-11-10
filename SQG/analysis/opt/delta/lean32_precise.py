@@ -23,6 +23,16 @@ Variants (each a drop-in 40-step call AB3State -> AB3State, complex128 outside, 
 Both: tendencies T_-1, T_-2, the FFTs and the products stay complex64 / float32 as in lean32; t advances by the run-time
 c["tdt"]; the history is seed 2's 2-slot ring (scan unrolled by 2; an odd remainder step is done after the scan).
 Valid where seed 2's lean32 is (AB3 level 2; filterfac = beta = U = rek = 0; forcing in the 8x8 corners).
+
+Prior art (references checked against Crossref 2026-11-10; more in team_2026-11-06/ANALOGUES.md):
+  lean32ek's compensated state is the published fix for small-tendency rounding, "compensated time integration":
+    Klöwer, M., Hatfield, S., Croci, M., Düben, P. D., & Palmer, T. N. (2022). Fluid simulations accelerated with
+    16 bits: Approaching 4x speedup on A64FX by squeezing ShallowWaters.jl into Float16. J. Adv. Model. Earth Syst.,
+    14(2), e2021MS002684. https://doi.org/10.1029/2021MS002684
+  In Float16 / RK4 they keep one compensation variable per prognostic variable. Here: float32 / AB3, and the damping
+  step is compensated too (Fast2Sum). The method goes back to Kahan (1965), Møller (1965) and Higham (1993); the
+  error-free sums are in f32_update.py. The expm1 damping table (the mechanism-1 fix above) is this project's
+  (decay_quant.py, notes Part XI): no published source is recorded for it.
 """
 import os
 import sys
