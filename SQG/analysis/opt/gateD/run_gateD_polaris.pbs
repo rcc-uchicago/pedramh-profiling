@@ -1,0 +1,141 @@
+#!/bin/bash -l
+#PBS -N sqg_gateD
+#PBS -A lighthouse-uchicago
+#PBS -q capacity
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=36:00:00
+#PBS -j oe
+#PBS -r y
+# run_gateD_polaris.pbs -- gate D (item 4): do rollouts drift, or overfit, when training data carry lean32ek's bias?
+# One Polaris node, 4 A100s. Predictions + decision rule: SQG/analysis/opt/gateD/PREDICTIONS_gateD.md (written first).
+#   production (user, 2026-11-10: "we can submit on capacity"):
+#     qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ SQG/analysis/opt/gateD/run_gateD_polaris.pbs
+#   smoke (tiny: 0.05-TU segments, 300 steps, 500-step rollouts):
+#     qsub -q debug -l walltime=00:59:00 -v SMOKE=1 -o ... same ...
+# Stages, each resumable (a rerun or a resubmission with the same RUN_NAME continues):
+#   0 test_gateD.py under sqg-env (GATED_TEST_OK, torch checks on the GPU)
+#   1 gen_frames.py x 4 (16 segments; complete ones are skipped; bitwise vs taxonomy 7824121)
+#   2 train_dose.py x 4 arms, one per GPU (resumes from last.pt)
+#   3 rollout_dose.py best + last per arm
+#   4 analyze_dose.py (best = the deciding checkpoint, last reported)
+# End token: DOSE_JOB_DONE failures=N. Results -> SQG/analysis/results/polaris_gateD_<jobid>/ (logs, histories,
+# summaries); frames (~20 GB), checkpoints and rollout npz stay in $MEMBER_ROOT/sqg_profile/.
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+export PYTHONUNBUFFERED=1
+HERE=SQG/analysis/opt/gateD
+REF="${MEMBER_ROOT}/sqg_profile/taxonomy_7824121"
+if [ "${SMOKE:-0}" = "1" ]; then
+    RUN_NAME="gateD_smoke_${JOB}"; FRAMES="${MEMBER_ROOT}/sqg_profile/gateD_frames_smoke_${JOB}"
+    SEG_T=0.05; STEPS=300; VAL_EVERY=100; CKPT_EVERY=100; RSTEPS=500; N_IC=4; NTIMES=1; N_VAL=128
+else
+    RUN_NAME="${RUN_NAME:-gateD_v1}"; FRAMES="${FRAMES:-${MEMBER_ROOT}/sqg_profile/gateD_frames}"
+    SEG_T=1.0; STEPS=195250; VAL_EVERY=2500; CKPT_EVERY=2500; RSTEPS=2500; N_IC=16; NTIMES=4; N_VAL=512
+fi
+RUN="${MEMBER_ROOT}/sqg_profile/${RUN_NAME}"
+RES="SQG/analysis/results/polaris_gateD_${JOB}"
+mkdir -p "$RUN" "$FRAMES" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+T0=$(date +%s)
+FAILURES=0
+fail() { echo "ERROR $*"; FAILURES=$((FAILURES + 1)); }
+echo "=== run_gateD on $(hostname) job $JOB: $(date '+%F %T') smoke=${SMOKE:-0} run=$RUN frames=$FRAMES ==="
+nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee "$RUN/gpu.csv"
+
+# ---- 0. tests ----------------------------------------------------------------------------------------------------
+CUDA_VISIBLE_DEVICES=0 "$PY" "$HERE/test_gateD.py" 2>&1 | tee "$RUN/test_gateD.log" || fail GATED_TEST
+grep -q "GATED_TEST_OK" "$RUN/test_gateD.log" || fail GATED_TEST_NO_TOKEN
+[ "$FAILURES" = "0" ] || { echo "DOSE_JOB_DONE failures=$FAILURES"; exit 6; }
+
+# ---- 1. stored production frames (worker w: member ((w + i) mod 4) + 1 at TIMES[i]) ----------------------------
+LABEL_TAIL="_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02"
+TIMES=(0100.00 0200.00 0300.00 0400.00)
+pids=()
+for w in 0 1 2 3; do
+    a=""
+    for i in $(seq 0 $((NTIMES - 1))); do
+        m=$(( (w + i) % 4 + 1 ))
+        f="${SQG_TRAINING_ROOT}/trainingdata_m0${m}${LABEL_TAIL}/checkpoint/ckpt_t${TIMES[$i]}.npz"
+        [ -s "$f" ] || { echo "ERROR DOSE_CKPTS_NOT_STAGED $f"; echo "DOSE_JOB_DONE failures=1"; exit 5; }
+        a="$a --ckpt ${m}:${f}"
+    done
+    # shellcheck disable=SC2086
+    CUDA_VISIBLE_DEVICES=$w "$PY" "$HERE/gen_frames.py" --out "$FRAMES" --worker $w $a --seg-t $SEG_T --ref-dir "$REF" \
+        >> "$RUN/gen_w${w}.log" 2>&1 &
+    pids+=($!)
+done
+for w in 0 1 2 3; do
+    wait "${pids[$w]}" || fail "GEN_RC w=$w"
+    grep -q "GEN_WORKER_DONE w=$w failures=0" "$RUN/gen_w${w}.log" || fail "GEN_NOT_CLEAN w=$w"
+    grep -E "^(GEN_SEGMENT|GEN_WORKER_DONE|ERROR)" "$RUN/gen_w${w}.log" | tail -n 6 || true
+done
+echo "=== frames done $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+[ "$FAILURES" = "0" ] || { echo "DOSE_JOB_DONE failures=$FAILURES"; exit 7; }
+
+# ---- 2. four training arms, one per GPU ------------------------------------------------------------------------
+ARMS=(a0_sA a0_sB a1000_sA a10000_sA)
+ALPHA=(0 0 1000 10000)
+SEED=(1 2 1 1)
+pids=()
+for g in 0 1 2 3; do
+    CUDA_VISIBLE_DEVICES=$g "$PY" "$HERE/train_dose.py" --frames "$FRAMES" --out "$RUN/${ARMS[$g]}" \
+        --alpha "${ALPHA[$g]}" --seed "${SEED[$g]}" --steps "$STEPS" --val-every "$VAL_EVERY" \
+        --ckpt-every "$CKPT_EVERY" --n-val "$N_VAL" >> "$RUN/${ARMS[$g]}.log" 2>&1 &
+    pids+=($!)
+done
+for g in 0 1 2 3; do
+    wait "${pids[$g]}" || fail "TRAIN_RC arm=${ARMS[$g]}"
+    grep -q "DOSE_ARM_DONE" "$RUN/${ARMS[$g]}.log" || fail "TRAIN_NO_TOKEN arm=${ARMS[$g]}"
+    grep -E "^(DOSE_ARM |DOSE_RESUME|DOSE_ARM_DONE|ERROR)" "$RUN/${ARMS[$g]}.log" | tail -n 4 || true
+    grep -E "^DOSE_VAL" "$RUN/${ARMS[$g]}.log" | tail -n 2 || true
+done
+echo "=== training done $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+
+# ---- 3. rollouts (best + last), one GPU per arm ----------------------------------------------------------------
+pids=()
+for g in 0 1 2 3; do
+    ( for which in best last; do
+        CUDA_VISIBLE_DEVICES=$g "$PY" "$HERE/rollout_dose.py" --frames "$FRAMES" --arm "$RUN/${ARMS[$g]}" \
+            --which $which --steps "$RSTEPS" --n-ic "$N_IC" --n-val "$N_VAL" || exit 1
+      done ) >> "$RUN/rollout_${ARMS[$g]}.log" 2>&1 &
+    pids+=($!)
+done
+for g in 0 1 2 3; do
+    wait "${pids[$g]}" || fail "ROLLOUT_RC arm=${ARMS[$g]}"
+    [ "$(grep -c ROLLOUT_DONE "$RUN/rollout_${ARMS[$g]}.log")" -ge 2 ] || fail "ROLLOUT_NO_TOKEN arm=${ARMS[$g]}"
+    grep -E "^(ROLLOUT_DONE|ERROR)" "$RUN/rollout_${ARMS[$g]}.log" | tail -n 2 || true
+done
+
+# ---- 4. analysis ----------------------------------------------------------------------------------------------
+for which in best last; do
+    "$PY" "$HERE/analyze_dose.py" --run "$RUN" --frames "$FRAMES" --out "$RES/$which" --which $which --n-val "$N_VAL" \
+        2>&1 | tee "$RUN/analyze_${which}.log" || fail "ANALYSIS_RC which=$which"
+    grep -q "DOSE_ANALYSIS_DONE" "$RUN/analyze_${which}.log" || fail "ANALYSIS_NO_TOKEN which=$which"
+done
+
+for f in "$RUN"/*.log "$RUN"/gpu.csv "$FRAMES"/*.json; do [ -e "$f" ] && cp "$f" "$RES"/; done
+for arm in "${ARMS[@]}"; do
+    for f in history.json config.json; do [ -e "$RUN/$arm/$f" ] && cp "$RUN/$arm/$f" "$RES/${arm}_$f"; done
+done
+echo "=== end $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+echo "DOSE_JOB_DONE failures=$FAILURES"
