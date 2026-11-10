@@ -114,6 +114,43 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-10 (later)** — **SQG: o1.2 itself runs on Polaris A100s (job 7835278, `failures=0`, notes Part XIII).
+  A full o1.2 schedule extrapolates to 268 h (production solver), 191 h (`lean_u1`) or 94 h (`lean32ek_fast`) on 14
+  A100s.**
+  - **The ask (user).** Run our own o1.2 and generate logs. Extrapolate the A100 speeds; no H200 comparison.
+  - **The harness:** `SQG/analysis/opt/o12run/`.
+    - `o12_polaris.py` execs o1.2's own file, unedited, with 34 exact-match, line-count-preserving patches: paths;
+      torch 2.3.1 strict fp32; the vendored solver's BLOCK_T / CHECKPOINT_DIR; members 1–4; zarr / wandb / matplotlib
+      stand-ins.
+    - o1.2's first-segment check is re-pointed at job 7824121's production frames.
+    - Knobs: batch 16, a short fill and schedule.
+  - **Measured** (1 node, 4 A100s, strict fp32):
+    - `ref` and `lean_u1` frames are **bitwise equal to production**.
+    - Steady s/step: 4.897 / 3.4925 / 1.7107. That is solver (12 frames × 40 steps) + an ML step of 0.40–0.42 s: a
+      pure sum, so solver speed-ups pass through one for one.
+    - Fill 0.373 / 0.257 / 0.109 s per frame.
+    - Validation 0.27 s and saves ~0.75 s per epoch; peak 20.4 GiB; 40.81 M parameters.
+  - **Full o1.2 schedule** (14 A100s on 4 nodes, batch 16 = o1.2's global 224, 195,250 steps):
+
+    | solver | wall-clock | node-h | GPU-h |
+    |---|---|---|---|
+    | `ref` | 268 h | 1,074 | 3,757 |
+    | `lean_u1` | 191 h | 765 | 2,679 |
+    | `lean32ek_fast` | 94 h | 376 | 1,315 |
+
+    The step term is ≥ 98.9% of every projection, and GPU-h hardly depend on the layout. Restarts are not modelled:
+    resume is from `best.pt`, which re-runs epochs.
+  - **Scorecard:** 7 confirmed / 1 half / 0 refuted. The half is P2: `lean32ek_fast`'s 2.6e-3 max |Δθ| is above my
+    band. It is the expected float32 drift: the taxonomy harness shows 2.6e-4 to 1.5e-3 at 4,000 steps, and θ's max is
+    ≈ 44.
+  - **A science-grade full Polaris run would still need:**
+    - BUF de-duplication or a shrink (137 GB / rank × 4 > 512 GB);
+    - ≈ 1.3 TB of checkpoints (we have 16);
+    - a held-out val store;
+    - ≈ 765 node-h preemptable with `lean_u1`.
+
+    The user's call.
+
 - **2026-11-10** — **SQG item 3: archive run 7824121 scored (notes Part XII). The run is valid. Plain float32 is a
   learnable bias. The candidates stay sealed.**
   - **The run.** 1-node debug, x3001c0s13b0n0, 2026-11-06 22:15–22:44. `TAXO_JOB_DONE failures=0`,

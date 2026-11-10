@@ -1,0 +1,552 @@
+{
+ "formula": "see module docstring",
+ "ddp_xnode_s": 0.005,
+ "solvers": {
+  "ref": {
+   "parsed": {
+    "knobs": {
+     "BUF": 16384.0,
+     "BATCH": 16.0,
+     "N_EPOCH": 4.0,
+     "N_VAL": 64.0,
+     "STEPS_PER_EPOCH": 30.0,
+     "START_PAIRS": 600.0
+    },
+    "epochs": [
+     {
+      "epoch": 0,
+      "train": 0.0861,
+      "val": 0.059,
+      "persistence": 0.0776,
+      "s_step": 5.032,
+      "seconds": 152
+     },
+     {
+      "epoch": 1,
+      "train": 0.0635,
+      "val": 0.0577,
+      "persistence": 0.0776,
+      "s_step": 4.901,
+      "seconds": 147
+     },
+     {
+      "epoch": 2,
+      "train": 0.0572,
+      "val": 0.0586,
+      "persistence": 0.0776,
+      "s_step": 4.9,
+      "seconds": 147
+     },
+     {
+      "epoch": 3,
+      "train": 0.055,
+      "val": 0.0581,
+      "persistence": 0.0776,
+      "s_step": 4.9,
+      "seconds": 147
+     }
+    ],
+    "o12_epochs": [
+     {
+      "epoch": 0.0,
+      "steps": 30.0,
+      "step_median": 4.8961,
+      "step_p10": 4.8951,
+      "step_p90": 4.8992,
+      "train_s": 151.0,
+      "val_s": 0.84,
+      "save_last_s": 0.79,
+      "solver": "ref"
+     },
+     {
+      "epoch": 1.0,
+      "steps": 30.0,
+      "step_median": 4.8969,
+      "step_p10": 4.8953,
+      "step_p90": 4.9149,
+      "train_s": 147.0,
+      "val_s": 0.27,
+      "save_last_s": 0.74,
+      "solver": "ref"
+     },
+     {
+      "epoch": 2.0,
+      "steps": 30.0,
+      "step_median": 4.8962,
+      "step_p10": 4.8952,
+      "step_p90": 4.9165,
+      "train_s": 147.0,
+      "val_s": 0.26,
+      "save_last_s": 0.75,
+      "solver": "ref"
+     },
+     {
+      "epoch": 3.0,
+      "steps": 30.0,
+      "step_median": 4.8972,
+      "step_p10": 4.8951,
+      "step_p90": 4.9106,
+      "train_s": 147.0,
+      "val_s": 0.27,
+      "save_last_s": 0.75,
+      "solver": "ref"
+     }
+    ],
+    "saves_best": [
+     0.73,
+     0.73
+    ],
+    "resumes": [],
+    "world_size": 4,
+    "device": "NVIDIA A100-SXM4-40GB",
+    "fill": {
+     "pairs": 621.0,
+     "frames": 721.0,
+     "seconds": 278.3,
+     "load_s": 2.6,
+     "s_per_frame_steady": 0.37283,
+     "solver": "ref"
+    },
+    "bitwise": {
+     "solver": "ref",
+     "frames_per_rank": 4.0,
+     "max_abs_diff": 0.0,
+     "verdict": "PASS"
+    },
+    "filled": {
+     "pairs": 621,
+     "segments": 1,
+     "seconds": 278
+    },
+    "params": 40.81,
+    "peak": 20.4,
+    "best_val": 0.0577,
+    "phases": {
+     "solver": "ref",
+     "startup_to_fill_done_s": 328.1,
+     "total_s": 927.3
+    },
+    "run_done": true
+   },
+   "pieces": {
+    "s_step": 4.8969,
+    "s_step_o12_epoch": 4.9,
+    "s_frame": 0.37283,
+    "t_load": 2.6,
+    "t_val": 0.27,
+    "t_save_last": 0.75,
+    "t_save_best": 0.73,
+    "batch": 16.0,
+    "world_size": 4,
+    "n_val_run": 64.0,
+    "t_init": 49.80000000000001,
+    "val_batches_run": 1
+   },
+   "projections": {
+    "1 node, 4 GPUs, batch 16": {
+     "steps": 683500,
+     "terms_s": {
+      "init": 49.80000000000001,
+      "fill": 7348.842320000001,
+      "steps": 3347031.15,
+      "epoch_overhead": 640.0,
+      "segment_loads": 4266.6
+     },
+     "hours": 933.1489978666667,
+     "node_hours": 933.1489978666667,
+     "gpu_hours": 3732.595991466667
+    },
+    "4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)": {
+     "steps": 195250,
+     "terms_s": {
+      "init": 49.80000000000001,
+      "fill": 7348.842320000001,
+      "steps": 957095.9749999999,
+      "epoch_overhead": 437.5,
+      "segment_loads": 1219.4
+     },
+     "hours": 268.37542147777776,
+     "node_hours": 1073.501685911111,
+     "gpu_hours": 3757.2559006888887
+    },
+    "4 nodes, 16 GPUs, batch 16": {
+     "steps": 170750,
+     "terms_s": {
+      "init": 49.80000000000001,
+      "fill": 7348.842320000001,
+      "steps": 836999.4249999999,
+      "epoch_overhead": 437.5,
+      "segment_loads": 1066.0
+     },
+     "hours": 234.97265758888886,
+     "node_hours": 939.8906303555555,
+     "gpu_hours": 3759.562521422222
+    }
+   }
+  },
+  "lean_u1": {
+   "parsed": {
+    "knobs": {
+     "BUF": 16384.0,
+     "BATCH": 16.0,
+     "N_EPOCH": 4.0,
+     "N_VAL": 64.0,
+     "STEPS_PER_EPOCH": 30.0,
+     "START_PAIRS": 600.0
+    },
+    "epochs": [
+     {
+      "epoch": 0,
+      "train": 0.0861,
+      "val": 0.059,
+      "persistence": 0.0776,
+      "s_step": 3.508,
+      "seconds": 106
+     },
+     {
+      "epoch": 1,
+      "train": 0.0635,
+      "val": 0.0577,
+      "persistence": 0.0776,
+      "s_step": 3.495,
+      "seconds": 105
+     },
+     {
+      "epoch": 2,
+      "train": 0.0572,
+      "val": 0.0586,
+      "persistence": 0.0776,
+      "s_step": 3.496,
+      "seconds": 105
+     },
+     {
+      "epoch": 3,
+      "train": 0.055,
+      "val": 0.0582,
+      "persistence": 0.0776,
+      "s_step": 3.494,
+      "seconds": 105
+     }
+    ],
+    "o12_epochs": [
+     {
+      "epoch": 0.0,
+      "steps": 30.0,
+      "step_median": 3.4937,
+      "step_p10": 3.4915,
+      "step_p90": 3.5043,
+      "train_s": 105.2,
+      "val_s": 0.53,
+      "save_last_s": 0.78,
+      "solver": "lean_u1"
+     },
+     {
+      "epoch": 1.0,
+      "steps": 30.0,
+      "step_median": 3.4926,
+      "step_p10": 3.4919,
+      "step_p90": 3.5045,
+      "train_s": 104.8,
+      "val_s": 0.26,
+      "save_last_s": 0.74,
+      "solver": "lean_u1"
+     },
+     {
+      "epoch": 2.0,
+      "steps": 30.0,
+      "step_median": 3.4925,
+      "step_p10": 3.4915,
+      "step_p90": 3.5078,
+      "train_s": 104.9,
+      "val_s": 0.3,
+      "save_last_s": 0.74,
+      "solver": "lean_u1"
+     },
+     {
+      "epoch": 3.0,
+      "steps": 30.0,
+      "step_median": 3.4925,
+      "step_p10": 3.4915,
+      "step_p90": 3.4991,
+      "train_s": 104.8,
+      "val_s": 0.27,
+      "save_last_s": 0.76,
+      "solver": "lean_u1"
+     }
+    ],
+    "saves_best": [
+     0.71,
+     0.72
+    ],
+    "resumes": [],
+    "world_size": 4,
+    "device": "NVIDIA A100-SXM4-40GB",
+    "fill": {
+     "pairs": 621.0,
+     "frames": 721.0,
+     "seconds": 190.1,
+     "load_s": 1.0,
+     "s_per_frame_steady": 0.25709,
+     "solver": "lean_u1"
+    },
+    "bitwise": {
+     "solver": "lean_u1",
+     "frames_per_rank": 4.0,
+     "max_abs_diff": 0.0,
+     "verdict": "PASS"
+    },
+    "filled": {
+     "pairs": 621,
+     "segments": 1,
+     "seconds": 190
+    },
+    "params": 40.81,
+    "peak": 20.4,
+    "best_val": 0.0577,
+    "phases": {
+     "solver": "lean_u1",
+     "startup_to_fill_done_s": 204.0,
+     "total_s": 630.0
+    },
+    "run_done": true
+   },
+   "pieces": {
+    "s_step": 3.4925,
+    "s_step_o12_epoch": 3.495,
+    "s_frame": 0.25709,
+    "t_load": 1.0,
+    "t_val": 0.27,
+    "t_save_last": 0.74,
+    "t_save_best": 0.715,
+    "batch": 16.0,
+    "world_size": 4,
+    "n_val_run": 64.0,
+    "t_init": 13.900000000000006,
+    "val_batches_run": 1
+   },
+   "projections": {
+    "1 node, 4 GPUs, batch 16": {
+     "steps": 683500,
+     "terms_s": {
+      "init": 13.900000000000006,
+      "fill": 5066.70136,
+      "steps": 2387123.75,
+      "epoch_overhead": 633.75,
+      "segment_loads": 1641.0
+     },
+     "hours": 665.1330837111111,
+     "node_hours": 665.1330837111111,
+     "gpu_hours": 2660.5323348444444
+    },
+    "4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)": {
+     "steps": 195250,
+     "terms_s": {
+      "init": 13.900000000000006,
+      "fill": 5066.70136,
+      "steps": 682886.875,
+      "epoch_overhead": 431.25,
+      "segment_loads": 469.0
+     },
+     "hours": 191.3521462111111,
+     "node_hours": 765.4085848444444,
+     "gpu_hours": 2678.930046955555
+    },
+    "4 nodes, 16 GPUs, batch 16": {
+     "steps": 170750,
+     "terms_s": {
+      "init": 13.900000000000006,
+      "fill": 5066.70136,
+      "steps": 597198.125,
+      "epoch_overhead": 431.25,
+      "segment_loads": 410.0
+     },
+     "hours": 167.53332676666665,
+     "node_hours": 670.1333070666666,
+     "gpu_hours": 2680.5332282666664
+    }
+   }
+  },
+  "lean32ek_fast": {
+   "parsed": {
+    "knobs": {
+     "BUF": 16384.0,
+     "BATCH": 16.0,
+     "N_EPOCH": 4.0,
+     "N_VAL": 64.0,
+     "STEPS_PER_EPOCH": 30.0,
+     "START_PAIRS": 600.0
+    },
+    "epochs": [
+     {
+      "epoch": 0,
+      "train": 0.0861,
+      "val": 0.059,
+      "persistence": 0.0776,
+      "s_step": 1.725,
+      "seconds": 52
+     },
+     {
+      "epoch": 1,
+      "train": 0.0635,
+      "val": 0.0576,
+      "persistence": 0.0776,
+      "s_step": 1.713,
+      "seconds": 52
+     },
+     {
+      "epoch": 2,
+      "train": 0.0571,
+      "val": 0.0586,
+      "persistence": 0.0776,
+      "s_step": 1.715,
+      "seconds": 52
+     },
+     {
+      "epoch": 3,
+      "train": 0.0549,
+      "val": 0.0581,
+      "persistence": 0.0776,
+      "s_step": 1.713,
+      "seconds": 52
+     }
+    ],
+    "o12_epochs": [
+     {
+      "epoch": 0.0,
+      "steps": 30.0,
+      "step_median": 1.7105,
+      "step_p10": 1.7079,
+      "step_p90": 1.72,
+      "train_s": 51.7,
+      "val_s": 0.56,
+      "save_last_s": 0.79,
+      "solver": "lean32ek_fast"
+     },
+     {
+      "epoch": 1.0,
+      "steps": 30.0,
+      "step_median": 1.7109,
+      "step_p10": 1.708,
+      "step_p90": 1.7241,
+      "train_s": 51.4,
+      "val_s": 0.27,
+      "save_last_s": 0.8,
+      "solver": "lean32ek_fast"
+     },
+     {
+      "epoch": 2.0,
+      "steps": 30.0,
+      "step_median": 1.7107,
+      "step_p10": 1.7089,
+      "step_p90": 1.7326,
+      "train_s": 51.4,
+      "val_s": 0.3,
+      "save_last_s": 0.78,
+      "solver": "lean32ek_fast"
+     },
+     {
+      "epoch": 3.0,
+      "steps": 30.0,
+      "step_median": 1.7102,
+      "step_p10": 1.7081,
+      "step_p90": 1.7242,
+      "train_s": 51.4,
+      "val_s": 0.26,
+      "save_last_s": 0.78,
+      "solver": "lean32ek_fast"
+     }
+    ],
+    "saves_best": [
+     0.71,
+     0.77
+    ],
+    "resumes": [],
+    "world_size": 4,
+    "device": "NVIDIA A100-SXM4-40GB",
+    "fill": {
+     "pairs": 621.0,
+     "frames": 721.0,
+     "seconds": 81.6,
+     "load_s": 1.0,
+     "s_per_frame_steady": 0.1091,
+     "solver": "lean32ek_fast"
+    },
+    "bitwise": {
+     "solver": "lean32ek_fast",
+     "frames_per_rank": 4.0,
+     "max_abs_diff": 0.002647,
+     "verdict": "INFO"
+    },
+    "filled": {
+     "pairs": 621,
+     "segments": 1,
+     "seconds": 82
+    },
+    "params": 40.81,
+    "peak": 20.4,
+    "best_val": 0.0576,
+    "phases": {
+     "solver": "lean32ek_fast",
+     "startup_to_fill_done_s": 94.3,
+     "total_s": 306.7
+    },
+    "run_done": true
+   },
+   "pieces": {
+    "s_step": 1.7107,
+    "s_step_o12_epoch": 1.713,
+    "s_frame": 0.1091,
+    "t_load": 1.0,
+    "t_val": 0.27,
+    "t_save_last": 0.78,
+    "t_save_best": 0.74,
+    "batch": 16.0,
+    "world_size": 4,
+    "n_val_run": 64.0,
+    "t_init": 12.700000000000003,
+    "val_batches_run": 1
+   },
+   "projections": {
+    "1 node, 4 GPUs, batch 16": {
+     "steps": 683500,
+     "terms_s": {
+      "init": 12.700000000000003,
+      "fill": 2150.7064,
+      "steps": 1169263.4500000002,
+      "epoch_overhead": 650.0,
+      "segment_loads": 1641.0
+     },
+     "hours": 326.03273788888896,
+     "node_hours": 326.03273788888896,
+     "gpu_hours": 1304.1309515555558
+    },
+    "4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)": {
+     "steps": 195250,
+     "terms_s": {
+      "init": 12.700000000000003,
+      "fill": 2150.7064,
+      "steps": 334990.425,
+      "epoch_overhead": 447.5,
+      "segment_loads": 469.0
+     },
+     "hours": 93.90842538888887,
+     "node_hours": 375.6337015555555,
+     "gpu_hours": 1314.7179554444442
+    },
+    "4 nodes, 16 GPUs, batch 16": {
+     "steps": 170750,
+     "terms_s": {
+      "init": 12.700000000000003,
+      "fill": 2150.7064,
+      "steps": 292955.775,
+      "epoch_overhead": 447.5,
+      "segment_loads": 410.0
+     },
+     "hours": 82.21574483333333,
+     "node_hours": 328.8629793333333,
+     "gpu_hours": 1315.4519173333333
+    }
+   }
+  }
+ }
+}

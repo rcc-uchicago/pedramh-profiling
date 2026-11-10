@@ -1717,3 +1717,159 @@ If `lean32ek` is admitted, its fast form needs no further sign-off, because the 
   - Any change to that reading has to be fixed in a dated addendum before the sealed file is opened. It is the user's
     and the owners' call, not this session's.
 
+---
+
+# Part XIII — o1.2 itself on Polaris A100s, and a full run's A100 wall-clock (job 7835278, 2026-11-10)
+
+**Ask (user, 2026-11-10):** "can we not run our own checkpoints and generate logs". Then: "we don't want to compare it
+to the H200, we know we can't get the same results, but we can extrapolate the speeds from A100".
+
+Until now, every Polaris number came from harnesses that mimic o1.2's loop. This job runs **o1.2's own file**
+(`SQG/o1.2-TrainUViT_m16_tendency.py`, sha256 `94cbe1dc…`, unedited on disk). It runs it short, once per solver, on
+one debug node. From the measured pieces it projects a full o1.2 schedule on A100s. No number here is compared with
+the H200 runs.
+
+**Run.**
+- **Job:** `SQG/analysis/opt/o12run/run_o12_polaris.pbs`, 1-node debug, x3004c0s7b1n0, 2026-11-10 18:09–18:41
+  (1,934 s). It ended `O12_JOB_DONE failures=0`.
+- **Predictions and gates:** `SQG/analysis/opt/o12run/PREDICTIONS_o12.md`, committed before submission.
+- **Results:** `SQG/analysis/results/polaris_o12_7835278/`: the three rank-0 logs, stderr, the wandb stand-in's
+  jsonl, and `o12_extrapolation.json`.
+- **Model checkpoints** (`*_best.pt` / `*_last.pt`, ~470 MB each) stay in `$MEMBER_ROOT/sqg_profile/o12_7835278/`.
+
+## How o1.2 runs here (`o12_polaris.py`)
+
+**Launch.** `torchrun --standalone --nproc_per_node=4`, one rank per A100, as o1.2's own launcher.
+`CUDA_VISIBLE_DEVICES=0,1,2,3` must be set, because o1.2 remaps it to the rank's GPU only when it lists several
+devices.
+
+**Patches.** o1.2's source is compiled with 34 patches. Each must match exactly once and keeps the line count, so
+tracebacks point at the file's real lines.
+- **Environment.**
+  - Paths.
+  - Strict IEEE fp32 in torch 2.3.1's spelling (`allow_tf32 = False`, matmul precision "highest"), because o1.2's
+    `fp32_precision` API is torch ≥ 2.6. o1.2's own `check_fp32()` still runs and passed (conv 2.2e-6, matmul 4.1e-7,
+    attention 1.9e-6).
+  - The vendored solver's names. o1.2 was written against a newer `A-SQG_data.py` (`RUN_CHECKPOINT_DIR`, and
+    DT_SAVE = 0.02). Ours has DT_SAVE 0.0025 and BLOCK_T = 0.02, which is exactly 0.02 in float64, so o1.2's
+    `LAG == 0.02` assert keeps its `==`.
+  - The staged members 1–4.
+- **Stand-ins.**
+  - sqg-env has no zarr, wandb or matplotlib. The replacements: a read-only zarr stand-in for the val store; wandb
+    writes a jsonl file; the per-epoch plot is skipped, since it only went to wandb.
+  - o1.2's first-segment check against `train_m16.zarr` becomes **the same bitwise check against job 7824121's
+    production frames** of the same checkpoints, at k = 100, 200, 300, 400.
+- **Knobs** (logged as `O12_KNOB`):
+
+  | knob | value | o1.2 |
+  |---|---|---|
+  | batch | 16 | 32, which runs out of memory on 40 GB |
+  | fill | 600 pairs | 19,604 |
+  | schedule | 4 epochs × 30 steps | 250 × 781 |
+  | N_VAL | 64 | 200 |
+  | BUF | 16,384 | 262,144 |
+  | solver | `ref` (o1.2's own call), `lean_u1`, `lean32ek_fast` | — |
+
+  BUF changes nothing computed: the run makes fewer than 3,000 pairs, so the buffer never wraps.
+- **Val store** (`build_val_store.py`). The 16 archived states' production frames, 0.02 apart: 64 pairs. They come
+  from the training members, so **the val losses below are in-sample and not a science number.**
+
+## Results (A100; rank 0; medians of the per-epoch medians over epochs 1–3, 29 step intervals each)
+
+| | `ref` | `lean_u1` | `lean32ek_fast` |
+|---|---|---|---|
+| first segment vs production frames (4 per rank) | **bitwise** (PASS) | **bitwise** (PASS) | max \|Δθ\| 2.6e-3 (info) |
+| steady s / optimizer step | **4.897** | **3.4925** | **1.7107** |
+| o1.2's own per-epoch s/step (epochs 1–3) | 4.900–4.901 | 3.494–3.496 | 1.713–1.715 |
+| step p10 – p90 | 4.895 – 4.917 | 3.492 – 3.508 | 1.708 – 1.733 |
+| steady fill s / ring frame (40 solver steps) | 0.37283 (9.32 ms/step) | 0.25709 (6.43 ms/step) | 0.10910 (2.73 ms/step) |
+| implied ML step = s_step − 12 × fill s/frame | 0.423 | 0.407 | 0.402 |
+| validation / `save_last` / `save_best` per epoch (s) | 0.27 / 0.75 / 0.73 | 0.27 / 0.74 / 0.72 | 0.27 / 0.78 / 0.74 |
+| checkpoint load (first segment) / start-up to fill (s) | 2.6 / 49.8 | 1.0 / 13.9 | 1.0 / 12.7 |
+| peak PyTorch GPU memory | 20.4 GiB | 20.4 GiB | 20.4 GiB |
+
+The model has 40.81 M parameters. All three arms trained identically to 4 decimals: train loss 0.0861 → 0.055, val
+≈ 0.058 (in-sample).
+
+What the table shows:
+- **The real loop is a pure sum, as Part III found with the harnesses.** Each step is 12 ring frames of solver work
+  plus one ML step of 0.40–0.42 s. Nothing overlaps.
+  - The in-loop solver is 0.3–1.1% slower than the isolated benchmark (9.32 vs 9.29 ms, 6.43 vs 6.40, 2.73 vs 2.70).
+  - So a solver speed-up passes into o1.2's step time one for one.
+- **The difference 2.6e-3 is the expected float32 drift, not a wiring fault.**
+  - It is the largest pixel difference over frames 4,000–16,000 steps out, on 4 GPUs.
+  - The taxonomy harness's lean32ek-vs-production difference after 4,000 steps is 2.6e-4 to 1.5e-3 per pair (median
+    5.3e-4), and the fast form's alone is 4.0e-4 to 9.5e-4.
+  - θ has rms 8.5 and a typical maximum of 44, so the rms difference is ≈ 2.5e-6 of θ.
+- **Per-epoch overheads are negligible.** Validation, two saves and the checkpoint loads come to under 2 s per epoch.
+
+## A full o1.2 schedule on A100s (`o12_extrapolate.py`; the formula is in its docstring and PREDICTIONS_o12.md)
+
+The formula's terms:
+- start-up;
+- fill: 19,704 frames × fill rate;
+- steps × (s_step + 5 ms for cross-node DDP, from 7815637);
+- 250 × (validation of 200 pairs + both saves);
+- one checkpoint load per segment.
+
+| solver | 14 A100s / 4 nodes, batch 16: **o1.2's global batch 224 and its 195,250 steps** | 16 A100s / 4 nodes (170,750 steps, batch 256) | 4 A100s / 1 node (683,500 steps, batch 64) |
+|---|---|---|---|
+| `ref` (production) | **268.4 h** = 11.2 d; 1,074 node-h; 3,757 GPU-h | 235.0 h; 940 node-h | 933.1 h; 933 node-h |
+| `lean_u1` (bitwise, no sign-off needed) | **191.4 h** = 8.0 d; 765 node-h; 2,679 GPU-h | 167.5 h; 670 node-h | 665.1 h; 665 node-h |
+| `lean32ek_fast` (needs item 4) | **93.9 h** = 3.9 d; 376 node-h; 1,315 GPU-h | 82.2 h; 329 node-h | 326.0 h; 326 node-h |
+
+How to read it:
+- **The step term is 98.9–99.7% of every projection.** Fill is 0.6–2.0 h, segment loads 0.1–1.2 h, validation and
+  saves 0.1–0.2 h.
+- **GPU-hours per run hardly depend on the layout.**
+  - `ref` ≈ 3,750, `lean_u1` ≈ 2,680, `lean32ek_fast` ≈ 1,315 GPU-h.
+  - Every rank makes its own pairs, so a fixed sample budget costs fixed GPU-seconds.
+  - More GPUs buy wall-clock, not GPU-hours.
+- **Only the 14-GPU column is o1.2's schedule.** The other two change the global batch (64 / 256 vs 224), so they
+  are different trainings, timed at the same per-step cost.
+- **Savings against `ref` on 14 A100s:**
+  - `lean_u1` −29% (268 → 191 h), with no numerics change.
+  - `lean32ek_fast` −65% (268 → 94 h), if item 4 admits it.
+
+**Not in the projection:**
+- **Restarts.**
+  - Polaris walltimes are well under 191–268 h (preemptable: 72 h), so a full run is a chain of ≥ 3–4 jobs.
+  - o1.2 always resumes from `best.pt`. Each restart re-runs the epochs after the best one, rewinds OneCycle, and
+    refills the buffer (2 h for `ref`).
+  - Team-plan item 7 (resume from `last.pt`, guarded) removes most of that.
+- **The decoupled layout** (round 1c: equal GPU-seconds, shorter steps).
+
+## Scorecard (`PREDICTIONS_o12.md`)
+
+- **Confirmed (7):**
+  - **1 (0.85).** All 3 arms reached `O12_RUN_DONE` with finite losses; `O12_TEST_OK` compiled under 3.10; o1.2's
+    `check_fp32()` passed.
+  - **3 (0.7).** Steady s/step within ±7% of 0.480 × ms + 0.42: 4.897 vs 4.88; 3.4925 vs 3.49; 1.7107 vs 1.72. All
+    within 0.6%.
+  - **4 (0.7).** Fill s/frame ÷ (40 × ms) = 1.003 / 1.004 / 1.011, in [1.00, 1.10].
+  - **5 (0.8).** Validation 0.26–0.84 s ≤ 5; `save_last` 0.74–0.80 s ≤ 10.
+  - **6 (0.7).** Peak 20.4 GiB ∈ [19, 22].
+  - **7 (0.6).** Start-up 12.7–49.8 s ≤ 180.
+  - **8 (0.8).** The step term is ≥ 98.9% of every projection (≥ 95%).
+- **Half (1):**
+  - **2 (0.8).** G3 passed: `ref` and `lean_u1` are bitwise equal to production on all 4 ranks. But `lean32ek_fast`'s
+    2.6e-3 is above my band [1e-7, 1e-3]. The band was set without θ's scale (max ≈ 44). The cross-check above shows
+    the value is the expected drift.
+- **Refuted:** none.
+
+## What this means, and what a full Polaris run would still need
+
+- **o1.2's real code now runs on Polaris A100s,** in strict fp32, with production-bitwise frames (`ref`, `lean_u1`).
+  The logs it writes are o1.2's own format: `o12_extrapolate.parse()` reads them, and the same parser reads
+  production logs too (item 1).
+- **A science-grade full run of our own** would also need:
+  1. **Host memory.** BUF 262,144 is 137 GB per rank, so 4 ranks need ~548 GB on a 512 GB node. Either shrink BUF
+     (that changes sampling, so it's the owners' call) or store each frame once (137 → ~69 GB per rank, an exact
+     fix).
+  2. **Checkpoints.** 3,281 of the 3,500 archived ones, ≈ 1.3 TB. We have 16, which wrap around. Eagle had ≈ 4.4 TB
+     free on 11-10.
+  3. **A held-out val store**, for example `val_m16.zarr` from Weidong's machine, or val members we generate.
+  4. **Allocation and restarts.** ≈ 765 node-h with `lean_u1` on 4 nodes, as a preemptable chain. Restart-from-best
+     makes resume-from-last (item 7) worth doing first.
+
+

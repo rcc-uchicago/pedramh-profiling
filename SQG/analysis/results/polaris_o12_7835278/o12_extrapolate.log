@@ -1,0 +1,13 @@
+O12_PIECES ref: s_step=4.8969 s_frame=0.37283 t_init=49.80000000000001 t_load=2.6 t_val=0.27 t_save_last=0.75 t_save_best=0.73 peak=20.4 GiB params=40.81M bitwise=PASS run_done=True
+O12_PROJECTION ref [1 node, 4 GPUs, batch 16]: 683500 steps, 933.1 h (933 node-h, 3733 GPU-h); init=0.01h fill=2.04h steps=929.73h epoch_overhead=0.18h segment_loads=1.19h
+O12_PROJECTION ref [4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)]: 195250 steps, 268.4 h (1074 node-h, 3757 GPU-h); init=0.01h fill=2.04h steps=265.86h epoch_overhead=0.12h segment_loads=0.34h
+O12_PROJECTION ref [4 nodes, 16 GPUs, batch 16]: 170750 steps, 235.0 h (940 node-h, 3760 GPU-h); init=0.01h fill=2.04h steps=232.50h epoch_overhead=0.12h segment_loads=0.30h
+O12_PIECES lean_u1: s_step=3.4925 s_frame=0.25709 t_init=13.900000000000006 t_load=1.0 t_val=0.27 t_save_last=0.74 t_save_best=0.715 peak=20.4 GiB params=40.81M bitwise=PASS run_done=True
+O12_PROJECTION lean_u1 [1 node, 4 GPUs, batch 16]: 683500 steps, 665.1 h (665 node-h, 2661 GPU-h); init=0.00h fill=1.41h steps=663.09h epoch_overhead=0.18h segment_loads=0.46h
+O12_PROJECTION lean_u1 [4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)]: 195250 steps, 191.4 h (765 node-h, 2679 GPU-h); init=0.00h fill=1.41h steps=189.69h epoch_overhead=0.12h segment_loads=0.13h
+O12_PROJECTION lean_u1 [4 nodes, 16 GPUs, batch 16]: 170750 steps, 167.5 h (670 node-h, 2681 GPU-h); init=0.00h fill=1.41h steps=165.89h epoch_overhead=0.12h segment_loads=0.11h
+O12_PIECES lean32ek_fast: s_step=1.7107 s_frame=0.1091 t_init=12.700000000000003 t_load=1.0 t_val=0.27 t_save_last=0.78 t_save_best=0.74 peak=20.4 GiB params=40.81M bitwise=INFO run_done=True
+O12_PROJECTION lean32ek_fast [1 node, 4 GPUs, batch 16]: 683500 steps, 326.0 h (326 node-h, 1304 GPU-h); init=0.00h fill=0.60h steps=324.80h epoch_overhead=0.18h segment_loads=0.46h
+O12_PROJECTION lean32ek_fast [4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)]: 195250 steps, 93.9 h (376 node-h, 1315 GPU-h); init=0.00h fill=0.60h steps=93.05h epoch_overhead=0.12h segment_loads=0.13h
+O12_PROJECTION lean32ek_fast [4 nodes, 16 GPUs, batch 16]: 170750 steps, 82.2 h (329 node-h, 1315 GPU-h); init=0.00h fill=0.60h steps=81.38h epoch_overhead=0.12h segment_loads=0.11h
+O12_EXTRAPOLATE_OK solvers=3 -> SQG/analysis/results/polaris_o12_7835278/o12_extrapolation.json
