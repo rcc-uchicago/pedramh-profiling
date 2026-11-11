@@ -1,0 +1,9 @@
+ENERGY_IC w=1 member=2 t=200.00 SPE=43.5177 VIE=13.0011 P_S=16.09 eps_S=11.83 P_V=4.764 eps_V=3.686 CFL=0.235 diag_rel=1.6e-16
+ENERGY_STATIC w=1 rIF S/V -5.641e-06/-5.162e-07 rbal -4.928e-06/-4.906e-07 sA -9.664e-03/-9.519e-03 sE -6.096e-09/-9.837e-09 (instantaneous, at the IC)
+ENERGY_ARM w=1 arm=lean_u1 calls=2500 seconds=644 ms/step=6.440 finite=True CFLmax=0.252 diag_rel=3.7e-16
+ENERGY_ARM w=1 arm=lean32ek_fast calls=2500 seconds=275 ms/step=2.740 finite=True CFLmax=0.252 diag_rel=3.9e-16
+ENERGY_ARM w=1 arm=f64ic32 calls=2500 seconds=644 ms/step=6.439 finite=True CFLmax=0.252 diag_rel=1.9e-16
+ENERGY_ARM w=1 arm=dquant calls=2500 seconds=644 ms/step=6.438 finite=True CFLmax=0.252 diag_rel=3.6e-16
+ENERGY_ARM w=1 arm=lean32 calls=2500 seconds=324 ms/step=3.238 finite=True CFLmax=0.252 diag_rel=3.8e-16
+ENERGY_BITWISE w=1 lean_u1 vs gate D frames {'0': True, '1': True, '10': True, '100': True, '1000': True, '2500': True}
+ENERGY_WORKER_DONE w=1 arms=5/5 failures=0 wall=2555s

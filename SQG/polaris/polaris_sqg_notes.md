@@ -1966,4 +1966,168 @@ How to read it:
   4. **Allocation and restarts.** ≈ 765 node-h with `lean_u1` on 4 nodes, as a preemptable chain. Restart-from-best
      makes resume-from-last (item 7) worth doing first.
 
+# Part XIV — The MD-style energy-budget test: does `lean32ek_fast` close the energy budget as float64 does? (job 7836358, 2026-11-11)
 
+**Ask (user, 2026-11-11):** "yes do the MD debug job". The test was offered in ANALOGUES.md §2.6:
+- Molecular-dynamics GPU codes accept a precision model on long-run energy conservation against double precision.
+- AMBER SPFP, OpenMM, GROMACS and LAMMPS all use single-precision forces with higher-precision accumulation, which is
+  `lean32ek`'s design.
+- Our system is forced and dissipative, so nothing is conserved. The analogue is the **closure of the SPE and VIE
+  budgets**.
+
+The math (budgets, why they close exactly in continuous time, the integrating-factor term, the controls) is in
+`SQG/analysis/opt/energy/MATH_energy.md`.
+
+**Run.**
+- **Job:** `SQG/analysis/opt/energy/run_energy_polaris.pbs`, 1-node debug, x3005c0s37b1n0, 2026-11-11 04:54–05:37
+  (2,585 s). It ended `ENERGY_JOB_DONE failures=0`. The deadline guard (+52 min) was not needed: every arm finished.
+- **Predictions and decision rule:** `SQG/analysis/opt/energy/PREDICTIONS_energy.md`, committed before submission
+  (bc296f00).
+- **Results:** `SQG/analysis/results/polaris_energy_7836358/`: `energy_summary.json`, `energy_table.csv`, the worker
+  json and logs. The per-call budget npz (0.3 MB per arm) stay in `$MEMBER_ROOT/sqg_profile/energy_7836358/`.
+- **Change from the offer, made before the run:** 4 archived states × 0.5 TU (100,000 steps) instead of ≥ 10 TU. Ten
+  time units of `lean_u1` alone is 3.6 h per state.
+
+## Design
+
+- **States.** Each GPU starts from one archived checkpoint: members 1–4 at t = 100, 200, 300, 400 (o1.2's loading
+  recipe).
+- **Arms.** Each runs 2,500 calls of 40 steps:
+
+  | arm | role |
+  |---|---|
+  | `lean_u1` | float64 reference, bitwise production |
+  | `lean32ek_fast` | the candidate |
+  | `f64ic32` | null: float64 from the state rounded once to complex64 |
+  | `dquant` | calibration: `lean_u1` with only its decay table rounded to float32, so its energy source is known exactly |
+  | `lean32` | plain float32 |
+
+- **Budget terms.** After every call, `budget()` evaluates them in float64 on the arm's complex128 state.
+- **Statistic.** For X = SPE and VIE:
+  - R_X(τ) = X(τ) − X(0) − ∫(P_X − ε_X) dt (Simpson, h = 2e-4 TU);
+  - r = R/∫P;
+  - the paired spurious source s = r(arm) − r(`lean_u1`).
+- **Rule.** PASS_E if max over states |s(`lean32ek_fast`)| ≤ T_E = 1e-4 for both invariants. The verdict is valid
+  only if all of these hold:
+  - the null ≤ 1e-5;
+  - `dquant` within ±10% of its predicted source;
+  - `lean_u1` frames bitwise equal to gate D's production frames;
+  - `budget()` equal to `GD.diagnostics`.
+
+## Validity: all checks pass
+
+- **Production identity.** `lean_u1`'s o1.2 frames equal gate D's stored production frames bit for bit: 24 of 24
+  checks, calls 0, 1, 10, 100, 1,000 and 2,500 on all 4 states.
+- **`budget()` vs `GD.diagnostics`.** Max relative difference 4.2e-16 over every 50th call of every arm.
+- **Stability.** Every arm stayed finite, with CFL ≤ 0.374.
+- **Null `f64ic32`.** max |s| = 6.2e-13 (SPE), 2.9e-13 (VIE). The paired design resolves a source at ~1e-12 of the
+  injection.
+- **Calibration `dquant`.** Measured s / predicted ŝ_A = 0.999997 (SPE), 1.0000002 (VIE), on the means. Per state
+  the ratio is 1.0000 to 4 decimals.
+  - The harness recovers a known spurious source of ~1.1e-2 to six digits.
+
+## Results (τ = 0.5 TU; 4 states: member 1 t100, member 2 t200, member 3 t300, member 4 t400)
+
+| | SPE | VIE |
+|---|---|---|
+| r(`lean_u1`), the float64 scheme's own residual | −3.49e-6, −4.08e-6, −2.85e-5, −7.30e-6 (mean −1.09e-5) | −5.22e-7, −6.17e-7, −5.76e-7, −6.03e-7 (mean −5.80e-7) |
+| r / r̂_IF (integrating-factor term) | 0.930, 0.921, 1.129, 0.942 | 0.995, 0.994, 1.031, 0.991 |
+| quadrature bound \|Simpson − trapezoid\| / ∫P | ≤ 1.6e-8 | ≤ 1.9e-8 |
+| s(`f64ic32`), null | max 6.2e-13 | max 2.9e-13 |
+| s(`dquant`) = ŝ_A | −1.13e-2 | −1.18e-2 |
+| s(`lean32`) | −1.37e-2 (s/ŝ_A = 1.22) | −1.38e-2 (s/ŝ_A = 1.17) |
+| **s(`lean32ek_fast`)** | **−4.22e-6, −5.54e-6, +1.38e-6, +1.28e-6** (mean −1.77e-6; max 5.5e-6 = 0.055 T_E) | **−3.40e-6, −4.67e-6, +1.22e-6, +5.3e-7** (mean −1.58e-6; max 4.7e-6 = 0.047 T_E) |
+| `lean32ek_fast`'s damping-table term ŝ_E | −3.9e-9 to −9.2e-9 | −4.8e-9 to −1.5e-8 |
+| paired time means of X, `lean32ek_fast` vs `lean_u1` | ≤ 4.5e-7 relative | ≤ 3.7e-7 relative |
+
+**Verdict: PASS_E.** `lean32ek_fast`'s float32 arithmetic creates or destroys at most 5.5e-6 of the injected SPE and
+4.7e-6 of the injected VIE over 100,000 steps: 18–21× below T_E.
+
+What the numbers show:
+- **The float64 scheme's own budget error is the integrating factor's.**
+  - The residual is −3.5e-6 to −2.9e-5 (SPE) and −5.2e-7 to −6.2e-7 (VIE) of the injection.
+  - The first-order term −(Δt/2) ∫ Σ λ w Re(θ̂* T̂)/N⁴ dt / ∫P explains it to 0.92–1.13 (SPE) and 0.99–1.03 (VIE).
+  - So the scheme itself loses slightly more energy than its diagnosed dissipation, as derived in MATH_energy.md
+    Part 3. Quadrature is 1e-3 of that.
+- **SPE's dissipation is mostly hypofriction in these states.**
+  - Time means over the run, `lean_u1`: μ/k² does 62–79% of ε_SPE and 97–98% of ε_VIE.
+  - The transfer-weighted damping rate ⟨Q⟩/⟨ε⟩ is 2.2–8.4 per TU for SPE and 0.21–0.34 for VIE.
+  - That is why the scheme's residual is ~1e-5 and not the ~1e-4 I estimated from the viscous scale (prediction 3).
+  - Relaxation times X̄/P̄: 2.4–3.4 TU for both invariants.
+- **Plain float32 fails by a factor of ~140 over T_E.**
+  - `lean32`'s budget error is ~1.4e-2 of the injection. That is ~1,300× (SPE) and ~24,000× (VIE) the float64
+    scheme's own, and 2,500× the candidate's worst state.
+  - 82–85% of it is mechanism A, the float32 decay table (s/ŝ_A = 1.17–1.22).
+  - The remainder, state rounding (mechanism B), is −5.3e-3 to +1.9e-3 per state. Part XII found the same split
+    for the learnable bias.
+- **The candidate's source is real, small, state-dependent, and does not grow.**
+  - Real: it is ≥ 10⁶ × the null.
+  - Small: 9–93 float32 unit roundoffs (u = 5.96e-8) of the injection.
+  - State-dependent: it is negative on members 1 and 2 and positive on members 3 and 4.
+  - Not growing: on members 1 and 2 it is already −5.5e-6 / −4.4e-6 at τ = 0.02 and −4.2e-6 / −5.5e-6 at τ = 0.5. A
+    steady fraction of the injection, not an accumulating drift.
+  - Its damping table contributes only ~1e-8. So it comes from the float32 tendency arithmetic (FFTs, the products,
+    ψ̂ from the float32 head) breaking the exact conservation of the nonlinear term *(inference: not separated by
+    this job)*.
+- **The climate effect is ≲ 6e-6 of the mean** *(estimate)*.
+  - By the linear-response reading (MATH_energy.md Part 6), a source s·P shifts the mean of X by ≈ s·X̄ when the
+    relaxation time is X̄/P̄.
+  - The paired time means already differ by only ≤ 4.5e-7 over 0.5 TU.
+  - SPE itself ranges 32–46 across the archived states.
+
+**MD's own standard ("energy conservation equivalent to double"), reported, not deciding: not met.**
+- The candidate's budget error is r = r(`lean_u1`) + s.
+- **SPE:** it is 2.2×, 2.4×, 0.95× and 0.82× float64's on the four states. That is comparable to double within a
+  factor 2.4.
+- **VIE:** float64's residual is only ~6e-7, so the candidate's is 7.5× and 8.6× it on members 1 and 2.
+- EQUIV_DOUBLE (|mean s| ≤ 0.1·|mean r(`lean_u1`)|) is therefore false for both invariants.
+- In absolute terms the candidate's added source is ≤ 5.5e-6 of the injection. Its total budget error, scheme
+  included, is ≤ 2.8e-5 (SPE) and ≤ 5.3e-6 (VIE).
+- The fair MD reading: by AMBER's "equivalent to double" standard, `lean32ek_fast` is comparable on SPE but not on
+  VIE. Both are far below anything the ML step or the archive's own sampling error can see *(inference)*.
+
+## Speed (A100, the median of 4 GPUs, budget evaluation included)
+
+`lean_u1` 6.443 ms/step, `lean32ek_fast` 2.742, `f64ic32` 6.442, `dquant` 6.441, `lean32` 3.239.
+
+These are 0.7%, 1.6% and 1.2% above the isolated benchmarks of `lean_u1`, `lean32ek_fast` and `lean32`. The ~1.7 ms
+of budget evaluation and checks per 40-step call accounts for that.
+
+## Scorecard (`PREDICTIONS_energy.md`)
+
+- **Confirmed (14):**
+  - **1 (0.95).** Bitwise vs gate D's frames: 24/24.
+  - **2 (0.95).** `budget()` vs `GD.diagnostics`: 4.2e-16 ≤ 1e-12.
+  - **4 (0.6).** r_SPE(`lean_u1`)/r̂_IF = 1.053 on the means (0.92–1.13 per state), in [0.8, 1.2].
+  - **5 (0.8).** |r_VIE(`lean_u1`)| ≤ 6.2e-7 ≤ 1e-4.
+  - **6 (0.9).** Null ≤ 6.2e-13 ≤ 1e-6.
+  - **7 (0.75).** Calibration ratio 0.999997 / 1.0000002.
+  - **8 (0.7).** |ŝ_A(`dquant`)| = 1.13e-2 / 1.18e-2 ≥ T_E.
+  - **9 (0.7).** `lean32` |s| = 1.37e-2 / 1.38e-2 ≥ T_E.
+  - **10 (0.5).** `lean32` s_VIE/ŝ_A = 1.17, in [0.5, 2].
+  - **12 (0.9).** PASS_E.
+  - **14 (0.5).** DETECTED on both invariants.
+  - **15 (0.7).** `dquant` s(τ)/s(0.5) = 0.967–1.004 for τ ≥ 0.1.
+  - **16 (0.8).** ms/step within ±5%: +0.7% / +1.6% / +1.2%.
+  - **17 (0.7).** Paired time means ≤ 4.5e-7 ≤ 1e-3.
+- **Refuted (3):**
+  - **3 (0.6).** r_SPE(`lean_u1`) = −1.09e-5, not in [−5e-4, −5e-5]. I estimated the integrating-factor term with
+    the viscous dissipation scale (λ ~ 100). In these states hypofriction does most of the SPE dissipation, at a
+    transfer-weighted λ of 2–8. The first-order formula itself held (prediction 4).
+  - **11 (0.7).** `lean32ek_fast` max |s| = 5.5e-6 / 4.7e-6, not ≤ 1e-6. The source is not the damping table (~1e-8);
+    I did not estimate the float32 tendency arithmetic's share.
+  - **13 (0.5).** EQUIV_DOUBLE false for both invariants (above): float64's own residual is smaller than I expected
+    (prediction 3), so MD's 10% bar is tighter.
+
+## What this means
+
+- **The solver-side half of gate C passes for `lean32ek_fast`.** Over 100,000 steps its float32 arithmetic changes
+  the SPE and VIE budgets by ≤ 5.5e-6 of the injection, with T_E = 1e-4.
+- **Plain float32 fails by ~140×**, as MD's single-precision modes do. Most of that is the decay table, which
+  `lean32ek`'s expm1 table fixes (ŝ_E ~ 1e-8).
+- **Against MD's stricter "as good as double" bar, `lean32ek_fast` is comparable on SPE (≤ 2.4×) but not on VIE
+  (up to 8.6×).** It is the user's call whether that bar matters. In absolute terms its added source is ≤ 5.5e-6 of the injection.
+- **Not tested here:**
+  - the ≥ 10-TU climate comparison: ~3.6 h of `lean_u1` per state, a preemptable or capacity job;
+  - per-shell budgets;
+  - the ML side, which is gate D (capacity job 7835786, running; its write-up becomes Part XV).

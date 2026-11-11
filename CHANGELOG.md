@@ -114,6 +114,42 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-11** — **SQG MD-style energy-budget test: debug job 7836358 DONE (`ENERGY_JOB_DONE failures=0`),
+  PASS_E. Notes Part XIV.**
+  - **The ask (user).** "yes do the MD debug job": ANALOGUES.md §2.6's offer.
+    - MD codes accept a precision model on long-run energy conservation.
+    - Our forced-dissipative analogue is the closure of the SPE and VIE budgets.
+  - **Design** (`SQG/analysis/opt/energy/`, prereg `PREDICTIONS_energy.md` committed first, bc296f00):
+    - 4 archived states × 0.5 TU (100,000 steps) × 5 arms;
+    - the paired spurious source s = r(arm) − r(`lean_u1`) as a fraction of the injection;
+    - PASS_E if max |s(`lean32ek_fast`)| ≤ 1e-4.
+    - Changed from the offered ≥ 10 TU before the run: 10 TU of `lean_u1` is 3.6 h per state.
+  - **Validity.** All checks pass:
+    - `lean_u1` frames bitwise equal to gate D's production frames, 24/24;
+    - `budget()` equals `GD.diagnostics` to 4.2e-16;
+    - the float64 null ≤ 6.2e-13;
+    - the `dquant` calibration recovers its exactly known 1.1e-2 source to 6 digits.
+  - **Result.**
+    - `lean32ek_fast`: s = −5.5e-6 to +1.4e-6 (SPE) and −4.7e-6 to +1.2e-6 (VIE) over the 4 states, 18–21× below the
+      tolerance. Its sign varies by state and it does not grow with time.
+    - Its damping table contributes only ~1e-8, so the source is the float32 tendency arithmetic *(inference)*.
+    - Plain `lean32`: −1.4e-2, about 140× over the tolerance; 82–85% of it is the float32 decay table.
+    - The float64 scheme's own residual (−3.5e-6 to −2.9e-5 SPE, ~−6e-7 VIE) is the integrating-factor term, to
+      0.92–1.13.
+  - **MD's stricter "equivalent to double" (reported only).** Not met: the candidate's budget error is ≤ 2.4× float64's
+    on SPE but up to 8.6× on VIE, whose float64 residual is only ~6e-7.
+  - **Scorecard:** 14/17 confirmed. Refuted:
+    - P3: SPE dissipation is 62–79% hypofriction, so the integrating-factor term is ~1e-5, not ~1e-4;
+    - P11: the candidate's source is 5.5e-6, not ≤ 1e-6;
+    - P13: EQUIV_DOUBLE.
+  - **Speed** (budget included): `lean_u1` 6.443, `lean32ek_fast` 2.742, `lean32` 3.239 ms/step.
+  - **Also:** `SQG/analysis/opt/energy/MATH_energy.md`, at the user's request: the SQG math step by step, why
+    Fourier space, how we modified the original step (with drawings), and the MD comparison. It is being written by
+    a two-writer + two-checker workflow.
+  - **Next:**
+    - gate D (capacity 7835786) still running; its write-up becomes notes Part XV;
+    - not tested: a ≥ 10-TU climate comparison and per-shell budgets.
+
 - **2026-11-10 (late night)** — **SQG gate D: smoke 7835759 passed (failures=0); production submitted as capacity job
   7835786.**
   - **The ask (user).** "Can we check if rollouts overfit and drift": the training dose-response, on capacity.
