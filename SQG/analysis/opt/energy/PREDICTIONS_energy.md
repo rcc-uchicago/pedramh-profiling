@@ -132,3 +132,9 @@ gate C (ANALOGUES §2.6). It says nothing about the ML model (that is gate D, jo
   but not in r(`lean_u1`). |Simpson − trapezoid| is reported as its bound.
 - **Total budgets only.** A per-shell budget needs the nonlinear transfer per shell, which is not computed. Where a
   source sits in k is inferred from ŝ_A's tables, not measured.
+
+## Erratum (2026-11-11, after the run; nothing above is changed)
+
+- §Decision rule, "Tolerance": "SPE ranges 32–46 over the 16 archived states". 32–46 is the range over the 4 states
+  this test uses. Over the 16 it is 24–48 (taxonomy job 7824121's worker JSONs). The rule, T_E and every prediction
+  are unchanged. Found by the MATH_energy.md checker.

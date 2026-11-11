@@ -144,8 +144,12 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     - P13: EQUIV_DOUBLE.
   - **Speed** (budget included): `lean_u1` 6.443, `lean32ek_fast` 2.742, `lean32` 3.239 ms/step.
   - **Also:** `SQG/analysis/opt/energy/MATH_energy.md`, at the user's request: the SQG math step by step, why
-    Fourier space, how we modified the original step (with drawings), and the MD comparison. It is being written by
-    a two-writer + two-checker workflow.
+    Fourier space, how we modified the original step (with drawings), and the MD comparison.
+    - Written by a two-writer + two-checker workflow; the main session applied the checkers' 4 errors and 7 minors.
+    - The fixes: a stale "job not run" status; a 30× slip in an absolute SPE change; the 16-state SPE range (24–48,
+      not 32–46; the same slip is in the prereg, now a dated erratum); Part 5's line numbers moved to the pinned
+      `fixed_ring/A-SQG_data.py`; two redrawn ASCII drawings.
+    - §8.1 adds the results.
   - **Next:**
     - gate D (capacity 7835786) still running; its write-up becomes notes Part XV;
     - not tested: a ≥ 10-TU climate comparison and per-shell budgets.

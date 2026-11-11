@@ -2073,7 +2073,7 @@ What the numbers show:
   - By the linear-response reading (MATH_energy.md Part 6), a source s·P shifts the mean of X by ≈ s·X̄ when the
     relaxation time is X̄/P̄.
   - The paired time means already differ by only ≤ 4.5e-7 over 0.5 TU.
-  - SPE itself ranges 32–46 across the archived states.
+  - SPE itself ranges 24–48 across the 16 archived states (32–46 over the 4 used here).
 
 **MD's own standard ("energy conservation equivalent to double"), reported, not deciding: not met.**
 - The candidate's budget error is r = r(`lean_u1`) + s.
