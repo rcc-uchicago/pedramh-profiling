@@ -1,0 +1,8 @@
+ok uniform_weights (0.23958333333333331, -0.16666666666666666, 0.05208333333333333)
+ok if_exact_quadratic max rel err 8.5e-16
+ok prod_not_exact prod one-step rel err 1.2e-03
+ok order_prod err(h)/err(h/2) = 1.993 (9.93e-04 -> 4.98e-04)
+ok order_if err(h)/err(h/2) = 7.831 (1.15e-06 -> 1.47e-07)
+ok if_beats_prod 
+ok steps_after_switch 
+IF_AB3_TEST_OK
