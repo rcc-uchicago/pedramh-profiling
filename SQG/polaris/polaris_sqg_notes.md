@@ -2292,3 +2292,40 @@ effect is ≤ 2.4e-4 of a band energy. That is 55× below the pass line (0.1·N)
   - two seeds;
   - the 1× effect is a linear extrapolation from α = 1,000.
   - A full-scale o1.2 run is the remaining test, and it is the user's call (Part XIII lists what it needs).
+
+# Part XVI — Solver speed, research round 2: codebases, FFT kernels, time stepping, XLA, frontier (2026-11-12)
+
+**Ask (user, 2026-11-12):** "do more deep-research explore github and other code bases and other nascent strategies
+of how to further solver work can be done to decrease it's step time".
+
+**Method.** Workflow `wf_1a24fad4-309`: 5 research tracks, each followed by an adversarial verifier that re-opened the
+sources and re-did the arithmetic against Part X. No jobs were run. The full write-up and ranked plan are in
+`SQG/analysis/opt/research_2026-11-12/SOLVER_SPEED_RESEARCH.md`; the raw verified findings are in
+`research_findings.json` beside it.
+
+**Findings (estimates from Part X's per-op table, not measurements):**
+- **The time step is the biggest lever.**
+  - o1.2's first-order dt error (Part XII, P5) comes from applying the decay once to all three AB3 history terms.
+  - The exact integrating-factor AB3, `theta_{n+1} = E·[theta_n + dt·(23/12·N_n − 16/12·E·N_{n−1} + 5/12·E²·N_{n−2})]`,
+    costs ~0 per step and allows 28 or 25 steps per frame instead of 40. The CFL then rises from ≤ 0.42 to ≈ 0.60 /
+    0.67; dt 1e-5 hit 0.71, against an abort at 0.72.
+  - Gain: 1.30–1.40× per optimizer step (94 → 67–72 h on 14 A100s). It is a numerics change, so it is gated.
+- **Largest bitwise item: compact kept-mode storage**, −0.22 to −0.27 ms/step, pure JAX. The decay table carries the
+  2/3 mask (`A-SQG_data.py` L326-329), so the state is exactly 0 outside the 2731 × 1366 block.
+- **Custom fused FFT pipeline:** ~2.0–2.1 ms with cuFFT LTO callbacks and ~1.6–1.7 ms with cuFFTDx column passes.
+  gyaradax's public LGPL-3.0 code is the template. It is blocked by jax 0.4.28 having no FFI: the options are the
+  legacy custom call, or an upgrade that collides with torch 2.3.1's cuDNN pin.
+- **Stacked:** 1.40–1.48× (pure JAX) to 1.56–1.78× (custom FFT), and ≤ 2.1× with CFL-adaptive n. The 0.40 s ML step is
+  then half the optimizer step.
+- **No surveyed open GPU QG/SQG code has a per-step technique we lack,** other than the exact-linear stepper.
+  - Ruled out: tensor-core FFTs, FP64 tensor cores, Ozaki emulation, ETDRK4/AB4/leapfrog, parareal/SDC, temporal
+    blocking, VkFFT, cuFFT upgrades.
+  - Stochastic rounding was already measured (`lean32sr`, 2.793 ms, worse e_Δ).
+- **Correction to Part III B's reading:** the 21% overlap was 21% *of the ML step* (~1.8% of wall at `ref` speed). With
+  the fast solver the untested ceiling is ~23.6% of wall, so a retest is worth one debug run.
+
+**Next (the user's decisions; listed in the write-up):**
+1. gate IF-AB3 at n = 28/25 (after a wider dt ladder and an archive CFL scan), or rescue n = 32/30 first;
+2. compact storage (bitwise);
+3. the custom-FFT route (legacy custom call vs JAX/torch upgrade; clean-room vs LGPL);
+4. the overlap retest.

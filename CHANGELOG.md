@@ -114,6 +114,21 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-12** — **SQG solver speed, research round 2 (workflow wf_1a24fad4-309; no jobs). Notes Part XVI;
+  write-up `SQG/analysis/opt/research_2026-11-12/SOLVER_SPEED_RESEARCH.md`.**
+  - **Method.** 5 tracks (codebases, FFT kernels, time stepping, XLA-reachable, frontier), each adversarially
+    verified against its sources and Part X's per-op table.
+  - **Biggest lever: exact integrating-factor AB3.** It removes o1.2's first-order split error at ~0 cost and allows
+    28/25 steps per frame instead of 40: 1.30–1.40× per optimizer step, gated.
+  - **Bitwise:** compact kept-mode storage, −0.22 to −0.27 ms/step, pure JAX.
+  - **Custom FFT:** cuFFT LTO callbacks (gyaradax pattern, LGPL-3.0) + cuFFTDx bring the step to ~1.6–2.1 ms, but jax
+    0.4.28 has no FFI. That needs the legacy custom call, or a JAX upgrade that collides with torch 2.3.1's cuDNN pin.
+  - **Stacked:** 1.40–1.78×, ≤ 2.1× with CFL-adaptive n.
+  - **Dead ends recorded:** tensor-core / FP64-TC / Ozaki FFTs, ETDRK4/AB4/leapfrog, parareal/SDC, temporal blocking,
+    VkFFT, cuFFT upgrades, porting other codes. Stochastic rounding was already measured worse.
+  - **Correction:** Part III B's 21% overlap was 21% of the ML step, not of wall.
+  - **Next:** the user's choice of IF-AB3 gating, compact storage, the custom-FFT route, and an overlap retest.
+
 - **2026-11-12** — **SQG gate D: capacity job 7835786 DONE (`DOSE_JOB_DONE failures=0`), PASS_D on best.pt and
   last.pt. Notes Part XV.**
   - **The ask (user, 11-10).** "can we check if rollouts overfit and drift?": a training dose-response on
