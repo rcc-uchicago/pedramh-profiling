@@ -1,0 +1,183 @@
+{
+ "predictions": {
+  "1": "CONFIRMED",
+  "2": "CONFIRMED",
+  "3": "CONFIRMED",
+  "4": "CONFIRMED",
+  "5": "REFUTED",
+  "6": "REFUTED",
+  "7": "REFUTED",
+  "8": "CONFIRMED",
+  "9": "CONFIRMED",
+  "10": "CONFIRMED",
+  "11": "REFUTED",
+  "12": "CONFIRMED",
+  "13": "CONFIRMED"
+ },
+ "facts": {
+  "lean32ek_fast": {
+   "gate": null,
+   "paths": {},
+   "run_done": true,
+   "losses": [
+    [
+     0.0861,
+     0.059
+    ],
+    [
+     0.0634,
+     0.0575
+    ],
+    [
+     0.0571,
+     0.0585
+    ],
+    [
+     0.0549,
+     0.0581
+    ]
+   ],
+   "s_step": 1.7076,
+   "peak": 20.4,
+   "hours14": 93.89254673333332,
+   "finite": true,
+   "val_last": 0.0581
+  },
+  "if32_25": {
+   "gate": true,
+   "paths": {},
+   "run_done": true,
+   "losses": [
+    [
+     0.0861,
+     0.059
+    ],
+    [
+     0.0635,
+     0.0576
+    ],
+    [
+     0.0572,
+     0.0586
+    ],
+    [
+     0.055,
+     0.0582
+    ]
+   ],
+   "s_step": 1.2404,
+   "peak": 20.4,
+   "hours14": 68.1418645111111,
+   "finite": true,
+   "val_last": 0.0582
+  },
+  "tilerows40": {
+   "gate": true,
+   "paths": {
+    "jax_to_torch": "dlpack",
+    "torch_to_jax": "dlpack"
+   },
+   "run_done": true,
+   "losses": [
+    [
+     0.0861,
+     0.059
+    ],
+    [
+     0.0635,
+     0.0577
+    ],
+    [
+     0.0571,
+     0.0588
+    ],
+    [
+     0.0549,
+     0.0583
+    ]
+   ],
+   "s_step": 1.5102,
+   "peak": 21.0,
+   "hours14": 82.9178455111111,
+   "finite": true,
+   "val_last": 0.0583
+  },
+  "tilerows_if25": {
+   "gate": true,
+   "paths": {
+    "jax_to_torch": "dlpack",
+    "torch_to_jax": "dlpack"
+   },
+   "run_done": true,
+   "losses": [
+    [
+     0.0861,
+     0.059
+    ],
+    [
+     0.0634,
+     0.0575
+    ],
+    [
+     0.0571,
+     0.0587
+    ],
+    [
+     0.0549,
+     0.0582
+    ]
+   ],
+   "s_step": 1.2222,
+   "peak": 21.0,
+   "hours14": 67.13541917777776,
+   "finite": true,
+   "val_last": 0.0582
+  },
+  "tilerows_if25_cufft114": {
+   "gate": true,
+   "paths": {
+    "jax_to_torch": "dlpack",
+    "torch_to_jax": "dlpack"
+   },
+   "run_done": true,
+   "losses": [
+    [
+     0.0861,
+     0.059
+    ],
+    [
+     0.0635,
+     0.0576
+    ],
+    [
+     0.0571,
+     0.0586
+    ],
+    [
+     0.0549,
+     0.0582
+    ]
+   ],
+   "s_step": 1.217,
+   "peak": 21.0,
+   "hours14": 66.85297684444444,
+   "finite": true,
+   "val_last": 0.0582
+  }
+ },
+ "gates": {
+  "G_TR": {
+   "tilerows40": true,
+   "tilerows_if25": true,
+   "tilerows_if25_cufft114": true
+  },
+  "G_RUN": {
+   "lean32ek_fast": true,
+   "if32_25": true,
+   "tilerows40": true,
+   "tilerows_if25": true,
+   "tilerows_if25_cufft114": true
+  },
+  "WORTH": false
+ }
+}
