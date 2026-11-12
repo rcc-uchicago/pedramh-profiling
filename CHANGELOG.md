@@ -927,6 +927,17 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 Each is attributed to its source doc — verify there before acting.
 
+- **(docs) GitHub math: write for Chrome's native MathML** (`MATH_energy.md`, commits 364bc8d7 / 4b12095a,
+  2026-11-12).
+  - GitHub turns TeX into native `<math>`, which Chrome lays out itself.
+  - **`\tag{n}`** becomes `<mlabeledtr>`, which Chrome/Edge does not lay out: the equation renders as a vertical
+    column of symbols. Write `\qquad\text{(n)}` instead.
+  - **`aligned`'s column alignment is ignored** (the `=` signs stagger). Use `gathered`.
+  - **A ```` ```math ```` fence nested in a list item stays a code block** on the file view (the `/markdown` API
+    converts it, so testing through the API is misleading). Use inline `` $`…`$ `` there.
+  - **Verify on the live page** in headless Chrome (rendered heights, `mlabeledtr` count, screenshots). "GitHub
+    recognised it as math" is not a check.
+
 - **(SQG) Per-run drift tests with an estimated autocorrelation time are anti-conservative on 40-TU runs**
   (`SQG/analysis/opt/stability/calibrate_s3_2se.py`, 2026-11-12).
   - At τ_I 0.5–3 TU (SPE relaxes in 2.4–3.4 TU, Part XIV) a 40-TU run has N_eff ≈ 7–40, and the truncated ACF sum
