@@ -1,0 +1,21 @@
+O12_PIECES lean32ek_fast: s_step=None s_frame=None t_init=None t_load=None t_val=None t_save_last=None t_save_best=None peak=None GiB params=NoneM bitwise=None run_done=False
+O12_PROJECTION lean32ek_fast [1 node, 4 GPUs, batch 16]: MISSING_PIECES
+O12_PROJECTION lean32ek_fast [4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)]: MISSING_PIECES
+O12_PROJECTION lean32ek_fast [4 nodes, 16 GPUs, batch 16]: MISSING_PIECES
+O12_PIECES if32_25: s_step=None s_frame=None t_init=None t_load=None t_val=None t_save_last=None t_save_best=None peak=None GiB params=NoneM bitwise=None run_done=False
+O12_PROJECTION if32_25 [1 node, 4 GPUs, batch 16]: MISSING_PIECES
+O12_PROJECTION if32_25 [4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)]: MISSING_PIECES
+O12_PROJECTION if32_25 [4 nodes, 16 GPUs, batch 16]: MISSING_PIECES
+O12_PIECES tilerows40: s_step=None s_frame=None t_init=None t_load=None t_val=None t_save_last=None t_save_best=None peak=None GiB params=NoneM bitwise=None run_done=False
+O12_PROJECTION tilerows40 [1 node, 4 GPUs, batch 16]: MISSING_PIECES
+O12_PROJECTION tilerows40 [4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)]: MISSING_PIECES
+O12_PROJECTION tilerows40 [4 nodes, 16 GPUs, batch 16]: MISSING_PIECES
+O12_PIECES tilerows_if25: s_step=None s_frame=None t_init=None t_load=None t_val=None t_save_last=None t_save_best=None peak=None GiB params=NoneM bitwise=None run_done=False
+O12_PROJECTION tilerows_if25 [1 node, 4 GPUs, batch 16]: MISSING_PIECES
+O12_PROJECTION tilerows_if25 [4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)]: MISSING_PIECES
+O12_PROJECTION tilerows_if25 [4 nodes, 16 GPUs, batch 16]: MISSING_PIECES
+O12_PIECES tilerows_if25_cufft114: s_step=None s_frame=None t_init=None t_load=None t_val=None t_save_last=None t_save_best=None peak=None GiB params=NoneM bitwise=None run_done=False
+O12_PROJECTION tilerows_if25_cufft114 [1 node, 4 GPUs, batch 16]: MISSING_PIECES
+O12_PROJECTION tilerows_if25_cufft114 [4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)]: MISSING_PIECES
+O12_PROJECTION tilerows_if25_cufft114 [4 nodes, 16 GPUs, batch 16]: MISSING_PIECES
+O12_EXTRAPOLATE_INCOMPLETE solvers=5 -> /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/results/polaris_o12tr_7840681/o12_extrapolation.json

@@ -1,0 +1,86 @@
+Traceback (most recent call last):
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_o12tr_a07e90a2/SQG/analysis/opt/o12run/o12_polaris.py", line 347, in <module>
+    main()
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_o12tr_a07e90a2/SQG/analysis/opt/o12run/o12_polaris.py", line 341, in main
+    exec(compile(src, O12, "exec", dont_inherit=True), g)
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_o12tr_a07e90a2/SQG/o1.2-TrainUViT_m16_tendency.py", line 65, in <module>
+    from model_UViT import ConvNextUViT
+ModuleNotFoundError: No module named 'model_UViT'
+Traceback (most recent call last):
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_o12tr_a07e90a2/SQG/analysis/opt/o12run/o12_polaris.py", line 347, in <module>
+    main()
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_o12tr_a07e90a2/SQG/analysis/opt/o12run/o12_polaris.py", line 341, in main
+    exec(compile(src, O12, "exec", dont_inherit=True), g)
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_o12tr_a07e90a2/SQG/o1.2-TrainUViT_m16_tendency.py", line 65, in <module>
+    from model_UViT import ConvNextUViT
+ModuleNotFoundError: No module named 'model_UViT'
+Traceback (most recent call last):
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_o12tr_a07e90a2/SQG/analysis/opt/o12run/o12_polaris.py", line 347, in <module>
+    main()
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_o12tr_a07e90a2/SQG/analysis/opt/o12run/o12_polaris.py", line 341, in main
+    exec(compile(src, O12, "exec", dont_inherit=True), g)
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_o12tr_a07e90a2/SQG/o1.2-TrainUViT_m16_tendency.py", line 65, in <module>
+    from model_UViT import ConvNextUViT
+ModuleNotFoundError: No module named 'model_UViT'
+Traceback (most recent call last):
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_o12tr_a07e90a2/SQG/analysis/opt/o12run/o12_polaris.py", line 347, in <module>
+    main()
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_o12tr_a07e90a2/SQG/analysis/opt/o12run/o12_polaris.py", line 341, in main
+    exec(compile(src, O12, "exec", dont_inherit=True), g)
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_o12tr_a07e90a2/SQG/o1.2-TrainUViT_m16_tendency.py", line 65, in <module>
+    from model_UViT import ConvNextUViT
+ModuleNotFoundError: No module named 'model_UViT'
+E1112 23:03:51.564000 23295440669568 torch/distributed/elastic/multiprocessing/api.py:826] failed (exitcode: 1) local_rank: 0 (pid: 111018) of binary: /eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/bin/python
+Traceback (most recent call last):
+  File "/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/torch/distributed/run.py", line 883, in <module>
+    main()
+  File "/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 347, in wrapper
+    return f(*args, **kwargs)
+  File "/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/torch/distributed/run.py", line 879, in main
+    run(args)
+  File "/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/torch/distributed/run.py", line 870, in run
+    elastic_launch(
+  File "/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/torch/distributed/launcher/api.py", line 132, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+  File "/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/torch/distributed/launcher/api.py", line 263, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+SQG/analysis/opt/o12run/o12_polaris.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-11-12_23:03:51
+  host      : x3001c0s25b1n0.hsn.cm.polaris.alcf.anl.gov
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 111019)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[2]:
+  time      : 2026-11-12_23:03:51
+  host      : x3001c0s25b1n0.hsn.cm.polaris.alcf.anl.gov
+  rank      : 2 (local_rank: 2)
+  exitcode  : 1 (pid: 111020)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[3]:
+  time      : 2026-11-12_23:03:51
+  host      : x3001c0s25b1n0.hsn.cm.polaris.alcf.anl.gov
+  rank      : 3 (local_rank: 3)
+  exitcode  : 1 (pid: 111021)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-11-12_23:03:51
+  host      : x3001c0s25b1n0.hsn.cm.polaris.alcf.anl.gov
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 111018)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================
