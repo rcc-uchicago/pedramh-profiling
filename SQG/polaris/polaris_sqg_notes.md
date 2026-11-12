@@ -2491,7 +2491,7 @@ and fuses around it (C below), rather than writing the FFTs in Warp.
 - **nvmath-python** (NVIDIA): cuFFT with load/store callbacks written in Python, compiled to LTO-IR and fused into
   cuFFT's own kernels. That is research item #7 without C++.
 
-## C. The hybrid step: cuFFT + fused callbacks + one Warp kernel (job 7840175, queued)
+## C. The hybrid step: cuFFT + fused callbacks + one Warp kernel (job 7840175)
 
 Built on the user's word ("start building it while we wait"). `SQG/analysis/opt/hybrid/`;
 `PREDICTIONS_hybrid.md` was written first, and `test_hybrid_math.py` passed on the login node.
@@ -2502,4 +2502,67 @@ Built on the user's word ("start building it while we wait"). `SQG/analysis/opt/
 - **Update:** one Warp kernel does the Hermitian split, the tendency and `lean32ek`'s compensated update (or IF-AB3,
   or `lean_u1`'s float64 update) on the compact kept block.
 - **Gates:** G32 / GIF ≤ min(1e-4, 2× today's float32 error) at 1 and 40 steps; G64 ≤ 1e-12 at 1 step.
-- Results: pending.
+
+**Run.** Debug, x3107c0s31b0n0, 299 s, `HYB_JOB_DONE failures=0`. Results: `SQG/analysis/results/polaris_hybrid_7840175/`.
+- cuFFT 11.4.1 and nvJitLink 12.9.86 were mapped from CUDA 12.9.1, preloaded for every arm in the process.
+- `test_hybrid_math.py` passed again on the node.
+
+**Accuracy: every gate passes.** Errors are rel = |θ − θ_ref| / |θ_ref| over the full state, member 1, t = 100:
+
+| | n = 1 | n = 40 | n = 4,000 |
+|---|---|---|---|
+| hybrid32 vs `lean_u1` | 1.914e-08 | 2.343e-07 | 1.546e-06 |
+| `lean32ek_fast` vs `lean_u1` (today) | 1.939e-08 | 2.270e-07 | 1.460e-06 |
+| hybrid32_if vs if64 | 1.914e-08 | 2.346e-07 | 1.546e-06 |
+| if32 vs if64 (today's IF) | 1.939e-08 | 2.269e-07 | 1.461e-06 |
+| hybrid64 vs `lean_u1` | **5.3e-17** | 6.8e-16 | 5.3e-15 |
+
+- G32, GIF and G64 all pass.
+- At 4,000 steps, hybrid32's band errors in the 0.02 delta are 0.98–1.35× `lean32ek_fast`'s (sub and af).
+- The float64 hybrid is `lean_u1` to rounding.
+
+**Speed: the float32 hybrid is slower than today's step.** ms/step, same A100, same job:
+
+| | ms/step |
+|---|---|
+| `lean32ek_fast` (XLA) | 2.710 |
+| if32 (XLA) | 2.762 |
+| **hybrid32** | **2.940** (graph 2.928) |
+| hybrid32_if | 2.956 |
+| `lean_u1` (XLA, float64) | 6.402 |
+| **hybrid64** | **4.281** |
+
+**Where hybrid32's 2.95 ms go** (per-op split, CUDA events):
+
+| op | ms |
+|---|---|
+| C2C with the `build_w` load callback | 1.126 |
+| C2R with the θ̂ load callback | 0.524 |
+| C2C with the product load + kept-mode store callbacks | 1.091 |
+| Warp update | 0.213 |
+
+A plain nvmath / torch C2C of the same size measures 0.60 ms in this job.
+
+What it says:
+- **cuFFT LTO callbacks roughly double each FFT here** (0.60 → 1.09–1.13 ms per C2C). That is more than the passes they
+  remove (`build_w` 235 µs, the products 253 µs, the IRFFT copy + `scal` ≈ 0.2 ms, Part X). Fusion through callbacks
+  loses at 4096².
+  - Not yet separated: the callback code path itself vs our callbacks' work (64-bit index math, mirrored gathers,
+    scattered kept-mode stores). An identity-callback C2C would tell.
+- **The Warp update (0.21 ms) is the cheapest part.** On the compact block it replaces most of the AB3 fusion's
+  ~0.36 ms.
+- **The float64 hybrid is 1.50× faster than `lean_u1` at float64 accuracy** (5e-15 after 4,000 steps), but slower
+  than float32 `lean32ek_fast`.
+- **The CUDA graph changes nothing** (−0.4%): the GPU is already busy.
+- **Pre-set "worth integrating"** (hybrid32 ≤ 2.2 ms or hybrid64 ≤ 2.70 ms): **no**.
+- **Scorecard (`score_hybrid.py`): 11 confirmed / 1 refuted** (P7: hybrid32 1.5–2.2 ms; measured 2.94).
+
+**Speed so far (A100, per optimizer step: 12 frames + 0.40 s ML step):**
+- The measured best is still `lean32ek_fast` + IF-AB3 at 25 steps per frame: **1.38×**, i.e. 94 → 68 h.
+- My 1.6–2.0× estimate for "hybrid + IF-AB3" assumed callbacks cost ~nothing. They do not.
+
+**Possible next steps (the user's call):**
+- An identity-callback probe, to see whether a cheaper callback (32-bit index math, no mirror) brings each C2C back
+  near 0.6 ms. That would make the hybrid ≈ 1.8–1.9 ms.
+- Callback-free compact storage in XLA (research #3, bitwise, −0.22 to −0.27 ms).
+- The float64 hybrid as a precision-gate-free path, if float64 is wanted for o1.2.

@@ -140,7 +140,15 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
       store) and 1 Warp update kernel on the compact block;
     - float32 = `lean32ek`'s compensated update (`fuse_fp=False`), optional IF-AB3; float64 = `lean_u1`'s;
     - index algebra verified on the callbacks' own source (`test_hybrid_math.py`);
-    - gates G32 / GIF / G64 preregistered; job 7840175 (debug) is queued.
+    - gates G32 / GIF / G64 preregistered.
+    - **Job 7840175 (`HYB_JOB_DONE failures=0`; 11 confirmed / 1 refuted): accurate but not faster.**
+      - All gates pass: hybrid32's error equals `lean32ek_fast`'s (2.34e-7 vs 2.27e-7 at 40 steps; bands
+        0.98–1.35×); hybrid64 = `lean_u1` to 5.3e-15 after 4,000 steps.
+      - Speed: hybrid32 2.94 ms vs `lean32ek_fast` 2.71 (8% slower); hybrid64 4.28 vs `lean_u1` 6.40 (1.50×).
+      - Cause: cuFFT LTO callbacks roughly doubled each C2C (1.09–1.13 vs 0.60 ms plain), more than the fused passes
+        they remove. The CUDA graph changes nothing.
+      - Pre-set "worth integrating": no.
+      - The measured best stays `lean32ek_fast` + IF-AB3 at n = 25 (1.38× per optimizer step).
   - **Not done:** the solver/ML overlap retest (`profile_overlap.py` knows only ref/fixed).
 
 - **2026-11-12** — **SQG solver speed, research round 2 (workflow wf_1a24fad4-309; no jobs). Notes Part XVI;
@@ -874,6 +882,17 @@ Each is attributed to its source doc — verify there before acting.
     transforms. Its row FFT is near cuFFT (232 vs 206 µs).
   - **FMA contraction:** Warp's module option `fuse_fp` defaults to True. Error-free transforms (TwoSum / Fast2Sum)
     need `module_options={"fuse_fp": False}`.
+
+- **(Polaris, SQG) Fusing the SQG step's pointwise work into cuFFT via LTO callbacks (nvmath-python) is slower at
+  4096², not faster** (job 7840175; notes Part XVII C).
+  - Measured: each C2C went from 0.60 ms (plain) to 1.09–1.13 ms with our load/store callbacks; the C2R with a
+    load callback took 0.52 ms. The whole hybrid step is 2.94 ms vs XLA's `lean32ek_fast` 2.71.
+  - Not yet separated: the callback path's own cost vs our callbacks' work (64-bit index math, mirrored gathers,
+    scattered kept-mode stores).
+  - Before retrying, measure an identity-callback C2C at 4096². Don't re-run the full hybrid as is.
+  - Setup that worked: nvmath-python 1.0.0 + numba-cuda 0.30.4 `--no-deps` beside sqg-env, plus `LD_PRELOAD` of
+    CUDA 12.9.1's `libnvJitLink.so.12` and `libcufft.so.11` (11.4.1). LTO callbacks need cuFFT ≥ 11.3; the env's
+    wheel is 11.0.2.
 
 - **(Polaris, SQG env) NCCL over CXI with torch 2.3.1's bundled NCCL 2.20.5 + aws-ofi-nccl v1.6.0 +
   `NCCL_NET_GDR_LEVEL=PHB` fails at connect.**
