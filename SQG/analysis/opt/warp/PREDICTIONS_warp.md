@@ -1,0 +1,105 @@
+# Can NVIDIA Warp carry the SQG solver's custom FFT? Predictions for the Warp probe (written 2026-11-12, before any run)
+
+**Ask (user, 2026-11-12):** "another way of doing the custom FFT is using nvidia warp". Research round 2
+(`../research_2026-11-12/SOLVER_SPEED_RESEARCH.md`, items #6–#8) found the custom-FFT routes blocked: jax 0.4.28 has
+no FFI, and a JAX upgrade collides with torch 2.3.1's cuDNN in o1.2's process.
+
+**Why Warp could unblock it (checked against the Warp 1.17.0 source before writing this):**
+- **Bridge:** Warp ≤ 1.17.0 still ships a legacy XLA custom-call bridge
+  (`warp/_src/jax/custom_call.py`: "requires JAX version 0.4.25 - 0.7.x"). Warp 1.18.0 removed it, and its FFI
+  wrappers need JAX ≥ 0.5.0. So the probe pins **warp-lang 1.17.0** (PyPI wheel, CUDA 12 build), installed with
+  `pip --target $MEMBER_ROOT/pylibs/warp-1.17.0`. sqg-env itself is not modified.
+- **Our own wrapper:** that bridge hard-codes `block_dim = 256` and makes every output's shape equal the launch
+  dims, so it cannot launch tile-FFT kernels. `warp_xla.py` (this directory) re-implements the same legacy
+  mechanism with explicit output shapes and any tiled `block_dim`:
+  - a ctypes callback registered with `xla_client.register_custom_call_target`;
+  - `module.load(device, block_dim)` at lowering;
+  - `wp_cuda_launch_kernel` on XLA's stream.
+- **FFT engine:** `wp.tile_fft` / `wp.tile_ifft` are cuFFTDx (libmathdx), item #8's engine, written as Python
+  kernels.
+  - C2C only (`vec2f` / `vec2d`), along a register tile's last axis; ≥ 2 elements per thread.
+  - A column pass is a shared-memory strip load → `tile_transpose` (aliasing view) → `tile_map` copy into
+    registers → FFT → store.
+- **Driver:** Polaris A100s run driver 580.65.06 (gate D job log), which covers the CUDA 12 wheel.
+
+## What the probe measures (one A100, `warp_fft_probe.py`; everything 4096², the solver's N)
+
+| id | quantity | how |
+|---|---|---|
+| M0 | attainable bandwidth `BW_copy` | torch `y.copy_(x)`, complex64 4096², 268.4 MB moved |
+| M1 | cuFFT baselines | torch `fft(dim=-1)`, `fft(dim=0)`, `fft2`, complex64 and complex128. Also jax `jnp.fft.fft2` (complex64), the anchor to notes Part X's C2C (540 µs) |
+| M2 | Warp row FFT | `(R, 4096)` tiles, R ∈ {1, 2}, block_dim ∈ {128, 256, 512} (vec2f); R = 1, block_dim ∈ {256, 512} (vec2d); best config also inverse, and with `enable_mathdx_fft = False` (scalar fallback) |
+| M3 | Warp column FFT | strip kernels, K columns per block (K ∈ {1, 2, 4} vec2f, {1, 2} vec2d). `col_strided` stores back into the same layout; `col_tstore` stores the result transposed (contiguous rows). Also NVIDIA's own 3-kernel recipe (row FFT → 16×16 transpose → row FFT) as a 2-D C2C |
+| M4 | fused row kernel (proxy for the step's row kernel) | per row: load 2 rows, 2 inverse FFTs, conj(a)·b, 1 forward FFT, store 1 row: 3 FFTs, 402.7 MB moved |
+| M5 | accuracy | rel L2 error vs numpy complex128 of the same input: Warp vs torch cuFFT, row / column / 2-D |
+| M6 | bridge | jit correctness vs `jnp.fft.fft`; a 50-iteration `lax.scan` vs the same jnp loop; per-call host overhead (tiny-kernel scan of 2,000 iterations vs a jnp scan); two Warp kernels in one jit; torch still works afterwards |
+
+Timing: CUDA events around 20 back-to-back launches after 3 warm-ups, median of 5 batches, per launch. JAX: a jit
+call ×20 then `block_until_ready`, median of 5 batches. "Bandwidth" = unique bytes read + written / time.
+
+## Byte model of a fused Warp step (the projection the decision uses)
+
+Three kernels per step, pruned to the kept 2731 × 1366 block (the decay table carries the 2/3 mask, research #3):
+- **A, column inverse along ky:** reads θ̂ hi and `kinv`; builds ŵ = (k − i l) ψ̂ on load for +kx and −kx; writes
+  W (4096 × 2731) and Θ (4096 × 1366) in mixed (y, kx) space. 4,097 column FFTs.
+- **B, rows along x:** reads the W and Θ rows; computes u − i v and θ (2 inverse FFTs), Z = conj(w)·θ, 1 forward FFT,
+  then the Hermitian split. Writes the kept 1366 columns of the two products' half-spectra. 3 × 4096 row FFTs.
+- **C, column forward along ky:** reads the two products' columns; tendency, AB3 and update (compensated hi/lo for
+  float32) on load. Writes the state and the tendency. 2 × 1366 column FFTs.
+
+| | A | B | C | total | today's ideal (Part X) |
+|---|---|---|---|---|---|
+| float32 (lean32ek: hi + lo state) | 179.0 MB | 223.8 MB | 313.4 MB | **716.1 MB** | 2,819 MB |
+| float64 (lean_u1's numerics) | 358.0 MB | 447.5 MB | 507.3 MB | **1,312.9 MB** | — |
+
+(MB = 1e6 bytes. Block 2731 × 1366 = 3,730,546 modes; a mixed half-plane is 4096 × 1366, W is 4096 × 2731; tables are
+real. The forcing patch is ignored. `warp_fft_probe.py` recomputes these from the shapes and prints them.)
+
+- **Projection:** `t_step = bytes_A / BW_col + bytes_B / BW_fused_row + bytes_C / BW_col`.
+  - `BW_col` = the best measured column-strip bandwidth (M3, same dtype);
+  - `BW_fused_row` = M4's for float32, and M2's best row bandwidth for float64 (no float64 M4).
+- **Float64 compute floor:** 19,117 length-4096 FFTs × 5·4096·12 flops = 4.70 GFLOP/step, i.e. ≥ 0.48 ms at the
+  A100's 9.7 TFLOPS FP64. Measured float64 row bandwidth shows whether it binds.
+
+## Predictions (P = probability I give it)
+
+| # | prediction | P |
+|---|---|---|
+| 1 | the 1.17.0 wheel has libmathdx (`wp_is_mathdx_enabled() == 1`), and a 4096-point vec2f `tile_fft` compiles through it | 0.85 |
+| 2 | warp 1.17.0 imports and runs kernels in one process with torch 2.3.1 + jax 0.4.28 (driver 580) | 0.90 |
+| 3 | the bridge's row FFT under `jax.jit` matches `jnp.fft.fft` (rel L2 ≤ 1e-6), and the 50-iteration scan matches the jnp loop (rel L2 ≤ 1e-5) | 0.65 |
+| 4 | bridge host overhead is 5–40 µs per custom call (tiny-kernel scan minus jnp scan, per iteration) | 0.70 |
+| 5 | the best vec2f row FFT reaches 70–90 % of `BW_copy`, and is within ±15 % of torch `fft(dim=-1)` | 0.65 |
+| 6 | the best vec2f column strip reaches 35–65 % of `BW_copy`, i.e. not more than 10 points above cuFFT's column pass (51 %, Part X) | 0.60 |
+| 7 | K = 4 vec2f strips fail to compile or launch (shared memory > 163 KB per block) | 0.60 |
+| 8 | the fused 3-FFT row kernel (M4) stays ≥ 60 % of `BW_copy` | 0.60 |
+| 9 | Warp's complex64 errors are ≤ 2× torch cuFFT's (row and 2-D, vs complex128) | 0.80 |
+| 10 | the best vec2d row FFT reaches ≥ 50 % of `BW_copy`, within ±25 % of torch complex128 `fft(dim=-1)` | 0.50 |
+| 11 | the scalar fallback (`enable_mathdx_fft = False`) is ≥ 1.5× slower than cuFFTDx on the vec2f row FFT | 0.75 |
+| 12 | anchor: `jnp.fft.fft2` complex64 is 0.46–0.62 ms (Part X's C2C 540 µs) | 0.85 |
+| 13 | projected fused float32 step: 0.9–1.6 ms (today `lean32ek_fast` 2.698 ms) | 0.55 |
+| 14 | projected fused float64 step: 1.8–3.5 ms (today `lean_u1` 6.409 ms) | 0.50 |
+
+## Decision rule (fixed now; the probe only measures)
+
+- **BRIDGE_OK** iff prediction 3's two correctness checks pass, the overhead is ≤ 50 µs per call, and torch still
+  works afterwards.
+- **GO_F32** iff BRIDGE_OK, the best vec2f column strip and the vec2f row FFT are each ≤ 2× torch cuFFT's error
+  (M5), and the projected float32 step is ≤ 1.6 ms (≥ 1.69× today's 2.698).
+  - Next step: build kernels A–C in float32 (lean32ek's compensated update).
+  - It is gated like any float32 rounding change: the pre-set f32 tolerance, then the delta/taxonomy harness.
+- **GO_F64** iff BRIDGE_OK and the projected float64 step is ≤ 2.70 ms (no slower than `lean32ek_fast`).
+  - Next step: build kernels A–C in float64.
+  - That path needs only the existing float64 gate (≤ 1e-12 relative after 1 step). No statistical-gate campaign,
+    no precision question.
+- **NO_GO** otherwise, with the failing condition named.
+- **Not decided here:** the verdict tokens are computed by `warp_fft_probe.py` from the rule above. A projection is
+  not a measured step; the A–C prototype job is what measures one.
+- **Thresholds:** none of them changes after the run. A changed rule gets a dated, post-hoc-labelled addendum below.
+
+## Tokens
+
+- `WARP_ENV_OK`, `WARP_BRIDGE_OK` / `WARP_BRIDGE_FAIL <reason>`, `WARP_VERDICT f32=<GO_F32|NO_GO> f64=<GO_F64|NO_GO>`,
+  `WARP_PROBE_DONE failures=N`.
+- The job ends `WARP_JOB_DONE failures=N`.
+- Results → `SQG/analysis/results/polaris_warp_<jobid>/` (`warp_probe.json`, logs).
