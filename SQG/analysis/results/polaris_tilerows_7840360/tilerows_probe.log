@@ -1,0 +1,25 @@
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A100-SXM4-40GB" (39 GiB, sm_80, mempool enabled)
+   Kernel cache:
+     /lus/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/warp_cache_7840360/1.17.0
+TR_ENV_OK {"torch": "2.3.1+cu121", "jax": "0.4.28", "warp": "1.17.0", "cufft_version": 11401, "gpu": "NVIDIA A100-SXM4-40GB", "ld_preload": "/soft/compilers/cudatoolkit/cuda-12.9.1/lib64/libnvJitLink.so.12:/soft/compilers/cudatoolkit/cuda-12.9.1/lib64/libcufft.so.11"}
+Module kernels__locals__build_w_29d6392b 29d6392 load on device 'cuda:0' took 4.84 ms  (error)
+ERROR TR_GATES_n1: TypeError: Error while parsing function "build_w" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py:73:
+        mi = S * wp.float32(ky)
+;Invalid external reference type: <class 'numpy.float32'>
+ERROR TR_GATES_n40: TypeError: Error while parsing function "build_w" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py:73:
+        mi = S * wp.float32(ky)
+;Invalid external reference type: <class 'numpy.float32'>
+ERROR TR_GATES_n4000: TypeError: Error while parsing function "build_w" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py:73:
+        mi = S * wp.float32(ky)
+;Invalid external reference type: <class 'numpy.float32'>
+TR_GATE32 pass=False ([None, None])
+TR_GATEIF pass=False ([None, None])
+ERROR TR_BENCH: TypeError: Error while parsing function "build_w" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py:73:
+        mi = S * wp.float32(ky)
+;Invalid external reference type: <class 'numpy.float32'>
+TR_BENCH {}
+TR_PROBE_DONE failures=4
