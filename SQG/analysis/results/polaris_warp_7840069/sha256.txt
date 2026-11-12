@@ -1,0 +1,5 @@
+18a7936e2ac35440dd720e567b450ddee092a8d91d510dc3f9fa48013065bfb4  SQG/analysis/opt/warp/score_warp.py
+3b39739ebb5cb3758b47bec99e9c2585dac4cd3e40cda3ad72b72b9c14126de5  SQG/analysis/opt/warp/warp_fft_probe.py
+4a01dbedb4fd4181584fc020f7bdffa18591688ada2698d1116059412cc68998  SQG/analysis/opt/warp/warp_kernels.py
+e3b36e93c2033455a57bb0f6cdb43d5e907e8ec3284b66a49bbc631f500333a5  SQG/analysis/opt/warp/warp_xla.py
+852ab6b6c23ffc48ff73fe1084cd3a6953b42d0301e21b6b1f503079eb2e20e0  SQG/analysis/opt/warp/PREDICTIONS_warp.md
