@@ -11,7 +11,10 @@ must match exactly once and keeps the line count (tracebacks point at the real l
                first-segment check against train_m16.zarr becomes the same check against the taxonomy job's
                production frames of the same checkpoints (lean_u1 == production bitwise, job 7824121).
   knobs        O12_<NAME> env overrides, each logged; unset = o1.2's value. BATCH (A100 40 GB: 16), START_PAIRS,
-               N_EPOCH, STEPS_PER_EPOCH, N_VAL, BUF; O12_SOLVER = ref (o1.2's own call) | lean_u1 | lean32ek_fast.
+               N_EPOCH, STEPS_PER_EPOCH, N_VAL, BUF; O12_SOLVER = ref (o1.2's own call) | lean_u1 | lean32ek_fast
+               | if32_25 | tilerows40 | tilerows_if25 (tilerows_advance.py; Warp from O12_WARP_PATH, nvmath from
+               O12_NVMATH_PATH, a per-rank Warp kernel cache under O12_WARP_CACHE; O12_TR_GATE=1: rank 0's in-situ
+               accuracy gate on the first segment).
 Timing lines (rank 0): O12_FILL, O12_BITWISE, O12_EPOCH (per-step median / p10 / p90, train, val, save), O12_PHASES.
 
   O12_OUT=<run dir> O12_VAL_STORE=<dir> O12_REF_DIR=<taxonomy raw dir> SQG_ASQG_PY=... SQG_TRAINING_ROOT=... \
@@ -29,8 +32,9 @@ OPT = os.path.dirname(HERE)
 ANALYSIS = os.path.dirname(OPT)
 SQG = os.path.dirname(ANALYSIS)
 O12 = os.path.join(SQG, "o1.2-TrainUViT_m16_tendency.py")
-SOLVERS = ("ref", "lean_u1", "lean32ek_fast")
+SOLVERS = ("ref", "lean_u1", "lean32ek_fast", "if32_25", "tilerows40", "tilerows_if25")
 BITWISE_SOLVERS = ("ref", "lean_u1")            # production bit for bit (jobs 7815637, 7824121)
+TILEROWS_SOLVERS = ("if32_25", "tilerows40", "tilerows_if25")   # tilerows_advance.py
 
 # (name, old, new): old must occur exactly once in o1.2's source; new has the same number of lines
 PATCHES = [
@@ -205,6 +209,8 @@ class Helper:
             return ref_call                                       # o1.2's own line, unchanged
         for p in (os.path.join(OPT, "seed1"), os.path.join(OPT, "delta"), os.path.join(OPT, "taxonomy")):
             sys.path.insert(0, p)
+        if self.solver in TILEROWS_SOLVERS:
+            return self._tilerows_advance(GD, stride)
         if self.solver == "lean_u1":                              # as taxonomy.py L133-135
             import lean_solver as LS
             _, ncol = LS.preconditions(GD)
@@ -217,6 +223,24 @@ class Helper:
         c32 = LP.tables(GD)
         fast = LF.make_call(pst, GD.N, GD.N // 2 + 1, GD.DT, stride, mode="ek", u1=True, ring=3)
         return lambda st: fast(st, c32)
+
+    def _tilerows_advance(self, GD, stride):
+        """if32_25 / tilerows40 / tilerows_if25 (tilerows_advance.make). Tile-row arms: Warp + nvmath on sys.path, a
+        per-rank Warp kernel cache (set before Warp is imported), wp.init()."""
+        import site
+        if self.solver.startswith("tilerows"):
+            cache = self.env.get("O12_WARP_CACHE")
+            if cache:
+                os.environ["WARP_CACHE_PATH"] = f"{cache}_r{self.rank}"
+            sys.path.insert(0, self.env["O12_WARP_PATH"])
+            site.addsitedir(self.env["O12_NVMATH_PATH"])
+            import warp as wp
+            wp.config.enable_backward = False
+            wp.init()
+            self.log(f"O12_TR_ENV warp={wp.config.version} preload={self.env.get('LD_PRELOAD', '') or 'none'} "
+                     f"cache={os.environ.get('WARP_CACHE_PATH', '<default>')}")
+        import tilerows_advance as TA
+        return TA.make(GD, stride, self.solver, rank=self.rank, log=self.log, gate=self.env.get("O12_TR_GATE") == "1")
 
     def segments(self, have, need):
         self.log(f"O12_SEGMENTS {have} staged checkpoints per rank, {need} needed by the full schedule"
