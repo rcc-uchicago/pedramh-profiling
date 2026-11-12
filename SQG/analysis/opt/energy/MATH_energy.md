@@ -1104,9 +1104,7 @@ and refuses to build if one fails. The numbered items (module docstring):
 5. **Real decay at run time.** `decay` is passed as a real float64 *argument* (67 MB), not a closure constant,
    so XLA cannot fold it into a 134 MB complex constant. Exactness:
 
-   ```math
-   (a + ib)(d + 0i) = (ad - b\cdot 0) + i(a\cdot 0 + bd) = ad + i\,bd = (a+ib)\,d \qquad\text{(S8)}
-   ```
+   $`(a + ib)(d + 0i) = (ad - b\cdot 0) + i(a\cdot 0 + bd) = ad + i\,bd = (a+ib)\,d \qquad\text{(S8)}`$
 
    — the complex-times-complex form computes the same two products $`ad`$, $`bd`$ (and subtracts/adds a $`\pm0`$),
    so the stored values are identical.
