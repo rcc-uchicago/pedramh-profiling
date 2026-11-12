@@ -51,13 +51,13 @@ frequencies scaled out ($`f_0/N_b = 1`$; the code passes `Nb=1.0, f_0=1.0` to `p
 dimensions:
 
 ```math
-\psi_{xx} + \psi_{yy} + \psi_{zz} = 0 \quad \text{for } z<0. \tag{1}
+\psi_{xx} + \psi_{yy} + \psi_{zz} = 0 \quad \text{for } z<0. \qquad\text{(1)}
 ```
 
 The boundary conditions are decay at depth and a prescribed surface buoyancy $`\theta`$:
 
 ```math
-\psi \to 0 \ \ (z \to -\infty), \qquad \theta(x,y,t) = \left.\partial_z \psi\right|_{z=0}. \tag{2}
+\psi \to 0 \ \ (z \to -\infty), \qquad \theta(x,y,t) = \left.\partial_z \psi\right|_{z=0}. \qquad\text{(2)}
 ```
 
 The only dynamics is on the surface: $`\theta`$ is advected by the surface geostrophic velocity, forced, and
@@ -66,7 +66,7 @@ dissipated,
 ```math
 \partial_t \theta + J(\psi, \theta) = \mathcal{F} - \mathcal{D}, \qquad
 J(\psi,\theta) \equiv \psi_x \theta_y - \psi_y \theta_x, \qquad
-\mathbf{u} = (u,v) = (-\psi_y,\ \psi_x), \tag{3}
+\mathbf{u} = (u,v) = (-\psi_y,\ \psi_x), \qquad\text{(3)}
 ```
 
 so $`J(\psi,\theta) = u\,\theta_x + v\,\theta_y = \mathbf{u}\cdot\nabla\theta`$ (expand: $`u\theta_x + v\theta_y = -\psi_y\theta_x + \psi_x\theta_y = J`$). Equation (3) with the forcing and dissipation of §1.4 is exactly what
@@ -93,20 +93,20 @@ The domain is a $`2\pi`$-periodic square, so expand in horizontal Fourier modes,
 
 ```math
 \psi(x,y,z,t) = \sum_{\mathbf{k}} \hat\psi_{\mathbf{k}}(z,t)\, e^{i\mathbf{k}\cdot\mathbf{x}},
-\qquad \mathbf{k}=(k_x,k_y),\ |k| = \sqrt{k_x^2+k_y^2}. \tag{4}
+\qquad \mathbf{k}=(k_x,k_y),\ |k| = \sqrt{k_x^2+k_y^2}. \qquad\text{(4)}
 ```
 
 Substituting (4) into (1), each mode decouples ($`\partial_x \to ik_x`$, $`\partial_y \to ik_y`$):
 
 ```math
 -k_x^2\,\hat\psi - k_y^2\,\hat\psi + \partial_{zz}\hat\psi = 0
-\quad\Longleftrightarrow\quad \partial_{zz}\hat\psi = |k|^2\, \hat\psi. \tag{5}
+\quad\Longleftrightarrow\quad \partial_{zz}\hat\psi = |k|^2\, \hat\psi. \qquad\text{(5)}
 ```
 
 This is a constant-coefficient ODE in $`z`$ with general solution
 
 ```math
-\hat\psi_{\mathbf{k}}(z) = A_{\mathbf{k}}\, e^{+|k| z} + B_{\mathbf{k}}\, e^{-|k| z}. \tag{6}
+\hat\psi_{\mathbf{k}}(z) = A_{\mathbf{k}}\, e^{+|k| z} + B_{\mathbf{k}}\, e^{-|k| z}. \qquad\text{(6)}
 ```
 
 The decay condition in (2) kills the growing branch: $`e^{-|k|z} \to \infty`$ as $`z\to-\infty`$, so $`B_{\mathbf{k}}=0`$
@@ -117,7 +117,7 @@ for every $`|k|\gt 0`$. The surface condition then fixes $`A`$:
 = |k|\, A_{\mathbf{k}} e^{|k|\cdot 0} = |k|\, A_{\mathbf{k}}
 \quad\Longrightarrow\quad
 \hat\psi_{\mathbf{k}}(z) = \frac{\hat\theta_{\mathbf{k}}}{|k|}\, e^{|k| z},
-\qquad \boxed{\ \hat\psi_{\mathbf{k}}(0) = \frac{\hat\theta_{\mathbf{k}}}{|k|}\ } \tag{7}
+\qquad \boxed{\ \hat\psi_{\mathbf{k}}(0) = \frac{\hat\theta_{\mathbf{k}}}{|k|}\ } \qquad\text{(7)}
 ```
 
 The whole three-dimensional elliptic problem collapses to **dividing each surface mode by $`|k|`$**. In the code this
@@ -144,7 +144,7 @@ From $`\mathbf{u} = (-\psi_y, \psi_x)`$ and (7), at the surface
 ```math
 \hat u_{\mathbf{k}} = -ik_y \hat\psi_{\mathbf{k}} = -\,\frac{i k_y}{|k|}\hat\theta_{\mathbf{k}},
 \qquad
-\hat v_{\mathbf{k}} = ik_x \hat\psi_{\mathbf{k}} = \frac{i k_x}{|k|}\hat\theta_{\mathbf{k}}. \tag{8}
+\hat v_{\mathbf{k}} = ik_x \hat\psi_{\mathbf{k}} = \frac{i k_x}{|k|}\hat\theta_{\mathbf{k}}. \qquad\text{(8)}
 ```
 
 (`_kernel.py:_invert`: `uh = -il*ph`, `vh = ik*ph`; `diagnostics()` L425–426 recomputes the same for the CFL
@@ -153,7 +153,7 @@ check.) Take moduli and add:
 ```math
 |\hat u|^2 + |\hat v|^2
 = \frac{k_y^2}{|k|^2}|\hat\theta|^2 + \frac{k_x^2}{|k|^2}|\hat\theta|^2
-= \frac{k_x^2+k_y^2}{|k|^2}\,|\hat\theta|^2 = |\hat\theta|^2. \tag{9}
+= \frac{k_x^2+k_y^2}{|k|^2}\,|\hat\theta|^2 = |\hat\theta|^2. \qquad\text{(9)}
 ```
 
 **What (9) implies.** The velocity spectrum *equals* the $`\theta`$ spectrum at every $`|k|`$ — the division by $`|k|`$
@@ -182,7 +182,7 @@ The right-hand side of (3) in this configuration (`A-SQG_data.py` L91–102, L32
 - Together, each mode inside the truncation decays at the rate
 
 ```math
-\lambda(k) = \nu k^2 + \frac{\mu}{k^2} \quad (k>0), \qquad \lambda(0)=0, \tag{10}
+\lambda(k) = \nu k^2 + \frac{\mu}{k^2} \quad (k>0), \qquad \lambda(0)=0, \qquad\text{(10)}
 ```
 
 applied as the exact per-step factor $`d_k = \mathbb{1}[|k|\le K_{max}]\,e^{-\lambda(k)\Delta t}`$ (`decay`,
@@ -223,7 +223,7 @@ added in `inner()`):
 ```math
 \partial_t \hat\theta = T_{\mathbf{k}} \equiv
 -\Big( i k_x \widehat{(u\theta)} + i k_y \widehat{(v\theta)} \Big) + \hat F_{\mathbf{k}},
-\qquad \hat\psi = \frac{\hat\theta}{|k|},\ \ \hat u = -ik_y\hat\psi,\ \ \hat v = ik_x\hat\psi, \tag{11}
+\qquad \hat\psi = \frac{\hat\theta}{|k|},\ \ \hat u = -ik_y\hat\psi,\ \ \hat v = ik_x\hat\psi, \qquad\text{(11)}
 ```
 
 followed by the damping/truncation factor $`d_k`$ (§1.4) applied outside the tendency. (11) is the **flux
@@ -233,14 +233,14 @@ $`\nabla\cdot\mathbf{u}=0`$ directly from the definition in (3):
 
 ```math
 \nabla\cdot\mathbf{u} = \partial_x u + \partial_y v = \partial_x(-\psi_y) + \partial_y(\psi_x)
-= -\psi_{yx} + \psi_{xy} = 0. \tag{12}
+= -\psi_{yx} + \psi_{xy} = 0. \qquad\text{(12)}
 ```
 
 Then, expanding the divergence of the flux,
 
 ```math
 \nabla\cdot(\mathbf{u}\theta) = \theta\,\underbrace{\nabla\cdot\mathbf{u}}_{=0} + \mathbf{u}\cdot\nabla\theta
-= \mathbf{u}\cdot\nabla\theta = J(\psi,\theta), \tag{13}
+= \mathbf{u}\cdot\nabla\theta = J(\psi,\theta), \qquad\text{(13)}
 ```
 
 so flux form and advective form are the same PDE. The code uses the flux form because it needs only two forward
@@ -271,7 +271,7 @@ Now integrate $`J(\psi,g)`$ for any periodic $`g`$ by parts, term by term:
 so
 
 ```math
-\int J(\psi,g)\,dA = \int\big(\psi_x g_y - \psi_y g_x\big)dA = -\int(\psi_{xy}-\psi_{yx})\,g\,dA = 0. \tag{14}
+\int J(\psi,g)\,dA = \int\big(\psi_x g_y - \psi_y g_x\big)dA = -\int(\psi_{xy}-\psi_{yx})\,g\,dA = 0. \qquad\text{(14)}
 ```
 
 With $`g = \theta^2/2`$ this gives $`\int\theta J = 0`$: advection only rearranges $`\theta^2`$, it cannot create or
@@ -281,17 +281,17 @@ destroy it.
 $`\int f J(g,h) = -\int h J(g,f)`$ by the same two integrations by parts:
 
 ```math
-\int f(g_x h_y - g_y h_x)\,dA
-= -\int h\,\partial_y(f g_x)\,dA + \int h\,\partial_x(f g_y)\,dA
-= -\int h\,( f_y g_x - f_x g_y + f g_{xy} - f g_{yx})\,dA
-= -\int h\, J(g,f)\,dA.
+\begin{gathered}
+\int f(g_x h_y - g_y h_x)\,dA = -\int h\,\partial_y(f g_x)\,dA + \int h\,\partial_x(f g_y)\,dA \\
+= -\int h\,( f_y g_x - f_x g_y + f g_{xy} - f g_{yx})\,dA = -\int h\, J(g,f)\,dA.
+\end{gathered}
 ```
 
 Apply it with $`f=\psi`$, $`g=\psi`$, $`h=\theta`$:
 
 ```math
 \int \psi\, J(\psi,\theta)\, dA = -\int \theta\, J(\psi,\psi)\, dA = 0,
-\qquad\text{since } J(\psi,\psi) = \psi_x\psi_y - \psi_y\psi_x = 0. \tag{15}
+\qquad\text{since } J(\psi,\psi) = \psi_x\psi_y - \psi_y\psi_x = 0. \qquad\text{(15)}
 ```
 
 These two zeros are the reason the invariants of §1.8 have clean budgets (§1.9): advection drops out of both.
@@ -304,7 +304,7 @@ numpy's **unnormalised** `rfft2` is used throughout (`sqg.py`, `A-SQG_data.py`, 
 \hat\theta_{\mathbf{k}} = \sum_{\mathbf{x}} \theta(\mathbf{x})\, e^{-i\mathbf{k}\cdot\mathbf{x}},
 \qquad
 \theta(\mathbf{x}) = \frac{1}{N^2}\sum_{\mathbf{k}}^{\text{full plane}} \hat\theta_{\mathbf{k}}\,
-e^{+i\mathbf{k}\cdot\mathbf{x}}. \tag{16}
+e^{+i\mathbf{k}\cdot\mathbf{x}}. \qquad\text{(16)}
 ```
 
 - The forward sum over $`N^2`$ grid points gives $`\hat\theta`$ the size $`N^2 \times`$ (Fourier coefficient); that is
@@ -324,7 +324,7 @@ e^{+i\mathbf{k}\cdot\mathbf{x}}. \tag{16}
 \overline{\theta^2} \equiv \frac{1}{N^2}\sum_{\mathbf{x}}\theta^2
 = \frac{1}{N^4}\sum_{\mathbf{k}}^{\text{full}} |\hat\theta|^2
 = \sum_{\mathbf{k}}^{\text{half}} w_{\mathbf{k}} \left|\frac{\hat\theta_{\mathbf{k}}}{N^2}\right|^2
-\ \equiv\ \sum_{\mathbf{k}}^{\text{half}} a_{\mathbf{k}}. \tag{17}
+\ \equiv\ \sum_{\mathbf{k}}^{\text{half}} a_{\mathbf{k}}. \qquad\text{(17)}
 ```
 
   The first $`N^2`$ is the spatial mean; the second comes from (16)'s $`1/N^2`$ squared — together the $`N^4`$, i.e. the
@@ -361,7 +361,7 @@ The two quadratics conserved by advection (§1.6), in the code's normalisation (
 
 ```math
 \mathrm{SPE} = \tfrac{1}{2}\,\overline{\theta^2} = \tfrac{1}{2}\sum_{\text{half}} a, \qquad
-\mathrm{VIE} = \tfrac{1}{2}\,\overline{\psi\theta} = \tfrac{1}{2}\sum_{\text{half}} \frac{a}{|k|}, \tag{18}
+\mathrm{VIE} = \tfrac{1}{2}\,\overline{\psi\theta} = \tfrac{1}{2}\sum_{\text{half}} \frac{a}{|k|}, \qquad\text{(18)}
 ```
 
 (the VIE sum skips $`k=0`$: `pos/kapi` in the code). The second equality for VIE is Parseval (17) applied to the
@@ -385,7 +385,7 @@ $`\int_{-\infty}^{0} e^{2|k|z}dz = \frac{1}{2|k|}`$, so the mode's vertically in
 ```math
 \tfrac12 \cdot 2|k|^2 |\hat\psi(0)|^2 \cdot \frac{1}{2|k|}
 = \frac{|k|\,|\hat\psi(0)|^2}{2}
-= \frac{|\hat\theta|^2}{2|k|}, \tag{19}
+= \frac{|\hat\theta|^2}{2|k|}, \qquad\text{(19)}
 ```
 
 using $`|\hat\psi(0)| = |\hat\theta|/|k|`$ from (7). Summing with the Parseval weights gives exactly VIE in (18):
@@ -400,7 +400,7 @@ Differentiate one mode's variance contribution $`a_{\mathbf{k}}/2 = \tfrac{w}{2}
 ```math
 \frac{d}{dt}\frac{a_{\mathbf{k}}}{2}
 = \frac{w}{2 N^4}\Big(\dot{\hat\theta}\,\overline{\hat\theta} + \hat\theta\,\overline{\dot{\hat\theta}}\Big)
-= \frac{w}{N^4}\,\mathrm{Re}\!\left(\overline{\hat\theta}\,\frac{d\hat\theta}{dt}\right). \tag{20}
+= \frac{w}{N^4}\,\mathrm{Re}\!\left(\overline{\hat\theta}\,\frac{d\hat\theta}{dt}\right). \qquad\text{(20)}
 ```
 
 Insert the full right-hand side $`d\hat\theta/dt = T^{adv} + \hat F - \lambda\hat\theta`$ (advection + forcing +
@@ -417,7 +417,7 @@ So, with every term as `diagnostics()` (L412–423) and `energy_budget.py:budget
 \frac{d\,\mathrm{SPE}}{dt} = P_S - \varepsilon_S, \qquad
 P_S = \sum \frac{w\,\mathrm{Re}(\overline{\hat\theta}\hat F)}{N^4}, \quad
 \varepsilon_S = \underbrace{\nu\sum k^2 a}_{\varepsilon_\nu\ (\texttt{nu\_S})}
- + \underbrace{\mu\sum \frac{a}{k^2}}_{\varepsilon_\mu\ (\texttt{mu\_S})}. \tag{21}
+ + \underbrace{\mu\sum \frac{a}{k^2}}_{\varepsilon_\mu\ (\texttt{mu\_S})}. \qquad\text{(21)}
 ```
 
 For VIE, multiply (20) by $`1/|k|`$ before summing (equivalently pair $`\dot{\hat\theta}`$ with
@@ -427,7 +427,7 @@ $`-\overline{\psi J(\psi,\theta)} = 0`$ by (15)):
 ```math
 \frac{d\,\mathrm{VIE}}{dt} = P_V - \varepsilon_V, \qquad
 P_V = \sum \frac{w\,\mathrm{Re}(\overline{\hat\theta}\hat F)}{|k|\,N^4}, \quad
-\varepsilon_V = \nu\sum k^2 \frac{a}{|k|} + \mu\sum \frac{a}{k^2\,|k|}. \tag{22}
+\varepsilon_V = \nu\sum k^2 \frac{a}{|k|} + \mu\sum \frac{a}{k^2\,|k|}. \qquad\text{(22)}
 ```
 
 **Map to the code.** `diagnostics()` returns SPE, VIE, $`\varepsilon_\nu`$, $`\varepsilon_\mu`$, $`P\,(=P_S)`$; it does
@@ -464,7 +464,7 @@ error at any resolved $`k`$. A second-order centred difference instead gives, on
 
 ```math
 \frac{e^{ik\Delta x} - e^{-ik\Delta x}}{2\Delta x} = i\,\frac{\sin(k\Delta x)}{\Delta x}
-= ik\left(1 - \frac{(k\Delta x)^2}{6} + O\big((k\Delta x)^4\big)\right). \tag{23}
+= ik\left(1 - \frac{(k\Delta x)^2}{6} + O\big((k\Delta x)^4\big)\right). \qquad\text{(23)}
 ```
 
 At the truncation scale $`k = K_{max} = N/3`$, $`k\Delta x = 2\pi/3 = 2.094`$ and
@@ -477,7 +477,7 @@ $`-\lambda(k)\hat\theta`$ is diagonal in $`k`$, the linear part of each mode's O
 
 ```math
 \frac{d\hat\theta}{dt} = -\lambda\hat\theta \ \Longrightarrow\ \hat\theta(t+\Delta t) = e^{-\lambda\Delta t}\,
-\hat\theta(t), \tag{24}
+\hat\theta(t), \qquad\text{(24)}
 ```
 
 which is the `decay` factor — exact damping with **no stability constraint from $`\lambda`$ at all**. Is that
@@ -513,7 +513,7 @@ product folds every pair with $`p+q`$ outside the resolved range back in, per di
 ```math
 \widehat{(u\theta)}^{\,\mathrm{DFT}}_{k} = \frac{1}{N^2}\sum_{p+q \,\equiv\, k \ (\mathrm{mod}\ N)}
 \hat u_p \hat\theta_q
-\quad\text{: a true pair } p+q > N/2 \text{ is stored at } k = p+q-N. \tag{25}
+\quad\text{: a true pair } p+q > N/2 \text{ is stored at } k = p+q-N. \qquad\text{(25)}
 ```
 
 The **2/3 truncation removes every alias from the kept modes.** Keep only $`|k| \le K`$ (each wavevector component
@@ -521,7 +521,7 @@ then satisfies $`|k_{x,y}| \le K`$). An aliased contribution lands at $`k_a = p 
 magnitude is at least
 
 ```math
-|k_a| = |p + q - N| \ \ge\ N - |p| - |q| \ \ge\ N - 2K. \tag{26}
+|k_a| = |p + q - N| \ \ge\ N - |p| - |q| \ \ge\ N - 2K. \qquad\text{(26)}
 ```
 
 For the alias to pollute a kept mode we would need $`|k_a| \le K`$, i.e. $`N - 2K \le K`$, i.e. $`K \ge N/3`$. The code
@@ -551,7 +551,7 @@ $`|k| \le K_{max}`$ and $`\theta_K = P_K\theta`$, $`\hat\psi_K = \hat\theta_K/|k
 ```math
 \int \theta_K\, P_K J(\psi_K,\theta_K)\, dA
 = \int (P_K\theta_K)\, J(\psi_K,\theta_K)\, dA
-= \int \theta_K\, J(\psi_K,\theta_K)\, dA = 0 \tag{27}
+= \int \theta_K\, J(\psi_K,\theta_K)\, dA = 0 \qquad\text{(27)}
 ```
 
 by (14) applied to the smooth truncated fields — and identically with $`\psi_K`$ in front, by (15). So **the
@@ -630,7 +630,7 @@ Integrate each over the step (all three integrals shown):
 \qquad
 \int_0^1 L_{-1}\,ds = -\Big(\tfrac13 + 1\Big) = -\frac{16}{12},
 \qquad
-\int_0^1 L_{-2}\,ds = \tfrac12\Big(\tfrac13 + \tfrac12\Big) = \frac{5}{12}. \tag{28}
+\int_0^1 L_{-2}\,ds = \tfrac12\Big(\tfrac13 + \tfrac12\Big) = \frac{5}{12}. \qquad\text{(28)}
 ```
 
 So $`\displaystyle\int_{t_n}^{t_{n+1}} T\,dt \approx \Delta t\Big(\tfrac{23}{12}T^n - \tfrac{16}{12}T^{n-1} + \tfrac{5}{12}T^{n-2}\Big)`$, third-order accurate. These are exactly the `lax.switch` level-2 coefficients in
@@ -638,7 +638,7 @@ So $`\displaystyle\int_{t_n}^{t_{n+1}} T\,dt \approx \Delta t\Big(\tfrac{23}{12}
 
 ```math
 \hat\theta^{n+1} = d_k\Big(\hat\theta^{n} + \Delta t\big(\tfrac{23}{12}T^n - \tfrac{16}{12}T^{n-1}
-+ \tfrac{5}{12}T^{n-2}\big)\Big), \qquad d_k = \mathbb{1}[|k|\le K_{max}]\, e^{-\lambda\Delta t} \tag{29}
++ \tfrac{5}{12}T^{n-2}\big)\Big), \qquad d_k = \mathbb{1}[|k|\le K_{max}]\, e^{-\lambda\Delta t} \qquad\text{(29)}
 ```
 
 (`apply_updates` then `postprocess_state(...) * decay` in `inner()`; the filter is exactly 1, §1.4).
@@ -661,7 +661,7 @@ it there — that integral is (28).*
 
 ```math
 \hat\theta(t_{n+1}) = e^{-\lambda\Delta t}\,\hat\theta(t_n)
-+ \int_0^{\Delta t} e^{-\lambda(\Delta t - s)}\, T(t_n + s)\, ds. \tag{30}
++ \int_0^{\Delta t} e^{-\lambda(\Delta t - s)}\, T(t_n + s)\, ds. \qquad\text{(30)}
 ```
 
 For slowly varying $`T`$ (take $`T`$ constant over the step, the leading order), the exact increment is
@@ -669,7 +669,7 @@ For slowly varying $`T`$ (take $`T`$ constant over the step, the leading order),
 ```math
 \int_0^{\Delta t} e^{-\lambda(\Delta t - s)}\,ds \cdot T = \frac{1 - e^{-z}}{\lambda}\,T
 = \Delta t\, \varphi_1(z)\, T, \qquad z \equiv \lambda\Delta t, \qquad
-\varphi_1(z) = \frac{1-e^{-z}}{z} = 1 - \frac{z}{2} + \frac{z^2}{6} - \cdots \tag{31}
+\varphi_1(z) = \frac{1-e^{-z}}{z} = 1 - \frac{z}{2} + \frac{z^2}{6} - \cdots \qquad\text{(31)}
 ```
 
 **What the code does instead** (29): it multiplies the *whole* AB3 increment by $`e^{-z}`$, i.e. applies
@@ -678,7 +678,7 @@ $`\Delta t\,e^{-z}\,T`$ rather than $`\Delta t\,\varphi_1(z)\,T`$. The per-step 
 ```math
 \Delta t\,T\big(e^{-z} - \varphi_1(z)\big)
 = \Delta t\,T\Big[\Big(1 - z + \tfrac{z^2}{2}\cdots\Big) - \Big(1 - \tfrac{z}{2} + \tfrac{z^2}{6}\cdots\Big)\Big]
-= -\frac{z}{2}\,\Delta t\, T + O(z^2\,\Delta t\, T), \tag{32}
+= -\frac{z}{2}\,\Delta t\, T + O(z^2\,\Delta t\, T), \qquad\text{(32)}
 ```
 
 i.e. an effective **tendency deficit** $`-(\lambda\Delta t/2)\,T`$ per mode per step: first order in
@@ -693,8 +693,7 @@ $`\Delta t`$ for a rate and sum over modes:
 \left(\frac{d\,\mathrm{SPE}}{dt}\right)_{\!IF}
 = -\frac{\Delta t}{2} \underbrace{\sum \lambda\, \frac{w\,\mathrm{Re}(\overline{\hat\theta}\,\hat T)}{N^4}}_{Q_S}
 \quad\Longrightarrow\quad
-\hat r_{IF} = \frac{-\tfrac{\Delta t}{2}\displaystyle\int_0^\tau Q_S\,dt}{\displaystyle\int_0^\tau P_S\,dt},
-\tag{33}
+\hat r_{IF} = \frac{-\tfrac{\Delta t}{2}\displaystyle\int_0^\tau Q_S\,dt}{\displaystyle\int_0^\tau P_S\,dt}, \qquad\text{(33)}
 ```
 
 and identically with the extra $`1/|k|`$ weight for VIE ($`Q_V`$). This is computed exactly along each arm's own
@@ -707,7 +706,7 @@ mean)*; substituting into (33) gives the second predictor
 
 ```math
 \hat r_{bal} = \frac{-\tfrac{\Delta t}{2}\int \sum \lambda^2 a\, dt}{\int P_S\, dt}
-\qquad (\text{fields } B_S = \textstyle\sum\lambda^2 a,\ B_V = \sum\lambda^2 a/|k|). \tag{34}
+\qquad (\text{fields } B_S = \textstyle\sum\lambda^2 a,\ B_V = \sum\lambda^2 a/|k|). \qquad\text{(34)}
 ```
 
 **Order of magnitude** *(estimate)*: $`\sum\lambda^2 a = \bar\lambda\cdot\sum\lambda a = \bar\lambda\,\varepsilon_S`$
@@ -744,7 +743,7 @@ IEEE round-to-nearest stores $`\mathrm{fl}(x) = x(1+\epsilon)`$ with $`|\epsilon
 u_{32} = 2^{-24} \approx 5.96\times10^{-8} \qquad\text{(float32, 24-bit significand)},
 ```
 ```math
-u_{64} = 2^{-53} \approx 1.11\times10^{-16} \qquad\text{(float64, 53-bit significand)}. \tag{35}
+u_{64} = 2^{-53} \approx 1.11\times10^{-16} \qquad\text{(float64, 53-bit significand)}. \qquad\text{(35)}
 ```
 
 The spacing ("ulp") between adjacent float32 numbers in $`[1/2, 1)`$ — where every decay factor $`d_k = e^{-z}`$
@@ -772,8 +771,7 @@ rate. (Tick positions computed with numpy; see the table in §4.2.)*
 
 ```math
 k_{min} = (\mu/\nu)^{1/4} = (5000)^{1/4} = 8.409, \qquad
-\lambda_{min} = \nu k_{min}^2 + \mu/k_{min}^2 = \sqrt{\nu\mu} + \sqrt{\nu\mu} = 2\sqrt{\mu\nu} = 0.02828
-\tag{36}
+\lambda_{min} = \nu k_{min}^2 + \mu/k_{min}^2 = \sqrt{\nu\mu} + \sqrt{\nu\mu} = 2\sqrt{\mu\nu} = 0.02828 \qquad\text{(36)}
 ```
 
 (computed; both checked against `test_f32_update.py`'s constants). There $`z = \lambda\Delta t = 1.414\times10^{-7} = 2.37`$ ulps: the worst case for storing $`d = e^{-z}`$ in float32.
@@ -807,7 +805,7 @@ predicted spurious source is
 ```math
 \hat s_A = \frac{-\displaystyle\int_0^\tau \sum (\lambda_{\mathrm{eff}} - \lambda)\, a\; dt}
 {\displaystyle\int_0^\tau P\, dt}
-\qquad (\text{fields } A_S,\ A_V = \text{the same sum weighted } 1/|k|), \tag{37}
+\qquad (\text{fields } A_S,\ A_V = \text{the same sum weighted } 1/|k|), \qquad\text{(37)}
 ```
 
 computed exactly along the arm's own trajectory: `energy_budget.py` stores
@@ -844,8 +842,7 @@ $`\lambda(e) = -\ln(1-e)/\Delta t`$ to first order in $`\delta e`$:
 ```math
 \lambda_{\mathrm{eff}} - \lambda \approx \frac{\delta\, e}{(1-e)\,\Delta t}
 \quad\Longrightarrow\quad
-\frac{\lambda_{\mathrm{eff}}}{\lambda} - 1 \approx \delta\cdot\frac{e}{\lambda\Delta t\,(1-e)} \approx \delta,
-\tag{38}
+\frac{\lambda_{\mathrm{eff}}}{\lambda} - 1 \approx \delta\cdot\frac{e}{\lambda\Delta t\,(1-e)} \approx \delta, \qquad\text{(38)}
 ```
 
 since $`e \approx \lambda\Delta t`$ and $`1-e \approx 1`$. So the rate error is bounded by $`u_{32} \approx 6\times 10^{-8}`$ and in practice is the rounding of one number: computed with numpy at $`k = 1, 8.41, 1365`$ it is
@@ -930,7 +927,7 @@ One call of `GD.inner(state, None)` (`A-SQG_data.py:395-403`) does, in order:
 
 ```math
 \hat\psi_k \;=\; \frac{f_0}{N_b}\,\sqrt{\texttt{wv2i}}\;\hat\theta_k, \qquad
-\texttt{wv2i} = \begin{cases} 1/|k|^2 & |k|>0\\ 0 & k=0\end{cases} \tag{S1}
+\texttt{wv2i} = \begin{cases} 1/|k|^2 & |k|>0\\ 0 & k=0\end{cases} \qquad\text{(S1)}
 ```
 
 With $`f_0/N_b = 1`$ (checked: `lean_solver.preconditions` requires `f0_over_Nb_is_1`), (S1) is
@@ -940,7 +937,7 @@ every step inside the loop (a `loop_select_fusion`, 0.07 ms/step; seed-1 README)
 **(b) Spectral velocities** (`_kernel.py:_invert`):
 
 ```math
-\hat u = -\,i k_y\,\hat\psi, \qquad \hat v = +\,i k_x\,\hat\psi \tag{S2}
+\hat u = -\,i k_y\,\hat\psi, \qquad \hat v = +\,i k_x\,\hat\psi \qquad\text{(S2)}
 ```
 
 **(c) Three inverse FFTs.** `state.update(ph=ph, uh=uh, vh=vh)` converts `uh`/`vh` to real space at once
@@ -959,7 +956,7 @@ Forward R2C transforms issue no input copy (job A addendum, notes Part IV).
 
 ```math
 T \;=\; -\Bigl(i k_x\,\widehat{u\theta} + i k_y\,\widehat{v\theta}
-      + \underbrace{i k_x Q_y}_{=\,0}\,\hat\psi\Bigr) \tag{S3}
+      + \underbrace{i k_x Q_y}_{=\,0}\,\hat\psi\Bigr) \qquad\text{(S3)}
 ```
 
 $`Q_y = \beta = 0`$ (`beta=0.0`, `fixed_ring/sqg.py:69`; checked as `ikQy_all_0`), so the third term multiplies
@@ -981,7 +978,7 @@ modes, counting Hermitian mirrors).
 
 ```math
 (\text{level}',\,dt_1,dt_2,dt_3) = \mathrm{lax.switch}(\texttt{\_ablevel},\;[\dots]), \qquad
-\hat\theta^{\,pre} = \hat\theta^n + dt_1 T^n + dt_2 T^{n-1} + dt_3 T^{n-2} \tag{S4}
+\hat\theta^{\,pre} = \hat\theta^n + dt_1 T^n + dt_2 T^{n-1} + dt_3 T^{n-2} \qquad\text{(S4)}
 ```
 
 At level 2 the branch returns $`(2,\ \tfrac{23}{12}\Delta t,\ -\tfrac{16}{12}\Delta t,\ \tfrac{5}{12}\Delta t)`$ —
@@ -1002,8 +999,7 @@ step, because $`\exp(-0\cdot x)`$ is not 1 for $`x = \pm\infty/\mathrm{NaN}`$ (n
 
 ```math
 \hat\theta^{\,n+1} = d_k\,\hat\theta^{pp},\qquad
-d_k = \mathbf{1}[|k| \le K_{max}]\;\exp\!\bigl(-(\nu |k|^2 + \mu\,/|k|^2)\,\Delta t\bigr),\quad d_0 = 1
-\tag{S5}
+d_k = \mathbf{1}[|k| \le K_{max}]\;\exp\!\bigl(-(\nu |k|^2 + \mu\,/|k|^2)\,\Delta t\bigr),\quad d_0 = 1 \qquad\text{(S5)}
 ```
 
 with $`\nu = 2\cdot10^{-4}`$, $`\mu = 1`$, $`\Delta t = 5\cdot10^{-6}`$, $`K_{max} = N/3 = 1365.3\overline{3}`$ — the
@@ -1107,7 +1103,11 @@ and refuses to build if one fails. The numbered items (module docstring):
    bitwise-equal array changes nothing. Saves one dense 134 MB read per step.
 5. **Real decay at run time.** `decay` is passed as a real float64 *argument* (67 MB), not a closure constant,
    so XLA cannot fold it into a 134 MB complex constant. Exactness:
-   $$(a + ib)(d + 0i) = (ad - b\cdot 0) + i(a\cdot 0 + bd) = ad + i\,bd = (a+ib)\,d \tag{S8}$$
+
+   ```math
+   (a + ib)(d + 0i) = (ad - b\cdot 0) + i(a\cdot 0 + bd) = ad + i\,bd = (a+ib)\,d \qquad\text{(S8)}
+   ```
+
    — the complex-times-complex form computes the same two products $`ad`$, $`bd`$ (and subtracts/adds a $`\pm0`$),
    so the stored values are identical.
 6. **Inversion factor evaluated once.** `build_consts` computes `s = (f_0/Nb) * sqrt(wv2i)` with the *same*
@@ -1158,7 +1158,7 @@ $`\cos(x \cdot 0)`$:
 
 ```math
 \texttt{zero} = t \cdot 0 = \pm 0 \ \ (\text{finite } t), \qquad \cos(\pm 0) = 1 \text{ exactly}, \qquad
-s \cdot \cos(x \cdot \texttt{zero}) = s \cdot 1 = s \tag{S9}
+s \cdot \cos(x \cdot \texttt{zero}) = s \cdot 1 = s \qquad\text{(S9)}
 ```
 
 $`x \cdot 0 = \pm 0`$ for every finite $`x`$ (IEEE 754; the sign is the XOR of the signs), and $`\cos`$ at $`\pm 0`$
@@ -1208,7 +1208,7 @@ $`u(x) = \frac{1}{N^2}\sum_k \hat u(k)\, e^{+ik\cdot x}`$ (the inverse-DFT conve
 linearity the complex field $`c = u + iv`$ has coefficients $`\hat c = \hat u + i\hat v`$, and from (S2):
 
 ```math
-\hat u + i \hat v \;=\; -ik_y\hat\psi + i\,(ik_x\hat\psi) \;=\; -(k_x + i k_y)\,\hat\psi \tag{S10}
+\hat u + i \hat v \;=\; -ik_y\hat\psi + i\,(ik_x\hat\psi) \;=\; -(k_x + i k_y)\,\hat\psi \qquad\text{(S10)}
 ```
 
 Define the k-space array $`W(k) = \overline{\hat c(k)}\,/N^2`$ and apply a **forward** DFT to it (treating the
@@ -1217,7 +1217,7 @@ k-indices as if they were spatial — that is what `jnp.fft.fft2` does to any ar
 ```math
 \mathrm{fft2}(W)[x] = \sum_k \frac{\overline{\hat c(k)}}{N^2}\, e^{-ik\cdot x}
 = \overline{\;\frac{1}{N^2}\sum_k \hat c(k)\, e^{+ik\cdot x}\;}
-= \overline{c(x)} = u(x) - i\,v(x) \tag{S11}
+= \overline{c(x)} = u(x) - i\,v(x) \qquad\text{(S11)}
 ```
 
 — every algebra step is conjugation plus the inverse-DFT definition. So **one** forward C2C FFT of
@@ -1231,7 +1231,7 @@ the Hermitian symmetry of a real field's transform, $`\hat\psi(-k) = \overline{\
 
 ```math
 W(k_y, k_x') = \overline{-(k_x' + ik_y)\hat\psi(k)} = (|k_x'| + i k_y)\,\hat\psi(-k)\cdot s,
-\qquad \hat\psi(-k) = \texttt{ph}[(-r) \bmod N,\; N - j] \tag{S12}
+\qquad \hat\psi(-k) = \texttt{ph}[(-r) \bmod N,\; N - j] \qquad\text{(S12)}
 ```
 
 (left half: $`W = -s\,(k_x - ik_y)\,\overline{\hat\psi}`$ directly). The mapping was unit-tested on an 8×8 grid
@@ -1322,7 +1322,7 @@ first (one rounding at $`\theta`$'s scale):
 
 ```math
 \mathrm{inc} = (c_1 T + c_2 T_{-1}) + c_3 T_{-2}, \qquad s = \theta + \mathrm{inc}, \qquad
-\theta' = s - e\,s \tag{S13}
+\theta' = s - e\,s \qquad\text{(S13)}
 ```
 
 (`f32_update.plain_update`). Same bytes as `lean32`. It is a **control**: the decrement $`e\,s`$ (1–2 ulps of
@@ -1337,12 +1337,12 @@ complex64 arrays, and the update uses the error-free transformations of Part 4
 ```math
 y = \mathrm{fl}(\mathrm{inc} + \mathrm{lo}),\quad (a, r) = \mathrm{TwoSum}(\mathrm{hi}, y),\quad
 (\mathrm{hi}', r_2) = \mathrm{Fast2Sum}(a, -e a),\quad
-\mathrm{lo}' = \mathrm{fl}\bigl(r_2 + \mathrm{fl}(r - \mathrm{fl}(e r))\bigr) \tag{S14}
+\mathrm{lo}' = \mathrm{fl}\bigl(r_2 + \mathrm{fl}(r - \mathrm{fl}(e r))\bigr) \qquad\text{(S14)}
 ```
 
 ```math
 \Rightarrow\quad \mathrm{hi}' + \mathrm{lo}' = (\mathrm{hi} + \mathrm{lo} + \mathrm{inc})(1 - e)
-+ O(u\,|\mathrm{inc}|) + O(u\,e\,|\theta|) + O(u^2|\theta|) \tag{S15}
++ O(u\,|\mathrm{inc}|) + O(u\,e\,|\theta|) + O(u^2|\theta|) \qquad\text{(S15)}
 ```
 
 (Fast2Sum's precondition $`|ea| \le |a|`$ holds because $`0 \le e \le 1`$; algebra in Part 4.) The per-step state
@@ -1420,8 +1420,7 @@ pattern as (f32-representable neighbour $`a`$) + $`f`$ low bits, $`0 \le f \lt  
 f32 grid iff $`f + r \ge 2^{29}`$, which happens for exactly $`f`$ of the $`2^{29}`$ values of $`r`$, so
 
 ```math
-\mathbb{E}[\mathrm{SR}(u)] = a + (b - a)\,\frac{f}{2^{29}} = u, \qquad b = \text{next f32 away from zero}
-\tag{S16}
+\mathbb{E}[\mathrm{SR}(u)] = a + (b - a)\,\frac{f}{2^{29}} = u, \qquad b = \text{next f32 away from zero} \qquad\text{(S16)}
 ```
 
 using that float64 values between two adjacent float32 numbers are uniformly spaced in both value and bit
@@ -1523,8 +1522,10 @@ reproduced the production frames **bitwise** in o1.2 itself. Extrapolated to o1.
 steps, global batch 224) on **14 A100s / 4 nodes**, with the measured 5 ms DDP cost (job 7815637):
 
 ```math
-\text{ref } 268.4\ \text{h} \;\to\; \text{lean\_u1 } 191.4\ \text{h } (-29\%, \text{ no numerics change})
-\;\to\; \text{lean32ek\_fast } 93.9\ \text{h } (-65\%, \text{ pending item-4 sign-off}) \tag{S17}
+\begin{gathered}
+\text{ref } 268.4\ \text{h} \;\to\; \text{lean\_u1 } 191.4\ \text{h } (-29\%, \text{ no numerics change}) \\
+\;\to\; \text{lean32ek\_fast } 93.9\ \text{h } (-65\%, \text{ pending item-4 sign-off}) \qquad\text{(S17)}
+\end{gathered}
 ```
 
 GPU-hours (3,757 → 2,679 → 1,315) hardly depend on layout; more GPUs buy wall-clock only.
@@ -1538,13 +1539,13 @@ GPU-hours (3,757 → 2,679 → 1,315) hardly depend on layout; more GPUs buy wal
 Molecular dynamics integrates Newton's equations for $`N_p`$ interacting particles:
 
 ```math
-m_i\,\ddot{\mathbf x}_i = \mathbf F_i = -\nabla_{\mathbf x_i} U(\mathbf x_1,\ldots,\mathbf x_{N_p}), \tag{39}
+m_i\,\ddot{\mathbf x}_i = \mathbf F_i = -\nabla_{\mathbf x_i} U(\mathbf x_1,\ldots,\mathbf x_{N_p}), \qquad\text{(39)}
 ```
 
 whose flow conserves the Hamiltonian (in the microcanonical, "NVE" setting — no thermostat):
 
 ```math
-H = K + U = \sum_i \frac{|\mathbf p_i|^2}{2m_i} + U(\mathbf x). \tag{40}
+H = K + U = \sum_i \frac{|\mathbf p_i|^2}{2m_i} + U(\mathbf x). \qquad\text{(40)}
 ```
 
 The standard integrator is **velocity Verlet**:
@@ -1552,7 +1553,7 @@ The standard integrator is **velocity Verlet**:
 ```math
 \mathbf v^{n+1/2} = \mathbf v^{n} + \frac{\Delta t}{2m}\mathbf F(\mathbf x^{n}), \qquad
 \mathbf x^{n+1} = \mathbf x^{n} + \Delta t\, \mathbf v^{n+1/2}, \qquad
-\mathbf v^{n+1} = \mathbf v^{n+1/2} + \frac{\Delta t}{2m}\mathbf F(\mathbf x^{n+1}). \tag{41}
+\mathbf v^{n+1} = \mathbf v^{n+1/2} + \frac{\Delta t}{2m}\mathbf F(\mathbf x^{n+1}). \qquad\text{(41)}
 ```
 
 Verlet is **symplectic**, and a symplectic integrator exactly conserves a nearby "shadow" Hamiltonian, so in exact
@@ -1616,7 +1617,7 @@ quantity" by **failure of the budget to close**. For $`X \in \{\mathrm{SPE}, \ma
 residual
 
 ```math
-R_X(\tau) = X(\tau) - X(0) - \int_0^{\tau}\big(P_X(t) - \varepsilon_X(t)\big)\,dt. \tag{42}
+R_X(\tau) = X(\tau) - X(0) - \int_0^{\tau}\big(P_X(t) - \varepsilon_X(t)\big)\,dt. \qquad\text{(42)}
 ```
 
 For the **exact continuous dynamics** $`R_X \equiv 0`$ identically — that is precisely the content of §1.9: the only
@@ -1624,9 +1625,11 @@ non-budget term, advection, contributes zero by (14)/(15), exactly even under tr
 $`R_X`$ in a numerical run therefore decomposes as
 
 ```math
+\begin{gathered}
 R_X^{\mathrm{numerical}} = \underbrace{R_X^{IF}}_{\text{integrating factor, eq. (33), present in float64}}
-+ \underbrace{R_X^{quad}}_{\text{Simpson error of the integral in (42), §6.7}}
-+ \underbrace{R_X^{prec}}_{\text{floating point: mechanisms A, B, tendency rounding}}. \tag{43}
++ \underbrace{R_X^{quad}}_{\text{Simpson error of the integral in (42), §6.7}} \\
++ \underbrace{R_X^{prec}}_{\text{floating point: mechanisms A, B, tendency rounding}}. \qquad\text{(43)}
+\end{gathered}
 ```
 
 (AB3's own truncation error on the *nonlinear* term is third order in $`\Delta t`$ and enters both arms of a pair
@@ -1642,7 +1645,7 @@ steady state as $`dX/dt = P - \varepsilon(X)`$ with $`\varepsilon`$ increasing i
 and steady state $`\varepsilon(\bar X) = \bar P`$. Add a spurious source $`s\,P`$:
 
 ```math
-0 = \bar P(1 + s) - \frac{\bar P}{\bar X} X' \quad\Longrightarrow\quad X' = \bar X(1 + s): \tag{44}
+0 = \bar P(1 + s) - \frac{\bar P}{\bar X} X' \quad\Longrightarrow\quad X' = \bar X(1 + s): \qquad\text{(44)}
 ```
 
 a spurious source of $`s`$ (as a fraction of injection) shifts the invariant's long-run mean by the fraction $`s`$, to
@@ -1659,7 +1662,7 @@ trajectory*: $`R^{IF} = -\tfrac{\Delta t}{2}\int Q_S[\theta(t)]\,dt`$, $`R^{quad
 s_X = r_X(\mathrm{arm}) - r_X(\texttt{lean\_u1})
 = \big(r^{prec}_{\mathrm{arm}} - 0\big)
 + \underbrace{\big(r^{IF}[\theta_{\mathrm{arm}}] - r^{IF}[\theta_{\mathrm{ref}}]\big)
-+ \big(r^{quad}_{\mathrm{arm}} - r^{quad}_{\mathrm{ref}}\big)}_{O(\delta)}, \tag{45}
++ \big(r^{quad}_{\mathrm{arm}} - r^{quad}_{\mathrm{ref}}\big)}_{O(\delta)}, \qquad\text{(45)}
 ```
 
 where $`\delta(t)`$ is the separation of the two trajectories. The shared terms cancel **to first order in
@@ -1719,7 +1722,7 @@ asserts $`n`$ even and trims an odd deadline-cut tail):
 ```math
 \int_a^b f\,dt \approx \frac{h}{3}\Big(f_0 + 4f_1 + 2f_2 + 4f_3 + \cdots + 4f_{n-1} + f_n\Big),
 \qquad
-\text{error} = -\frac{(b-a)\,h^4}{180}\, f''''(\xi). \tag{46}
+\text{error} = -\frac{(b-a)\,h^4}{180}\, f''''(\xi). \qquad\text{(46)}
 ```
 
 The trapezoid rule ($`h(\tfrac12 f_0 + f_1 + \cdots + \tfrac12 f_n)`$, error $`-\tfrac{(b-a)h^2}{12}f''(\xi)`$) is
