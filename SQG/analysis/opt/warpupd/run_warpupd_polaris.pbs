@@ -1,0 +1,102 @@
+#!/bin/bash -l
+#PBS -N sqg_warpupd
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:59:00
+#PBS -j oe
+# run_warpupd_polaris.pbs -- Warp SIMT kernels inside the JAX lean32ek_fast step (warpupd.py), one A100 (GPU 0).
+# Predictions + rule: SQG/analysis/opt/warpupd/PREDICTIONS_warpupd.md (written first). Production's cuFFT (no preload).
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ \
+#        SQG/analysis/opt/warpupd/run_warpupd_polaris.pbs                       (from the repo root; -q debug-scaling ok)
+# 0. test_summarize_ncu_wu.py.  1. warpupd_probe.py: gates + timing (WU_PROBE_DONE failures=N).
+# 2. Nsight Compute on one 40-step call of lean32ek_fast, warp_compact, warp_simt (first 40 launches; a short metric
+#    list); summarize_ncu_wu.py. Report only: a failed Nsight run does not fail the job.
+# End token: WU_JOB_DONE failures=N. Results -> SQG/analysis/results/polaris_warpupd_<jobid>/.
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+export PYTHONUNBUFFERED=1
+WARP_PATH="${WARP_PATH:-${MEMBER_ROOT}/pylibs/warp-1.17.0}"
+export WARP_CACHE_PATH="${MEMBER_ROOT}/tmp/warp_cache_${JOB}"
+T0=$(date +%s)
+DEADLINE=$(( T0 + 36 * 60 ))                                       # the probe; Nsight runs after it
+OUT="${MEMBER_ROOT}/sqg_profile/warpupd_${JOB}"
+RES="SQG/analysis/results/polaris_warpupd_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT" "$WARP_CACHE_PATH"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+FAILURES=0
+fail() { echo "ERROR $*"; FAILURES=$((FAILURES + 1)); }
+HERE=SQG/analysis/opt/warpupd
+echo "=== run_warpupd on $(hostname) job $JOB: $(date '+%F %T') ==="
+nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee "$OUT/gpu.csv"
+sha256sum "$HERE"/*.py SQG/analysis/opt/warp/warp_xla.py "$HERE"/PREDICTIONS_warpupd.md | tee "$OUT/sha256.txt"
+[ -d "$WARP_PATH/warp" ] || { echo "ERROR WU_WARP_MISSING $WARP_PATH"; echo "WU_JOB_DONE failures=1"; exit 5; }
+LABEL_TAIL="_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02"
+CKPT="${SQG_TRAINING_ROOT}/trainingdata_m01${LABEL_TAIL}/checkpoint/ckpt_t0100.00.npz"
+[ -s "$CKPT" ] || { echo "ERROR WU_CKPT_NOT_STAGED $CKPT"; echo "WU_JOB_DONE failures=1"; exit 5; }
+
+"$PY" "$HERE/test_summarize_ncu_wu.py" 2>&1 | tee "$OUT/test_summarize_ncu_wu.log" || fail WU_NCU_PARSER_TEST
+grep -q "WU_NCU_PARSER_TEST_OK" "$OUT/test_summarize_ncu_wu.log" || fail WU_NCU_PARSER_TEST_NO_TOKEN
+
+"$PY" "$HERE/warpupd_probe.py" --out "$OUT" --ckpt "1:${CKPT}" --warp-path "$WARP_PATH" --deadline "$DEADLINE" \
+    2>&1 | tee "$OUT/warpupd_probe.log" || fail WU_PROBE_RC
+grep -q "WU_PROBE_DONE failures=0" "$OUT/warpupd_probe.log" || fail WU_PROBE_NOT_CLEAN
+grep -E "^(WU_|ERROR)" "$OUT/warpupd_probe.log" || true
+
+# ---- Nsight Compute: the thread-level memory behaviour of each kernel (report only) --------------------------------
+NCU="$(command -v ncu 2>/dev/null || true)"
+[ -n "$NCU" ] || { [ -x /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin/ncu ] && NCU=/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin/ncu; } || true
+[ -n "$NCU" ] || NCU="$(ls -1 /soft/compilers/cudatoolkit/cuda-*/bin/ncu 2>/dev/null | sort -V | tail -1 || true)"
+METRICS="gpu__time_duration.sum,dram__bytes_read.sum,dram__bytes_write.sum"
+METRICS+=",l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum,l1tex__t_requests_pipe_lsu_mem_global_op_ld.sum"
+METRICS+=",l1tex__t_sectors_pipe_lsu_mem_global_op_st.sum,l1tex__t_requests_pipe_lsu_mem_global_op_st.sum"
+METRICS+=",smsp__sass_average_data_bytes_per_sector_mem_global_op_ld.pct,smsp__sass_average_data_bytes_per_sector_mem_global_op_st.pct"
+METRICS+=",launch__registers_per_thread,sm__warps_active.avg.pct_of_peak_sustained_active"
+if [ -z "$NCU" ]; then
+    echo "WARN WU_NCU_NOT_FOUND: Nsight phase skipped"
+else
+    echo "ncu=$NCU $("$NCU" --version 2>&1 | tail -1)"
+    CSVS=()
+    for ARM in lean32ek_fast warp_compact warp_simt; do
+        if [ $(( $(date +%s) - T0 )) -gt $(( 52 * 60 )) ]; then echo "WARN WU_NCU_SKIPPED $ARM (time)"; continue; fi
+        timeout 420 "$NCU" --profile-from-start off --graph-profiling node --launch-count 40 --metrics "$METRICS" \
+            --clock-control none -f -o "$OUT/ncu_${ARM}" \
+            "$PY" "$HERE/warpupd_probe.py" --out "$OUT" --ckpt "1:${CKPT}" --warp-path "$WARP_PATH" --ncu "$ARM" \
+            > "$OUT/ncu_${ARM}.log" 2>&1 || echo "WARN WU_NCU_RC $ARM"
+        grep -E "WU_NCU_DONE|ERR_NVGPUCTRPERM|ERROR" "$OUT/ncu_${ARM}.log" | head -n 5 || true
+        if [ -s "$OUT/ncu_${ARM}.ncu-rep" ]; then
+            "$NCU" --import "$OUT/ncu_${ARM}.ncu-rep" --csv --page raw > "$OUT/ncu_${ARM}_raw.csv" 2>/dev/null \
+                && CSVS+=("$OUT/ncu_${ARM}_raw.csv")
+        fi
+    done
+    if [ ${#CSVS[@]} -gt 0 ]; then
+        "$PY" "$HERE/summarize_ncu_wu.py" "${CSVS[@]}" 2>&1 | tee "$OUT/ncu_summary.log" || echo "WARN WU_NCU_SUMMARY_RC"
+    fi
+fi
+
+for f in "$OUT"/warpupd_probe.json "$OUT"/warpupd_ncu_*.json "$OUT"/*.log "$OUT"/*.summary.json "$OUT"/gpu.csv \
+         "$OUT"/sha256.txt; do
+    [ -e "$f" ] && cp "$f" "$RES"/
+done
+echo "=== end $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+echo "WU_JOB_DONE failures=$FAILURES"

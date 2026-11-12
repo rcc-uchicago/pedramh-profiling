@@ -13,7 +13,8 @@ Modelled on warp/_src/jax/custom_call.py, Warp 1.17.0, Copyright (c) 2024 NVIDIA
 SPDX-License-Identifier: Apache-2.0.
 
 Kernel arguments: inputs first, then outputs, all contiguous Warp arrays. A JAX operand for a wp.array(dtype=vec2f)
-of Warp shape S is a float32 array of shape S + (2,) (vec2d: float64). Scalars are not supported.
+of Warp shape S is a float32 array of shape S + (2,) (vec2d: float64), or a complex64 array of shape S (complex128 for
+vec2d; same bytes, no repacking). Scalars are not supported (bake them into the kernel as closure constants).
 Use:
     call = warp_call(kernel, out_specs=[((N, N, 2), "float32")], launch_dims=(N, B), block_dim=B)
     (y,) = call(x)                       # inside or outside jax.jit / lax.scan
@@ -127,7 +128,9 @@ def _create_primitive():
     capsule = capsule_new(ctypes.cast(_CALLBACK, ctypes.c_void_p).value, b"xla._CUSTOM_CALL_TARGET", None)
     jax.lib.xla_client.register_custom_call_target(TARGET, capsule, platform="gpu")
 
-    ir_types = {"float32": ir.F32Type.get, "float64": ir.F64Type.get}
+    ir_types = {"float32": ir.F32Type.get, "float64": ir.F64Type.get,
+                "complex64": lambda: ir.ComplexType.get(ir.F32Type.get()),
+                "complex128": lambda: ir.ComplexType.get(ir.F64Type.get())}
 
     def lowering(ctx, *args, kid, out_specs, launch_dims, arg_shapes):
         kernel, block_dim = _KERNELS[kid]
@@ -158,11 +161,16 @@ def warp_call(kernel, out_specs, launch_dims, block_dim):
     out_specs = tuple((tuple(int(d) for d in s), str(dt)) for s, dt in out_specs)
     launch_dims = tuple(int(d) for d in launch_dims)
 
-    def warp_shape(arg, jax_shape):
-        vec = getattr(arg.type.dtype, "_shape_", ())
-        if tuple(jax_shape[len(jax_shape) - len(vec):]) != tuple(vec):
-            raise ValueError(f"{kernel.key}.{arg.label}: trailing dims {jax_shape} do not match {vec}")
-        shape = tuple(jax_shape[:len(jax_shape) - len(vec)])
+    def warp_shape(arg, jax_shape, jax_dtype):
+        vec = tuple(getattr(arg.type.dtype, "_shape_", ()))
+        if "complex" in str(jax_dtype):                              # complex64 / complex128 == vec2f / vec2d in memory
+            if vec != (2,):
+                raise ValueError(f"{kernel.key}.{arg.label}: complex operand for a non-vec2 argument")
+            shape = tuple(jax_shape)
+        else:
+            if tuple(jax_shape[len(jax_shape) - len(vec):]) != vec:
+                raise ValueError(f"{kernel.key}.{arg.label}: trailing dims {jax_shape} do not match {vec}")
+            shape = tuple(jax_shape[:len(jax_shape) - len(vec)])
         if len(shape) != arg.type.ndim:
             raise ValueError(f"{kernel.key}.{arg.label}: Warp ndim {arg.type.ndim}, got shape {shape}")
         return shape
@@ -170,7 +178,7 @@ def warp_call(kernel, out_specs, launch_dims, block_dim):
     def call(*args):
         if len(args) != n_in:
             raise ValueError(f"{kernel.key}: {n_in} inputs expected, got {len(args)}")
-        shapes = [warp_shape(a, x.shape) for a, x in zip(kernel.adj.args[:n_in], args)]
-        shapes += [warp_shape(a, s) for a, (s, _) in zip(kernel.adj.args[n_in:], out_specs)]
+        shapes = [warp_shape(a, x.shape, x.dtype) for a, x in zip(kernel.adj.args[:n_in], args)]
+        shapes += [warp_shape(a, s, dt) for a, (s, dt) in zip(kernel.adj.args[n_in:], out_specs)]
         return _PRIM.bind(*args, kid=kid, out_specs=out_specs, launch_dims=launch_dims, arg_shapes=tuple(shapes))
     return call
