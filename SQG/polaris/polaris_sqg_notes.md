@@ -2566,3 +2566,73 @@ What it says:
   near 0.6 ms. That would make the hybrid ≈ 1.8–1.9 ms.
 - Callback-free compact storage in XLA (research #3, bitwise, −0.22 to −0.27 ms).
 - The float64 hybrid as a precision-gate-free path, if float64 is wanted for o1.2.
+
+## D. Warp tile FFTs for rows, cuFFT for columns, one thread per element for the rest (job 7840376): 1.72×
+
+**The user's two points (2026-11-12):**
+- "the algorithm relies on irregular memory access, and the use of wp.tid() allows us to examine the
+  thread-execution";
+- Warp's "Tile-Based FFTs via cuFFTDx … without leaving the [kernel]".
+
+**What earlier jobs said:** tile row FFTs ≈ cuFFT, fused row kernels pay, tile column FFTs are 2× cuFFT's, and cuFFT
+callbacks double the FFT cost.
+
+**So each part goes where it measured well.**
+
+`SQG/analysis/opt/tilerows/` is a standalone step on torch buffers. `test_tilerows_math.py` checked its decomposition
+first (N = 48: p = u − i v to 4.5e-16).
+
+| op | kind | ms |
+|---|---|---|
+| `build_w` on the kept columns (mirrored gather from the compact state) | Warp, one thread per element | 0.147 |
+| forward column FFTs, kept columns only (2 strided batched plans, raw nvmath bindings) | cuFFT | 0.275 |
+| expand the compact θ̂ (C2R scratch) | Warp, one thread per element | 0.079 |
+| C2R → q_u | cuFFT | 0.302 |
+| per row: tile_fft(w row) = p, Z = conj(p) θ, tile_fft(Z) | Warp tile kernel (cuFFTDx) | 0.302 |
+| forward column FFTs, kept columns of Z | cuFFT | 0.276 |
+| Hermitian split + tendency + compensated update (`fuse_fp=False`) | Warp, one thread per element | 0.216 |
+| **total** | | **1.578** (graph 1.562) |
+
+**Run.** debug-scaling, x3207c0s37b0n0, 241 s, `TR_JOB_DONE failures=0`, scored 11 confirmed / 0 refuted. The first
+submission (7840360) measured nothing: Warp 1.17 rejects numpy-scalar closure constants
+("Invalid external reference type: numpy.float32"). The constants are now Python floats.
+
+**Accuracy: the gates pass.**
+- tilerows32 vs `lean_u1` is 1.912e-8 / 2.331e-7 / 1.545e-6 at 1 / 40 / 4,000 steps. `lean32ek_fast`'s is
+  1.939e-8 / 2.270e-7 / 1.460e-6.
+- Band errors at 4,000 steps are 0.97–1.35× `lean32ek_fast`'s.
+- The IF-AB3 variant is likewise against if64.
+
+**Speed** (same A100, same job; cuFFT 11.4.1 preloaded for every arm):
+
+| | ms/step |
+|---|---|
+| `lean32ek_fast` (XLA) | 2.708 |
+| if32 (XLA) | 2.759 |
+| **tilerows32** | **1.578** (1.72×) |
+| **tilerows32_if** | **1.577** (IF costs nothing here) |
+| `lean_u1` (XLA, float64) | 6.400 |
+
+**Per optimizer step** (A100, 12 frames + the 0.40 s ML step):
+- today, `lean32ek_fast` at n = 40: 1.70 s;
+- tilerows32 at n = 40: 1.16 s (1.47×);
+- **tilerows32_if at n = 25: 0.87 s (1.95×)**.
+
+The full o1.2 schedule on 14 A100s becomes ≈ 48 h, against 94 h today (`lean32ek_fast`) and 268 h for production.
+The ML step is then ~46% of the optimizer step.
+
+**What it says.**
+- Warp pays here when it is used for what it is good at:
+  - tile FFTs inside a row kernel that also does the pointwise product (0.30 ms for two FFTs and the product per
+    row);
+  - one-thread-per-element kernels for the irregular gathers.
+- cuFFT keeps the column passes, restricted to the kept 2731 of 4096 columns. That restriction is a saving XLA cannot
+  express.
+- The callback route (C) lost because callbacks slowed cuFFT itself. This route leaves cuFFT's kernels untouched.
+
+**Not yet done:**
+- It is standalone; o1.2's solver is JAX. Integration needs either a JAX custom call around the cuFFT plans and Warp
+  kernels (the bridge exists, 8.6 µs host per call, 8 calls per step), or the solver on the torch side.
+- It ran with cuFFT 11.4.1 preloaded; production's wheel is 11.0.2, so a rerun without the preload is still owed.
+- The statistical gates (A/B/E/D) ran for `lean32ek_fast`. tilerows32's error is the same size, but the gates are
+  not the same test, so the user decides.

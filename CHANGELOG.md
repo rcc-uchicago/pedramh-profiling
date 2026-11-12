@@ -114,6 +114,25 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-12 (night)** — **SQG tile-row step: Warp tile FFTs (cuFFTDx) for rows + cuFFT kept-column passes + Warp
+  one-thread-per-element kernels → 1.578 ms/step vs `lean32ek_fast` 2.708 (1.72×), gates pass (job 7840376;
+  11 confirmed / 0 refuted). Notes Part XVII D.**
+  - The user's prompts: use Warp for the irregular memory access (`wp.tid()`), and use its tile FFTs.
+  - **Design** (`SQG/analysis/opt/tilerows/`, standalone on torch buffers):
+    - Warp per-element kernels: `build_w` with the mirrored gather (0.147 ms), expand (0.079), and the Hermitian split
+      + compensated update (0.216);
+    - cuFFT: strided column FFTs on the kept 2731 columns only (0.275 + 0.276) and the C2R (0.302);
+    - one Warp tile kernel per row: tile_fft → conj(p)·θ → tile_fft (0.302).
+  - **Accuracy:** tilerows32's error equals `lean32ek_fast`'s (2.33e-7 vs 2.27e-7 at 40 steps; bands 0.97–1.35×).
+    The IF-AB3 variant costs nothing (1.577 ms).
+  - **Per optimizer step:** 1.47× at n = 40, **1.95× with IF-AB3 at n = 25** (94 → ~48 h on 14 A100s).
+  - **Caveats:**
+    - standalone: o1.2's JAX solver needs a custom-call integration or a torch-side solver;
+    - ran with cuFFT 11.4.1 preloaded (production wheel 11.0.2: rerun owed);
+    - the statistical gates were run for `lean32ek_fast`, not this step (the user's call).
+  - The first submission (7840360) died on Warp rejecting numpy-scalar constants (fixed; see "Known issues").
+  - The Warp-update 2×2 probe (warpupd, job 7840397) is running.
+
 - **2026-11-12 (evening)** — **SQG round 2 measured: IF-AB3 makes 25 steps/frame admissible (job 7839988), the Warp
   route works on jax 0.4.28 (jobs 7839932, 7840069), and a hybrid cuFFT + callbacks + Warp step is built (job 7840175
   queued). Notes Part XVII.**
@@ -882,6 +901,9 @@ Each is attributed to its source doc — verify there before acting.
     transforms. Its row FFT is near cuFFT (232 vs 206 µs).
   - **FMA contraction:** Warp's module option `fuse_fp` defaults to True. Error-free transforms (TwoSum / Fast2Sum)
     need `module_options={"fuse_fp": False}`.
+  - **Constants:** closure constants must be Python int / float (or Warp types), not numpy scalars. A
+    `np.float32` gives "Invalid external reference type" at parse time (job 7840360). Python floats are typed
+    float32 in kernels.
 
 - **(Polaris, SQG) Fusing the SQG step's pointwise work into cuFFT via LTO callbacks (nvmath-python) is slower at
   4096², not faster** (job 7840175; notes Part XVII C).
