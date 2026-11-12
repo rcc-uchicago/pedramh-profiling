@@ -2131,3 +2131,164 @@ of budget evaluation and checks per 40-step call accounts for that.
   - the ≥ 10-TU climate comparison: ~3.6 h of `lean_u1` per state, a preemptable or capacity job;
   - per-shell budgets;
   - the ML side, which is gate D (capacity job 7835786, running; its write-up becomes Part XV).
+
+# Part XV — Gate D: do rollouts drift, or overfit, when the training data carry `lean32ek`'s bias? (job 7835786, 2026-11-10/11)
+
+**Ask (user, 2026-11-10):** "can we check if rollouts overfit and drift?" The user chose the training dose-response
+and the longer run on `capacity` ("we can submit on capacity"). Gates A and B (Part XII, "Unsealed") sent `lean32ek`
+here: its bias is real and detectable, but ≥ 100× below the gate-B tolerance.
+
+**Run.**
+- **Job:** `SQG/analysis/opt/gateD/run_gateD_polaris.pbs`, 1-node `capacity`, x3004c0s37b0n0, 2026-11-10 22:40 to
+  2026-11-11 23:27 (89,171 s = 24.8 node-h; run_count 1, no restart). It ended `DOSE_JOB_DONE failures=0`.
+  - frames 5,285 s;
+  - training 83,122 s (4 arms in parallel, one per GPU);
+  - rollouts 340–360 s each, best + last per arm;
+  - analysis < 1 min.
+- **Predictions and decision rule:** `SQG/analysis/opt/gateD/PREDICTIONS_gateD.md`, committed before the smoke
+  (smoke 7835759 passed first).
+- **Results:** `SQG/analysis/results/polaris_gateD_7835786/`:
+  - `best/` and `last/dose_summary.json`;
+  - per-arm `*_history.json`, `*_config.json` and logs;
+  - the 16 frame-segment json.
+- **Left on eagle:** frames (~20 GB, `$MEMBER_ROOT/sqg_profile/gateD_frames/`), and checkpoints + rollout npz
+  (`$MEMBER_ROOT/sqg_profile/gateD_v1/`).
+
+## Design (full rule in `PREDICTIONS_gateD.md`; analysis in `analyze_dose.py`'s docstring)
+
+- **Data.** 16 stored `lean_u1` (bitwise production) segments of 1 TU, from the archived checkpoints of members 1–4
+  at t = 100, 200, 300, 400.
+- **Split.** Members 1–3 train (12 segments, 58,812 pairs); member 4 is held out (val, rollout ICs).
+- **Training.** o1.2's UViT, loss, optimiser and OneCycle; 195,250 steps at batch 16 (about 53 passes).
+- **Arms.** Each is trained on the target y + α·B̂(x, y). B̂ is `lean32ek`'s band-level bias pattern.
+
+  | arm | α | seed |
+  |---|---|---|
+  | `a0_sA` | 0 | 1 |
+  | `a0_sB` | 0 | 2 (seed spread) |
+  | `a1000_sA` | 1,000 (≈ plain float32's bias) | 1 |
+  | `a10000_sA` | 10,000 (positive control) | 1 |
+
+- **Rollouts.** 16 member-4 ICs × 2,500 steps (50 TU); best.pt decides, last.pt is reported.
+- **PASS_D** if |Δ_1000(w)|/1000 < 0.1·N(w) in every 5-TU window, for E_low and all 8 bands. N(w) = max(seed
+  spread, 2·SE_IC).
+
+## Validity: all checks pass
+
+- **Frames.** 16/16 segments bitwise equal to job 7824121's production frames at frames 0, 100, 200, 300 and 400.
+- **Harness test.** `GATED_TEST_OK`:
+  - pattern round trip 1.2e-14;
+  - Parseval and indexing checks;
+  - torch `bias_hat` vs numpy rel 5.5e-7 (float32).
+- **Training.** All 4 arms finished 195,250 steps with no NaN or error lines.
+- **Stability.** 0/16 ICs blew up in all 8 rollouts. All 2,500 steps and 10/10 windows are usable.
+- **Power (the positive control).**
+  - |Δ_10000| > N in 52/90 window-band cells on best.pt (E_low 9/10) and 71/90 on last.pt.
+  - *Post hoc (not pre-registered):* Δ_10000 has the same sign in 10/10 windows in every band, on both checkpoints.
+    The sign follows the injected α_b in the 6 bands below k = 64: energy removed at k < 16, added at 16–64. The two
+    dissipation-range bands (k ≥ 64) go the other way.
+  - At α = 1,000 the sign is mixed (|Δ_1000| ≤ N in 80/90 cells on best.pt), and the 10,000/1,000 ratio scatters
+    (−17 to +6 in window 0). The α = 1,000 effect is below the test's resolution.
+  - So the test can see a learned bias at 10,000×, but not at 1,000×.
+
+## Results
+
+**Training** (`DOSE_OVERFIT`; s/step = mean over the 79 val intervals):
+
+| arm | val_clean min (step) | final / min | train final | val / train | best.pt step | s/step |
+|---|---|---|---|---|---|---|
+| `a0_sA` | 0.005540 (160,000) | 1.0035 | 0.001638 | 3.39 | 160,000 | 0.4249 |
+| `a0_sB` | 0.005592 (165,000) | 1.0022 | 0.001679 | 3.34 | 165,000 | 0.4254 |
+| `a1000_sA` | 0.005534 (160,000) | 1.0002 | 0.001612 | 3.43 | 160,000 | 0.4249 |
+| `a10000_sA` | 0.005557 (195,000) | 1.00001 | 0.001644 | 3.38 | 195,000 | 0.4249 |
+
+- **Seed spread vs dose.** The two seeds differ by 0.9% in val_clean. The doses move it by −0.1% (α = 1,000) and
+  +0.3% (α = 10,000), both inside the seed spread.
+- **No overfitting.** Val flattens after ~160,000 steps. The val/train gap of ~3.4 is steady and does not grow.
+
+**Rollout drift, best.pt (deciding).** R = E/E_clim − 1 per 5-TU window; ranges are over the 10 windows.
+
+| quantity | R_0A (model's own) | N(w) | Δ_1000 | Δ_10000 | windows \|Δ_10000\| > N | max real-bias effect | max real / (0.1 N) |
+|---|---|---|---|---|---|---|---|
+| E_low | −0.257 to −0.163 | 0.062–0.218 | −0.084 to +0.014 | −0.281 to −0.136 | 9/10 | 8.4e-05 | 0.009 |
+| k1-2 | −0.129 to +0.086 | 0.106–0.193 | −0.048 to +0.237 | −0.452 to −0.085 | 8/10 | 2.4e-04 | 0.018 |
+| k2-4 | −0.264 to −0.164 | 0.063–0.221 | −0.094 to +0.008 | −0.281 to −0.138 | 9/10 | 9.4e-05 | 0.010 |
+| k4-8 | −0.215 to −0.115 | 0.095–0.425 | −0.087 to −0.009 | −0.307 to −0.162 | 3/10 | 8.7e-05 | 0.009 |
+| k8-16 | −0.109 to −0.040 | 0.099–0.297 | −0.043 to +0.058 | −0.152 to −0.053 | 0/10 | 5.8e-05 | 0.002 |
+| k16-32 | +0.010 to +0.091 | 0.033–0.084 | −0.019 to +0.074 | +0.038 to +0.199 | 10/10 | 7.4e-05 | 0.017 |
+| k32-64 | −0.018 to +0.061 | 0.042–0.184 | −0.031 to +0.067 | +0.099 to +0.269 | 10/10 | 6.7e-05 | 0.015 |
+| k64-128 | −0.352 to −0.307 | 0.055–0.136 | −0.034 to +0.015 | +0.027 to +0.102 | 1/10 | 3.4e-05 | 0.005 |
+| k128-182 | −0.722 to −0.703 | 0.017–0.047 | −0.022 to −0.003 | +0.010 to +0.039 | 2/10 | 2.2e-05 | 0.009 |
+
+**last.pt (reported).** Also PASS_D.
+- The largest real / (0.1 N) is 0.032 (k8-16), a 31× margin.
+- The largest real-bias effect is 4.1e-4 (k2-4).
+- The model's own E_low is −0.161 to −0.072.
+- Late windows have a large seed spread: E_low N reaches 0.80 at 45–50 TU, because the two seeds' last.pt rollouts
+  diverge.
+
+**Absorption κ (one step on the 512 held-out pairs).**
+
+| | κ_1000 | κ_10000 | seed-noise reference (per 1,000 / per 10,000) |
+|---|---|---|---|
+| best.pt | −3.24 | 0.40 | −6.84 / −0.68 |
+| last.pt | −1.70 | 0.73 | −1.98 / −0.20 |
+
+- On best.pt, the cross-seed projection is larger than even the α = 10,000 signal. κ ≥ 0.3 meets the power rule's
+  letter, but on best.pt the power rests on drift.
+- On last.pt, κ_10000 = 0.73 is resolved: 3.7× its seed-noise reference.
+- The paired noise (same seed, different target) was not measured separately. The α = 1,000 Δ's suggest it is about
+  the size of the seed spread: training is chaotic, so pairing does not help much *(inference)*.
+
+**Verdict: PASS_D** on best.pt (and on last.pt). With the injected bias scaled up 1,000×, the extrapolated per-unit
+effect is ≤ 2.4e-4 of a band energy. That is 55× below the pass line (0.1·N) in the tightest window and band.
+
+## Scorecard (`PREDICTIONS_gateD.md`)
+
+- **Confirmed (5):**
+  - **1 (0.9).** 16/16 segments bitwise at frames 0, 100, 200, 300, 400.
+  - **2 (0.8).** All arms finished at 0.4249–0.4254 s/step mean, inside 0.38–0.46. Per-interval values were
+    0.418–0.469: the first interval (startup) and a couple of others sat just over 0.46.
+  - **4 (0.5).** α = 0 best.pt rollouts: 16/16 finite for 50 TU.
+  - **6 (0.6).** The positive control drifts beyond N in 52/90 cells on best.pt (9/10 windows on E_low).
+  - **7 (0.8).** PASS_D.
+- **Refuted (3):**
+  - **3 (0.6).** No overfitting: final/min = 1.0035 and 1.0022 for the α = 0 arms. Fifty-three passes over 58,812
+    pairs did not overfit this UViT at o1.2's OneCycle.
+  - **5 (0.6).** κ on best.pt = −3.24 and 0.40, not in [0.5, 1.5]. One-step absorption is not resolved at α =
+    1,000: the seed noise projected on B̂ is ~7× the injection. At α = 10,000 it is resolved only on last.pt (0.73).
+  - **8 (0.5).** On best.pt the α = 0 model's own E_low runs 16–26% low (8 of 10 windows beyond −20%). On last.pt it
+    stays within ±20% (−7% to −16%).
+
+## What this means
+
+- **Gate D passes for `lean32ek`.** Training on data with `lean32ek`'s bias does not change how the trained model
+  rolls out, at this training level.
+  - Even at 1,000× the real size, the effect is inside the seed-to-seed noise.
+  - The pass rests on an upper bound set by the test's noise, not on a measured effect. The true effect at 1× is at
+    most ~2.4e-4 of a band energy, and probably much smaller.
+- **The trained model's own errors are 2–3 orders of magnitude larger than any precision effect.**
+  - E_low runs 7–26% low (16–26% on best.pt, 7–16% on last.pt).
+  - The dissipation range loses 31–40% (k 64–128) and 70–73% (k 128–182) of its energy in rollouts.
+  - The seed-to-seed spread alone is 0.9% in val, and the windowed-drift noise floor N(w) is 0.013–0.82.
+  - Model and training choices, not solver precision, set the rollout quality here.
+- **Where the gate chain stands for `lean32ek_fast`** (the pre-set chain; admitting it is the user's call):
+
+  | test | result |
+  |---|---|
+  | gate A | PASS |
+  | gate B | NOT_PASS on detection only (magnitude ≤ 4.4e-6 of Δ, ≥ 100× below tolerance) → gate D |
+  | energy (Part XIV) | PASS_E (≤ 5.5e-6 of the injection; not "as good as double" on VIE) |
+  | gate D | PASS_D |
+
+  - Per `PREDICTIONS_gateD.md`, "With gates A and B, that is the case for admitting `lean32ek_fast`".
+  - Speed (Part XIII, job 7835278): the full o1.2 schedule on 14 A100s is 94 h, vs 191 h for `lean_u1` and 268 h
+    for `ref`.
+- **`lean32ek` is not numerically equal to float64.** Its bias is detectable (gate B: |z| up to 16) and its energy
+  residual is above float64's on VIE (Part XIV). The equivalence shown here is at the trained-model level.
+- **Limits** (as pre-registered):
+  - about 1/14 of o1.2's samples, on 12 TU of training data;
+  - only the band-level bias pattern is injected;
+  - two seeds;
+  - the 1× effect is a linear extrapolation from α = 1,000.
+  - A full-scale o1.2 run is the remaining test, and it is the user's call (Part XIII lists what it needs).

@@ -114,6 +114,38 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-12** — **SQG gate D: capacity job 7835786 DONE (`DOSE_JOB_DONE failures=0`), PASS_D on best.pt and
+  last.pt. Notes Part XV.**
+  - **The ask (user, 11-10).** "can we check if rollouts overfit and drift?": a training dose-response on
+    `capacity` (prereg `SQG/analysis/opt/gateD/PREDICTIONS_gateD.md`, committed first).
+  - **Design.**
+    - 4 o1.2-UViT arms, 195,250 steps each at batch 16, trained on members 1–3 of 16 bitwise `lean_u1` 1-TU
+      segments; member 4 held out.
+    - Targets y + α·B̂ (`lean32ek`'s band bias pattern), α = 0 (2 seeds), 1,000, 10,000 (positive control).
+    - 16 ICs × 50-TU rollouts per arm and checkpoint.
+    - 24.8 node-h on one node, no restart.
+  - **Validity.** All checks pass:
+    - frames 16/16 bitwise vs 7824121;
+    - 0/16 rollouts blown in every arm;
+    - the positive control drifts beyond the noise in 52/90 window-band cells (best.pt), with the same sign in 10/10
+      windows per band, following B̂'s sign for k < 64 (post hoc).
+  - **Result.**
+    - The real-bias effect, extrapolated from α = 1,000, is ≤ 2.4e-4 of a band energy, 55× below the pass line
+      (0.1 × noise); 31× on last.pt.
+    - The α = 1,000 effect itself is inside the seed spread (80/90 cells).
+    - No overfitting: final/min val 1.0035 / 1.0022 for the α = 0 arms.
+    - The trained models' own drift (E_low 16–26% low on best.pt; k ≥ 128 −70%) is 2–3 orders of magnitude above
+      any precision effect.
+    - Scored 5 confirmed / 3 refuted: 3 overfit, 5 κ in [0.5, 1.5] (one-step absorption is noise-dominated on
+      best.pt), 8 E_low within ±20%.
+  - **What it means.**
+    - The pre-set chain for `lean32ek_fast` is now A PASS / B detection-only / energy PASS_E / D PASS_D, which is
+      the prereg's "case for admitting `lean32ek_fast`". Its o1.2 schedule is 94 h vs 191 h (`lean_u1`) on 14 A100s.
+    - Admitting it is the user's call. It is equivalent at the trained-model level, not numerically.
+    - Limits: ~1/14 of o1.2's samples, band-level pattern only, 2 seeds.
+  - **Results** in `SQG/analysis/results/polaris_gateD_7835786/`. Frames, checkpoints and rollouts stay in
+    `$MEMBER_ROOT/sqg_profile/gateD_{frames,v1}/`.
+
 - **2026-11-11** — **SQG MD-style energy-budget test: debug job 7836358 DONE (`ENERGY_JOB_DONE failures=0`),
   PASS_E. Notes Part XIV.**
   - **The ask (user).** "yes do the MD debug job": ANALOGUES.md §2.6's offer.

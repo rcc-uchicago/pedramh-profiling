@@ -1,0 +1,1 @@
+GATED_TEST_OK pattern round trip 1.2e-14; Parseval; indexing; analysis verdicts {'pass': 'PASS_D', 'fail': 'FAIL_D', 'nopower': 'INCONCLUSIVE_NO_POWER'}; torch ok on cuda:0 (bias_hat rel 5.5e-07, energy rel 8.9e-08) (python 3.10.22, numpy 1.26.4)
