@@ -95,18 +95,24 @@ grep -q "VAL_STORE_OK" "$RUN/build_val_store.log" || fail O12_VAL_STORE_NO_TOKEN
 export O12_VAL_STORE="$RUN/val_store" O12_REF_DIR="$REF" O12_MEMBERS=1,2,3,4 \
        O12_BATCH=16 O12_START_PAIRS=600 O12_N_EPOCH=4 O12_STEPS_PER_EPOCH=30 O12_N_VAL=64 O12_BUF=16384 \
        O12_TR_GATE=1 O12_WARP_CACHE="$RUN/warp_cache"
-ARMS=(lean32ek_fast if32_25 tilerows40 tilerows_if25 tilerows_if25_cufft114)
+# arms: O12TR_ARMS ('+'- or space-separated; qsub -v splits on commas) or the default 5. Named tilerows_if25 variants:
+#   _cufft114 = cuFFT 11.4.1 preloaded; _scatter_t / _concat_t = O12_TR_EXPAND=scatter|concat + O12_TR_TIMING=1
+ARMS_SPEC="${O12TR_ARMS:-lean32ek_fast if32_25 tilerows40 tilerows_if25 tilerows_if25_cufft114}"
+read -r -a ARMS <<< "${ARMS_SPEC//+/ }"
 LIMIT=480
 LOGS=()
 if [ "$FAILURES" = "0" ]; then
     for a in "${ARMS[@]}"; do
-        s="${a%_cufft114}"
-        pre=""
-        [ "$a" != "$s" ] && pre="$TK/libnvJitLink.so.12:$TK/libcufft.so.11"
-        echo "=== arm $a (solver $s, preload ${pre:-none}): $(date '+%F %T') (limit $LIMIT s)"
+        s="$a"; pre=""; extra=""
+        case "$a" in
+            tilerows_if25_cufft114) s=tilerows_if25; pre="$TK/libnvJitLink.so.12:$TK/libcufft.so.11" ;;
+            tilerows_if25_scatter_t) s=tilerows_if25; extra="O12_TR_EXPAND=scatter O12_TR_TIMING=1" ;;
+            tilerows_if25_concat_t) s=tilerows_if25; extra="O12_TR_EXPAND=concat O12_TR_TIMING=1" ;;
+        esac
+        echo "=== arm $a (solver $s, preload ${pre:-none}, env ${extra:-none}): $(date '+%F %T') (limit $LIMIT s)"
         mkdir -p "$RUN/$a"
         set +e
-        LD_PRELOAD="$pre" O12_SOLVER=$s O12_OUT="$RUN/$a" timeout --signal=TERM --kill-after=30 "$LIMIT" \
+        env $extra LD_PRELOAD="$pre" O12_SOLVER=$s O12_OUT="$RUN/$a" timeout --signal=TERM --kill-after=30 "$LIMIT" \
             "$PY" -m torch.distributed.run --standalone --nproc_per_node=4 --max_restarts=0 "$HERE/o12_polaris.py" \
             > "$RUN/$a.log" 2> "$RUN/$a.err"
         rc=$?

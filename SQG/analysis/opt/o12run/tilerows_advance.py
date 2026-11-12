@@ -64,6 +64,16 @@ def frame_steps(if_mode, n, first):
     return n - 2 if (if_mode and first) else n
 
 
+def full_from_compact(xp, c, n, nk, km):
+    """The (2 km + 1, km + 1) compact block (rows k_y = -km..-1 then 0..km, tilerows_step.ROW_IDX order) as the
+    (n, nk) rfft half-plane, zero elsewhere: two contiguous row blocks around a zero block, then zero columns. No
+    scatter (job 7840805: the complex128 .at[rows].set expand cost ~26 ms per frame -- suspected, timed in the next
+    job). xp = numpy or jax.numpy."""
+    cc = km + 1
+    mid = xp.zeros((n - 2 * km - 1, cc), dtype=c.dtype)
+    return xp.pad(xp.concatenate([c[km:], mid, c[:km]], axis=0), ((0, 0), (0, nk - cc)))
+
+
 def make(GD, stride, scheme, *, rank=0, log=print, gate=False):
     import jax
     import jax.numpy as jnp
@@ -182,9 +192,33 @@ def make(GD, stride, scheme, *, rank=0, log=print, gate=False):
         return hi, lo, tn, to, outside
 
     @jax.jit
-    def expand(hi, lo):
+    def expand_scatter(hi, lo):                                      # job 7840805's expand
         c = hi.astype(c128) + lo.astype(c128)
         return jnp.zeros((1, N, NK), c128).at[0, rows, :CC].set(c)
+
+    @jax.jit
+    def expand_concat(hi, lo):
+        c = hi.astype(c128) + lo.astype(c128)
+        return full_from_compact(jnp, c, N, NK, TS.KM)[None]
+
+    xmode = os.environ.get("O12_TR_EXPAND", "concat")
+    if xmode not in ("concat", "scatter"):
+        raise SystemExit(f"ERROR O12_TR_EXPAND={xmode!r} not in (concat, scatter)")
+    expand = expand_concat if xmode == "concat" else expand_scatter
+    timing = os.environ.get("O12_TR_TIMING") == "1"
+    T = {"rows": [], "prev_end": None}
+    log(f"O12_TR_EXPAND {scheme} mode={xmode} timing={int(timing)}")
+
+    def timing_row(t0, t1, t2, t3, t4):
+        """Per-frame wall times (ms): entry sync, segment start, solver run (+ its stream sync), hand-off + expand
+        (blocked), and the time spent outside advance() since the previous call (o1.2's coarse dispatch + push)."""
+        out = (t0 - T["prev_end"]) * 1e3 if T["prev_end"] is not None else float("nan")
+        T["rows"].append(((t1 - t0) * 1e3, (t2 - t1) * 1e3, (t3 - t2) * 1e3, (t4 - t3) * 1e3, out))
+        if len(T["rows"]) in (200, 600, 1200):
+            cols = list(zip(*T["rows"][50:]))
+            med = [float(np.nanmedian(c)) for c in cols]
+            log(f"O12_TR_TIMING {scheme} expand={xmode} frames={len(T['rows'])} entry_sync_ms={med[0]:.2f} "
+                f"start_ms={med[1]:.2f} run_ms={med[2]:.2f} handoff_expand_ms={med[3]:.2f} outside_ms={med[4]:.2f}")
 
     def to_torch(x):
         try:
@@ -222,19 +256,31 @@ def make(GD, stride, scheme, *, rank=0, log=print, gate=False):
         return frame_steps(if_mode, n, True)
 
     def advance(st):
+        t0 = time.time()
         torch.cuda.synchronize()                                     # the previous frame's coarse() is done
+        t1 = time.time()
         steps = start(st) if st is not S["last"] else n
+        t2 = time.time()
         solver.run(steps)
         solver.stream.synchronize()
-        qh = expand(to_jax(solver.hi), to_jax(solver.lo))
+        t3 = time.time()
+        a, b = to_jax(solver.hi), to_jax(solver.lo)
+        qh = expand(a, b)
         if "logged" not in path:
             path["logged"] = True
             log(f"O12_TR_PATH {scheme} torch_to_jax={path.get('torch_to_jax')}")
+            if G["on"]:                                              # rank 0: the two expands agree bit for bit
+                eq = bool(jnp.array_equal(expand_concat(a, b), expand_scatter(a, b)))
+                log(f"O12_TR_EXPAND_CHECK {scheme} concat_equals_scatter={eq}")
+        if timing:
+            qh = jax.block_until_ready(qh)
+            timing_row(t0, t1, t2, t3, time.time())
         out = pst.AB3State(state=st.state.update(qh=qh), t=st.t + jnp.float32(stride * DT), tc=st.tc + stride,
                            _ablevel=st._ablevel, _updates=st._updates)
         if G["on"] and not G["done"] and S["segments"] == 1:
             gate_frame(qh)
         S["last"] = out
+        T["prev_end"] = time.time()
         return out
 
     return advance

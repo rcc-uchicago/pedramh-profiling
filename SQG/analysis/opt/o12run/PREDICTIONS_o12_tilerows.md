@@ -63,3 +63,42 @@ expand, DLPack, two syncs).
 - Job: `O12_EXTRAPOLATE_OK`, `O12TR_JOB_DONE failures=N`.
 - Results → `SQG/analysis/results/polaris_o12tr_<jobid>/`.
 - Scoring: `score_o12_tilerows.py` (mechanical, from the logs + `o12_extrapolation.json`).
+
+## Result of job 7840805 (2026-11-12, scored by score_o12_tilerows.py)
+
+- **Score:** 9 confirmed, 4 refuted (5, 6, 7, 11). G_TR and G_RUN pass for every arm.
+- **WORTH fails:** tilerows_if25 1.2222 s/step vs if32_25 1.2404, ratio 0.985 > 0.80. This verdict stands.
+- **Cause, from the fill frames:** 89.2 ms per 40-step frame vs 65.5 ms per 25-step frame. That is 1.58 ms/step
+  (the standalone kernel) plus a fixed ~26 ms per frame in tilerows_advance.py's glue. The JAX arms pay ~1 ms.
+
+## Follow-up (written 2026-11-12, after job 7840805, before the next job): diagnose and remove the glue overhead
+
+**Suspect.** `expand` builds the (1, N, N/2+1) complex128 qh with an XLA scatter (`.at[rows, :CC].set`). Scatter
+of 16-byte elements can take a slow serialised path on the GPU.
+
+**Change.** `full_from_compact`: the same array from two contiguous row blocks around a zero block, then zero
+columns.
+- Pure copies, no scatter.
+- Equals `tilerows_step.from_compact` exactly (numpy test on the login node).
+- `O12_TR_EXPAND=concat` (new default) | `scatter` (job 7840805's).
+
+**Arms** (one debug node, same knobs): `if32_25`, `tilerows_if25` (concat), `tilerows_if25_scatter_t` and
+`tilerows_if25_concat_t`. The `_t` arms set `O12_TR_TIMING=1`. That blocks on expand, so the `_t` arms are for the
+breakdown, not for s_step.
+
+**Rules unchanged.**
+- G_TR and G_RUN as above.
+- WORTH as above: s_step(tilerows_if25) ≤ 0.80 × s_step(if32_25), both from this job.
+- A pass here is a pass for the changed glue, reported next to job 7840805's fail, not in place of it.
+
+| # | prediction | P |
+|---|---|---|
+| F1 | `O12_TR_EXPAND_CHECK concat_equals_scatter=True` | 0.97 |
+| F2 | scatter arm: median `handoff_expand_ms` ≥ 15 (the overhead is the scatter) | 0.60 |
+| F3 | concat arm: median `handoff_expand_ms` ≤ 3 | 0.75 |
+| F4 | tilerows_if25 (concat) s_step ≤ 1.00 (model 0.40 + 12 × (25 × 1.58 + 1.5) ms = 0.89) | 0.60 |
+| F5 | WORTH holds for the concat glue | 0.55 |
+| F6 | if32_25 s_step within 1% of job 7840805's 1.2404 | 0.90 |
+| F7 | G_TR passes for both tilerows_if25 arms that run the gate | 0.95 |
+
+Scoring: `score_o12_tilerows_fix.py --res <dir>` (written before the job).
