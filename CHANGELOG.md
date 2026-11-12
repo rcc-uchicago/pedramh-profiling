@@ -137,6 +137,15 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   - **Code freeze:** `snapshot_src.py` copies SQG/analysis (minus results) + SQG/fixed_ring to
     `$MEMBER_ROOT/sqg_profile/src_stability_497383a2/`; the job runs it (`STAB_SRC`, manifest checked), so worktree
     edits are safe while it waits.
+  - Scoring: `score_stability.py` (P0–P8, self-test OK), written before the run.
+  - **Option C built and queued: job 7840681** (debug: debug-scaling allows 1 queued job per user, and the smoke
+    holds it). Files in `SQG/analysis/opt/o12run/`, commit a07e90a2, snapshot `src_o12tr_a07e90a2`.
+    - `tilerows_advance.py` makes tile-rows (and IF-AB3) o1.2's own per-frame `advance`. Arms: `lean32ek_fast`,
+      `if32_25`, `tilerows40`, `tilerows_if25`, and `tilerows_if25_cufft114`, which settles the owed preload
+      question.
+    - In-situ gate: rank 0's first segment vs float64 of the same scheme.
+    - Predicted: tilerows_if25 0.89 s/step vs 1.71, about 49 h per o1.2 schedule.
+    - `PREDICTIONS_o12_tilerows.md` + `score_o12_tilerows.py` were written first.
 
 - **2026-11-12 (night)** — **SQG tile-row step: Warp tile FFTs (cuFFTDx) for rows + cuFFT kept-column passes + Warp
   one-thread-per-element kernels → 1.578 ms/step vs `lean32ek_fast` 2.708 (1.72×), gates pass (job 7840376;
