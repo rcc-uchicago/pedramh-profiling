@@ -114,6 +114,30 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-12 (late night)** — **SQG 50-TU stability of tile-rows + IF-AB3 at 25 steps/frame: harness reviewed and
+  fixed, smoke 7840661 (debug-scaling, 0.2 TU) + run 7840662 (capacity, 1 node, 6 h) queued from a frozen
+  snapshot.**
+  - The user's choices: option A (50-TU stability) on capacity; "use 2 code reviewers and a fable principal
+    scientist" → workflow wf_8c6d4a2d-cde: ready_with_changes.
+  - **Applied before any run** (`SQG/analysis/opt/stability/`, commits ea0f726c, 497383a2):
+    - a gate at h before the long run: TileRows had only been checked at DT;
+    - every diagnostics sample stored;
+    - stop only on non-finite or CFL_h ≥ 1.0, with production's 0.72 policy a separate verdict;
+    - expected workers, with INCONCLUSIVE ≠ UNSTABLE;
+    - NaN / missing-npz safe analyzer, and a 41-sample window on the frame clock;
+    - archive pass first, per-worker Warp caches, end token on every exit path;
+    - a scope paragraph in PREDICTIONS (200 TU bounds rare aborts only to ~1/67 TU at 95 %).
+  - **Finding (simulation, pre-run):** the review's per-run drift test (|slope| ≤ 2 SE with an estimated N_eff) has
+    6–20 % false positives per run at this run length (τ_I 0.5–3 TU), because the ACF estimate is biased low at
+    N_eff ≈ 7–40.
+    - S3 is now a between-run common-drift t-test (3 dof): 5.0–7.7 % false positives, power 0.8 at 2 sd(b).
+    - The 2 SE test is report-only (`calibrate_s3_2se.py`, `calibrate_s3_common.py`).
+  - **Queues** at submission: capacity 50 queued / 12 running, debug-scaling 16 / 1. The capacity slot is no longer
+    free.
+  - **Code freeze:** `snapshot_src.py` copies SQG/analysis (minus results) + SQG/fixed_ring to
+    `$MEMBER_ROOT/sqg_profile/src_stability_497383a2/`; the job runs it (`STAB_SRC`, manifest checked), so worktree
+    edits are safe while it waits.
+
 - **2026-11-12 (night)** — **SQG tile-row step: Warp tile FFTs (cuFFTDx) for rows + cuFFT kept-column passes + Warp
   one-thread-per-element kernels → 1.578 ms/step vs `lean32ek_fast` 2.708 (1.72×), gates pass (job 7840376;
   11 confirmed / 0 refuted). Notes Part XVII D.**
@@ -893,6 +917,12 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 ## Known issues / failed approaches (do NOT re-attempt)
 
 Each is attributed to its source doc — verify there before acting.
+
+- **(SQG) Per-run drift tests with an estimated autocorrelation time are anti-conservative on 40-TU runs**
+  (`SQG/analysis/opt/stability/calibrate_s3_2se.py`, 2026-11-12).
+  - At τ_I 0.5–3 TU (SPE relaxes in 2.4–3.4 TU, Part XIV) a 40-TU run has N_eff ≈ 7–40, and the truncated ACF sum
+    underestimates g by 16–52 %. |slope| ≤ 2 SE then gives 6–20 % false positives per run.
+  - Use independent runs instead: the between-run t-test is 5.0–7.7 % (`calibrate_s3_common.py`).
 
 - **(Polaris, SQG) NVIDIA Warp + jax 0.4.28: version box and four traps** (jobs 7839932, 7840069; notes Part XVII B).
   - **Version:** only warp-lang ≤ 1.17.0 has the legacy XLA custom call that JAX 0.4.25–0.7.x can use. 1.18 removed
