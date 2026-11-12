@@ -114,6 +114,35 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-12 (evening)** — **SQG round 2 measured: IF-AB3 makes 25 steps/frame admissible (job 7839988), the Warp
+  route works on jax 0.4.28 (jobs 7839932, 7840069), and a hybrid cuFFT + callbacks + Warp step is built (job 7840175
+  queued). Notes Part XVII.**
+  - **Time step (7839988, `TS_VERDICT n_adm=25 valid=True`; 12 confirmed / 2 half / 2 refuted):**
+    - production's dt error is first order (prod80/prod40 0.49–0.51);
+    - IF-AB3 removes it (≥ 10× smaller at n = 40);
+    - IF-AB3 at 25 steps per frame is 2.4–4× more accurate than production at 40 in every band (worst 0.41, sub).
+    - CFL_max at DT is 0.379, so n = 25 gives 0.607 vs the 0.72 abort (production-sampled 0.42 would give 0.672);
+      n = 20 fails CFL.
+    - Projection 1.38–1.40× per optimizer step (94 → 68 h).
+    - Costs +1.8% per float32 step, and float32 precision is unchanged (ratio 0.99–1.01).
+    - Adopting it shifts o1.2's targets by ≈ production's own dt error. That is the user's call; long-run stability at
+      n = 25 is untested.
+  - **Warp (user's suggestion):**
+    - warp-lang 1.17.0's legacy custom-call path, via our `warp_xla.py`, works on jax 0.4.28: `BRIDGE_OK`, 8.6 µs
+      per call.
+    - Round 1's four failures were our bugs, now in "Known issues".
+    - Round 2: `GO_F32` (projection 1.578 ms) / `GO_F64` (1.763 ms).
+    - Warp's column FFT is 2× cuFFT's, so FFTs stay in cuFFT.
+  - **Ecosystem survey:** no Warp QG/SQG/climate solver exists. XLB (LBM) reports Warp ≈ 8× JAX; pyspectral uses
+    Warp around `torch.fft`; nvmath-python offers cuFFT LTO callbacks written in Python.
+  - **Hybrid build (`SQG/analysis/opt/hybrid/`; user: "start building it"):**
+    - 3 cuFFT calls with fused nvmath callbacks (`build_w` on load, θ̂ read on load, conj(p)θ on load with a kept-mode
+      store) and 1 Warp update kernel on the compact block;
+    - float32 = `lean32ek`'s compensated update (`fuse_fp=False`), optional IF-AB3; float64 = `lean_u1`'s;
+    - index algebra verified on the callbacks' own source (`test_hybrid_math.py`);
+    - gates G32 / GIF / G64 preregistered; job 7840175 (debug) is queued.
+  - **Not done:** the solver/ML overlap retest (`profile_overlap.py` knows only ref/fixed).
+
 - **2026-11-12** — **SQG solver speed, research round 2 (workflow wf_1a24fad4-309; no jobs). Notes Part XVI;
   write-up `SQG/analysis/opt/research_2026-11-12/SOLVER_SPEED_RESEARCH.md`.**
   - **Method.** 5 tracks (codebases, FFT kernels, time stepping, XLA-reachable, frontier), each adversarially
@@ -829,6 +858,22 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 ## Known issues / failed approaches (do NOT re-attempt)
 
 Each is attributed to its source doc — verify there before acting.
+
+- **(Polaris, SQG) NVIDIA Warp + jax 0.4.28: version box and four traps** (jobs 7839932, 7840069; notes Part XVII B).
+  - **Version:** only warp-lang ≤ 1.17.0 has the legacy XLA custom call that JAX 0.4.25–0.7.x can use. 1.18 removed
+    it, and the FFI wrappers need JAX ≥ 0.5. Warp's own legacy `jax_kernel` hard-codes block_dim 256 and
+    launch-dim-shaped outputs, so it cannot run tile kernels; use `SQG/analysis/opt/warp/warp_xla.py`.
+  - **Custom-call name:** jaxlib 0.4.28's `register_custom_call_target` takes the target name as `str`, not `bytes`.
+  - **Tile storage:** a tile has one storage class per kernel. Transposing an FFT'd register tile moves it to shared
+    memory and `tile_fft` stops compiling. Transpose a `tile_map(ident, ·)` copy instead.
+  - **Vector class:** `wp.vec2f(...)` inside a `@wp.func` returns an anonymous `vector(2, float32)` class, which
+    `tile_fft` rejects. Build results from a typed argument (`r = p * 0.0`, then set components).
+  - **Limits:** register tiles of (K, 4096) at 512–1,024 threads, and R ≥ 4 row tiles, exceed the register limit.
+    Strips with K = 4 need 147–279 KB of shared memory.
+  - **Speed, not a bug:** Warp's column FFT is 2× cuFFT's (694 vs 348 µs, complex64 4096²). Keep cuFFT for
+    transforms. Its row FFT is near cuFFT (232 vs 206 µs).
+  - **FMA contraction:** Warp's module option `fuse_fp` defaults to True. Error-free transforms (TwoSum / Fast2Sum)
+    need `module_options={"fuse_fp": False}`.
 
 - **(Polaris, SQG env) NCCL over CXI with torch 2.3.1's bundled NCCL 2.20.5 + aws-ofi-nccl v1.6.0 +
   `NCCL_NET_GDR_LEVEL=PHB` fails at connect.**

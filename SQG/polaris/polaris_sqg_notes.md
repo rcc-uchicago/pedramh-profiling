@@ -2329,3 +2329,177 @@ sources and re-did the arithmetic against Part X. No jobs were run. The full wri
 2. compact storage (bitwise);
 3. the custom-FFT route (legacy custom call vs JAX/torch upgrade; clean-room vs LGPL);
 4. the overlap retest.
+
+# Part XVII — Round 2 measured: the time step (IF-AB3) and a Warp custom FFT (2026-11-12)
+
+**Ask (user, 2026-11-12):** "continue" after Part XVI, then "another way of doing the custom FFT is using nvidia warp".
+Two preregistered 1-node debug probes:
+- the time-step probe, `SQG/analysis/opt/timestep/` (Part XVI's proposed first job);
+- the Warp probe, `SQG/analysis/opt/warp/`.
+Both predictions files were committed before submission.
+
+## A. The time step: IF-AB3 makes 25 steps per frame admissible (job 7839988)
+
+**Run.**
+- **Job:** debug, x3001c0s7b0n0, 479 s, `TS_JOB_DONE failures=0`. Results: `SQG/analysis/results/polaris_timestep_7839988/`.
+- **States:** archived checkpoints with o1.2's loader. Ladder: member 1 t=100, member 2 t=200, member 3 t=300.
+  CFL scan: all 16 staged states.
+- **Method:** one 0.02 lag at h = 2e-4/n for production's AB3 (`prod`) and the exact integrating-factor AB3 (`if`:
+  the two older tendencies times E and E²).
+  - n ∈ {80, 40, 32, 28, 25, 20}; the reference is `if` at n = 160.
+  - Error per band = rms(Δ_arm − Δ_ref) / rms(Δ_ref), on o1.2's sub frames (kept float64) and alias-free frames.
+- **Rule** (`PREDICTIONS_timestep.md`): IF at n is admissible if it is no less accurate than production at 40 in every
+  band, on both frame kinds and all 3 states, and if CFL_max · 40/n ≤ 0.72.
+
+**Verdict: `TS_VERDICT n_adm=25 valid=True`.**
+
+**Validity.**
+- The run-time-weight production step equals `lean_u1` **bitwise** on all 3 states.
+- The reference is adequate: e(if80) ≤ 0.1 e(prod40) everywhere.
+
+**Errors in the 0.02 delta** (largest of the 3 states per band):
+
+| e_Δ | k 1–2 | k 2–4 | k 4–8 | k 8–16 | k 16–32 | k 32–64 | k 64–128 | k 128–182 |
+|---|---|---|---|---|---|---|---|---|
+| prod40 sub | 6.98e-05 | 3.28e-05 | 2.48e-05 | 2.57e-05 | 3.22e-05 | 7.11e-05 | 1.78e-04 | 2.69e-04 |
+| if40 sub | 4.55e-06 | 2.04e-06 | 9.06e-07 | 1.08e-06 | 2.07e-06 | 6.26e-06 | 1.79e-05 | 2.36e-05 |
+| if28 sub | 1.34e-05 | 5.95e-06 | 2.63e-06 | 3.11e-06 | 6.03e-06 | 1.83e-05 | 5.23e-05 | 6.89e-05 |
+| if25 sub | 1.88e-05 | 8.33e-06 | 3.68e-06 | 4.34e-06 | 8.42e-06 | 2.55e-05 | 7.32e-05 | 9.64e-05 |
+| if20 sub | 3.67e-05 | 1.61e-05 | 7.03e-06 | 8.25e-06 | 1.61e-05 | 4.89e-05 | 1.41e-04 | 1.85e-04 |
+| prod40 af | 2.18e-06 | 3.62e-07 | 1.18e-07 | 2.17e-07 | 1.66e-06 | 9.96e-06 | 3.59e-05 | 8.35e-05 |
+| if25 af | 7.99e-10 | 2.37e-09 | 4.40e-09 | 2.30e-08 | 1.37e-07 | 1.26e-06 | 5.76e-06 | 1.57e-05 |
+
+**Worst ratio e(if n)/e(prod40) over the 3 states** (≤ 1 = no less accurate than today):
+
+| | k 1–2 | k 2–4 | k 4–8 | k 8–16 | k 16–32 | k 32–64 | k 64–128 | k 128–182 |
+|---|---|---|---|---|---|---|---|---|
+| n = 40 sub | 0.073 | 0.062 | 0.077 | 0.062 | 0.072 | 0.088 | 0.100 | 0.088 |
+| n = 28 sub | 0.214 | 0.182 | 0.224 | 0.179 | 0.209 | 0.257 | 0.293 | 0.256 |
+| n = 25 sub | 0.301 | 0.254 | 0.312 | 0.249 | 0.292 | 0.359 | 0.410 | 0.358 |
+| n = 20 sub | 0.587 | 0.491 | 0.598 | 0.474 | 0.559 | 0.688 | 0.789 | 0.688 |
+| n = 25 af | 0.001 | 0.007 | 0.043 | 0.106 | 0.083 | 0.126 | 0.161 | 0.188 |
+| n = 20 af | 0.001 | 0.013 | 0.084 | 0.207 | 0.162 | 0.246 | 0.313 | 0.366 |
+
+What it says:
+- **Production's dt error is all first order:** e(prod80)/e(prod40) = 0.493–0.513 (sub), 0.500–0.502 (af). This
+  confirms Part XII's P5 with a converged reference.
+- **IF-AB3 removes it.**
+  - At the same n = 40 the error drops ≥ 10× on sub frames (worst band ratio 0.100, best 0.008) and ≥ 22× on
+    alias-free frames.
+  - What remains is third order: e(if80)/e(if40) = 0.111–0.115 on sub, against 0.125 for h³.
+- **IF-AB3 at 25 steps per frame is 2.4–4× more accurate than production at 40 in every band** (worst 0.41, sub,
+  k 64–128, on member 3 t=300). At 20 steps it is still more accurate (worst 0.79), but the CFL rules it out.
+- **CFL.**
+  - The largest CFL at DT is 0.379, over 22 samples: the 16 states, the 3 ladder states, and 399 samples along each
+    reference run (member 3 t=300 is the high one).
+  - It scales to 0.607 at n = 25 and 0.759 at n = 20, against the 0.72 abort.
+  - **Margin at n = 25 is thin.** A-SQG_data.py's production-sampled 0.42 would give 0.672 at n = 25; the synthetic
+    0.45 would give exactly 0.72.
+- **Adopting IF-AB3 changes o1.2's targets** by 0.98–1.03× production's own dt error, already at n = 40. That is up to
+  7e-5 of Δ at k 1–2 and 2.7e-4 at k 128–182 (sub).
+  - The k 1–2 shift is ≈ 16× `lean32ek`'s largest learnable bias (4.4e-6, sub, k 2–4; Part XII), so gate B's
+    detection test would flag it.
+  - The shift is toward the converged solution.
+- **Cost of the IF factors:**
+  - float32 if32 is 2.752 ms vs `lean32ek_fast` 2.703 (+1.8%);
+  - float64 if_rt is 6.922 vs 6.439 ms (+7.5%).
+- **Float32 precision is unchanged:** e(if32 vs if64) / e(`lean32ek_fast` vs `lean_u1`) = 0.99–1.01 in every band.
+- **Projection:** at n = 25 an optimizer step is 1.402× faster at `lean32ek_fast` speed, or 1.38× with if32's
+  measured +1.8%. That is 94 → 68 h for o1.2's full schedule on 14 A100s; n = 28 gives 1.28× (73.5 h).
+- **Batched RFFT (research #4):**
+  - XLA lowers a leading-dim-2 `rfft2` to one batch-2 FFT op, bitwise equal to two separate transforms.
+  - The measured saving, 241 µs, is inflated: my two-call arm sliced `x[0]` / `x[1]`, which copies.
+  - Against the Warp job's clean single `rfft2` (309.7 µs × 2) the saving is ≈ 41 µs (post-hoc comparison).
+- **Not tested:** long-run stability at n = 25. This run covers 0.02 TU. A 50-TU rollout, like gate D's, comes before
+  any o1.2 run.
+
+**Scorecard (`score_timestep.py`): 12 confirmed / 2 half / 2 refuted.**
+
+| # | verdict | detail |
+|---|---|---|
+| 1 | confirmed | rel 0, bitwise on all 3 states |
+| 2 | confirmed | VALID |
+| 3 | confirmed | first order: 0.493–0.513 / 0.500–0.502; ladder within ±20% of 40/n |
+| 4 | **refuted** | e(if40)/e(prod40) ≤ 0.1 everywhere except 0.1001 (member 3, sub, k 64–128) |
+| 5 | half | third order on sub (0.111–0.115); af reaches 0.645 where errors are ~1e-11 (float64 floor) |
+| 6–8 | confirmed | ACC_OK at n = 28, 25, 20 |
+| 9 | confirmed | every run finite, n = 20 included |
+| 10 | confirmed | CFL_max 0.379 ≤ 0.45; n = 25 passes, n = 20 fails |
+| 11 | confirmed | n_adm = 25 |
+| 12 | confirmed | adopting IF shifts Δ by 0.98–1.03× prod's error |
+| 13 | half | float32 +1.8% (≤ 2%), float64 +7.5% |
+| 14 | confirmed | float32 ratio 0.99–1.01 |
+| 15 | confirmed | one batch-2 fft op |
+| 16 | **refuted** | 241 µs measured, outside 20–80 µs; the arm is contaminated by slice copies |
+
+## B. A custom FFT through NVIDIA Warp (jobs 7839932, 7840069)
+
+**Why Warp.**
+- Part XVI's custom-FFT routes were blocked by jax 0.4.28 having no FFI. Warp ≤ 1.17.0 still ships a legacy XLA
+  custom call (JAX 0.4.25–0.7.x); 1.18 removed it, and its FFI wrappers need JAX ≥ 0.5.
+- Warp kernels are written in Python and JIT-compiled to CUDA (NVRTC). `wp.tile_fft` is cuFFTDx, linked through
+  libmathdx.
+- warp-lang 1.17.0 lives in `$MEMBER_ROOT/pylibs/warp-1.17.0` (pip `--target`); sqg-env is unchanged.
+- Warp's own bridge hard-codes block_dim 256 and launch-dim-shaped outputs, so `warp_xla.py` re-implements the
+  legacy custom call for tile kernels. It is modelled on Warp's Apache-2.0 `custom_call.py`.
+
+**Round 1 (7839932) had four bugs, all in our code:**
+1. jaxlib 0.4.28's `register_custom_call_target` needs a `str` name, not `bytes`.
+2. Transposing an FFT'd register tile moves it to shared memory for the whole kernel, so `tile_fft` stops compiling.
+3. `wp.vec2f(...)` inside a `@wp.func` returns an anonymous vector class that `tile_fft` rejects.
+4. 512/1,024-thread blocks exceed the register limit.
+
+The fixes went in with a dated addendum before round 2; rule and thresholds unchanged.
+
+**Round 2 (7840069): `BRIDGE_OK`, `WARP_VERDICT GO_F32 / GO_F64`** (A100, 4096², per pass; copy = 1,360 GB/s):
+
+| | Warp | cuFFT (torch) |
+|---|---|---|
+| row FFT complex64 | 231.7 µs (85% of copy) | 206.1 µs |
+| row FFT complex128 | 563.5 µs (69%) | 401.4 µs |
+| column FFT complex64, best (`tstore`, K 1) | 694.2 µs (28%) | 347.6 µs |
+| column FFT complex128, best (`tstore`, K 1) | 802.1 µs (49%) | 676.6 µs |
+| fused 3-FFT row kernel complex64 | 548.5 µs (54%) | — |
+| 32 × 32 transpose complex64 | 216.7 µs (91%) | — |
+
+- **The bridge works on jax 0.4.28.**
+  - The row FFT under `jit` matches `jnp.fft` to 1.9e-7; a 50-iteration `lax.scan` matches the jnp loop to 4.2e-6.
+  - Host cost: 8.6 µs per custom call, one Python callback per call (XLA does not capture it).
+- **Accuracy:** Warp's complex64 FFT error vs complex128 is 1.9e-7 (rows) and 2.8e-7 (2-D), against torch cuFFT's
+  2.7e-7 / 4.0e-7.
+- **Projection** (the pre-registered byte model of a fused 3-kernel step):
+  - float32 1.578 ms, inside the 1.6 ms bar by 1.4%;
+  - float64 1.763 ms, inside the 2.70 ms bar.
+  - Both rest on Warp's slow column pass.
+- **Warp's column FFT is 2× slower than cuFFT's.** One 8-byte element per 32-byte sector. Wider strips need more
+  shared memory: K = 4 needs 147 KB (`tstore`, ran at 23% of copy) to 279 KB (`strided`, refused at launch).
+- The float64 `tstore` column time moved 13% between rounds (923.8 → 802.1 µs, different nodes); the projection
+  uses round 2's. The float32 row and column times reproduced within 0.4% (P20).
+- **Scores:** round 1, 7 confirmed / 3 half / 0 refuted / 4 untested. Round 2 (P1–P20), 11 / 4 / 4 / 1 untested.
+  Refuted: P8 / P18 (fused 54%, not ≥ 60%), P14 (the float64 projection came out *faster* than 1.8–3.5 ms),
+  P16 (fixed `col_strided` 2× `tstore`).
+
+**What this says.** Warp's rows match cuFFT, but its columns do not. So the next build keeps cuFFT for all transforms
+and fuses around it (C below), rather than writing the FFTs in Warp.
+
+**Ecosystem survey (user's ask, web).**
+- No QG / SQG / ocean / climate solver on Warp was found.
+- **XLB** (Autodesk, lattice Boltzmann): Warp ≈ 8× its own JAX backend on one A100. That is a memory-bound stencil,
+  where XLA leaves performance; our step's pointwise fusions already run at 78–89% of peak.
+- **pyspectral** (MIT; pseudo-spectral 2-D/3-D NS, IF-RK4): its "warp/fused" variant is Warp for the pointwise math
+  around `torch.fft`, at 77% of an FFT roofline, vs 102% for hand CUDA C (4096², laptop GPU).
+- **nvmath-python** (NVIDIA): cuFFT with load/store callbacks written in Python, compiled to LTO-IR and fused into
+  cuFFT's own kernels. That is research item #7 without C++.
+
+## C. The hybrid step: cuFFT + fused callbacks + one Warp kernel (job 7840175, queued)
+
+Built on the user's word ("start building it while we wait"). `SQG/analysis/opt/hybrid/`;
+`PREDICTIONS_hybrid.md` was written first, and `test_hybrid_math.py` passed on the login node.
+- **Transforms:** three cuFFT calls per step, with LTO callbacks (nvmath-python 1.0.0 + numba-cuda 0.30.4):
+  1. `build_w` fused into the first C2C's load;
+  2. θ̂ read through the C2R's load (no input copy);
+  3. conj(p)·θ formed in the last C2C's load, which stores only the kept modes.
+- **Update:** one Warp kernel does the Hermitian split, the tendency and `lean32ek`'s compensated update (or IF-AB3,
+  or `lean_u1`'s float64 update) on the compact kept block.
+- **Gates:** G32 / GIF ≤ min(1e-4, 2× today's float32 error) at 1 and 40 steps; G64 ≤ 1e-12 at 1 step.
+- Results: pending.
