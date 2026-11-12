@@ -81,6 +81,10 @@ nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee
 grep -q "O12_TEST_OK" "$RUN/test_o12run.log" || fail O12_TEST_NO_TOKEN
 "$PY" "$HERE/test_tilerows_advance.py" 2>&1 | tee "$RUN/test_tilerows_advance.log" || fail O12_TR_TEST
 grep -q "O12_TR_TEST_OK" "$RUN/test_tilerows_advance.log" || fail O12_TR_TEST_NO_TOKEN
+# o1.2 imports its model from its own directory (job 7840681: the snapshot lacked model_UViT.py, every arm died)
+(cd SQG && "$PY" -c "import model_UViT; print('O12_MODEL_IMPORT_OK')") 2>&1 | tee "$RUN/model_import.log" \
+    || fail O12_MODEL_IMPORT
+grep -q "O12_MODEL_IMPORT_OK" "$RUN/model_import.log" || fail O12_MODEL_IMPORT_NO_TOKEN
 
 # ---- 2. the val store ----------------------------------------------------------------------------------------------
 "$PY" "$HERE/build_val_store.py" --ref-dir "$REF" --out "$RUN/val_store" 2>&1 | tee "$RUN/build_val_store.log" \

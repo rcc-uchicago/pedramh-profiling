@@ -1,6 +1,7 @@
 """snapshot_src.py -- freeze the code a queued job will import (SQG/analysis minus results/, SQG/fixed_ring, and
-o1.2's own file) into <dest>, with MANIFEST.sha256 and the git commit, so edits to the worktree between qsub and job
-start cannot change the job. Standard library only (run from the repo root on a login node).
+every SQG/*.py: o1.2 and model_UViT.py) into <dest>, with MANIFEST.sha256 and the git commit, so edits to the
+worktree between qsub and job start cannot change the job. Standard library only (run from the repo root on a login
+node).
 
   python3 SQG/analysis/opt/stability/snapshot_src.py <dest>
   qsub -v STAB_SRC=<dest> ... run_stability_polaris.pbs          (or O12_SRC=<dest> ... run_o12_tilerows_polaris.pbs)
@@ -12,7 +13,7 @@ import subprocess
 import sys
 
 TREES = ("SQG/analysis", "SQG/fixed_ring")
-FILES = ("SQG/o1.2-TrainUViT_m16_tendency.py",)                       # o12run/o12_polaris.py reads it from SQG/
+TOP = "SQG"                       # every SQG/*.py: o1.2 itself and its siblings (model_UViT.py; job 7840681 lacked it)
 SKIP_DIRS = {"results", "__pycache__"}
 
 
@@ -22,9 +23,9 @@ def sources():
             dn[:] = sorted(d for d in dn if d not in SKIP_DIRS)
             for f in sorted(fn):
                 yield os.path.join(dp, f)
-    for f in FILES:
-        if os.path.exists(f):
-            yield f
+    for f in sorted(os.listdir(TOP)):
+        if f.endswith(".py"):
+            yield os.path.join(TOP, f)
 
 
 def main():

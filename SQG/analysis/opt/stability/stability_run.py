@@ -236,17 +236,19 @@ def main():
             DLPack (host copy as the fallback; the path taken is recorded once)."""
             solver.stream.synchronize()
             th = solver.hi.to(torch.complex128) + solver.lo.to(torch.complex128)
-            fullt = torch.zeros((1, N, NK), dtype=torch.complex128, device="cuda")
-            fullt[0, rows_t, :TS.CC] = th
+            # 2-D, then [None] in JAX: a (1, N, NK) tensor's DLPack strides give JAX a non-default layout, which
+            # from_dlpack rejects (smoke 7840661 fell back to a host copy, +0.15 ms/step)
+            fullt = torch.zeros((N, NK), dtype=torch.complex128, device="cuda")
+            fullt[rows_t, :TS.CC] = th
             torch.cuda.synchronize()
             keep["t"] = fullt
             try:
-                out = jax.dlpack.from_dlpack(torch.utils.dlpack.to_dlpack(fullt))
+                out = jax.dlpack.from_dlpack(torch.utils.dlpack.to_dlpack(fullt))[None]
                 res.setdefault("full_qh_path", "dlpack")
                 return out
             except Exception as e:                                   # noqa: BLE001
                 res.setdefault("full_qh_path", f"host_copy ({type(e).__name__}: {str(e)[:120]})")
-                return jnp.asarray(fullt.cpu().numpy())
+                return jnp.asarray(fullt.cpu().numpy())[None]
 
         # 4. the long run
         frames_total = int(round(args.tu / H_FRAME))
