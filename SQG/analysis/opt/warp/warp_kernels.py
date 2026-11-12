@@ -16,16 +16,27 @@ def ident(a: Any):
     return a
 
 
+# conj(p) * q. The result is built from the typed argument (r = p * 0, then its components): a wp.vec2f(...)
+# constructor inside a func returns an anonymous vector(2, float32) class, which tile_fft rejects (it accepts only
+# the vec2f / vec2d classes themselves; job 7839932).
 @wp.func
 def conj_mul_f(p: wp.vec2f, q: wp.vec2f):
-    """conj(p) * q."""
-    return wp.vec2f(p[0] * q[0] + p[1] * q[1], p[0] * q[1] - p[1] * q[0])
+    re = p[0] * q[0] + p[1] * q[1]
+    im = p[0] * q[1] - p[1] * q[0]
+    r = p * float(0.0)
+    r[0] = re
+    r[1] = im
+    return r
 
 
 @wp.func
 def conj_mul_d(p: wp.vec2d, q: wp.vec2d):
-    """conj(p) * q."""
-    return wp.vec2d(p[0] * q[0] + p[1] * q[1], p[0] * q[1] - p[1] * q[0])
+    re = p[0] * q[0] + p[1] * q[1]
+    im = p[0] * q[1] - p[1] * q[0]
+    r = p * wp.float64(0.0)
+    r[0] = re
+    r[1] = im
+    return r
 
 
 def row(T, RR, inverse=False):
@@ -47,6 +58,21 @@ def row(T, RR, inverse=False):
         wp.tile_fft(t)
         wp.tile_store(y, t, offset=(i * RR, 0))
     return row_fft
+
+
+def row_tstore(T, RR):
+    """Row FFT of RR rows per block, stored transposed: y[c, i RR + r] = FFT(x[i RR + r, :])[c] (round 2: a row pass
+    with the transpose fused into its store, the building block of a column pass without column strips)."""
+    NN = N
+
+    @wp.kernel(module="unique")
+    def row_fft_tstore(x: wp.array2d(dtype=T), y: wp.array2d(dtype=T)):
+        i, _l = wp.tid()
+        t = wp.tile_load(x, shape=(RR, NN), offset=(i * RR, 0))
+        wp.tile_fft(t)
+        t2 = wp.tile_map(ident, t)
+        wp.tile_store(y, wp.tile_transpose(t2), offset=(0, i * RR))
+    return row_fft_tstore
 
 
 def row_fallback(T, RR):
@@ -75,7 +101,10 @@ def col(T, K, mode):
             s = wp.tile_load(x, shape=(NN, K), offset=(0, j * K), storage="shared")
             r = wp.tile_map(ident, wp.tile_transpose(s))
             wp.tile_fft(r)
-            wp.tile_store(y, wp.tile_transpose(r), offset=(0, j * K))
+            # transpose a copy: transposing r itself moves r to shared memory for the whole kernel, and tile_fft
+            # then fails to compile on a shared tile (job 7839932)
+            r2 = wp.tile_map(ident, r)
+            wp.tile_store(y, wp.tile_transpose(r2), offset=(0, j * K))
         return col_strided
     if mode == "tstore":
         @wp.kernel(module="unique")

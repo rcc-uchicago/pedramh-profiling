@@ -26,7 +26,7 @@ _KERNELS = [None]                                                    # id -> (ke
 _CACHE = {}                                                          # descriptor bytes -> _Launch
 _DEVICE = None
 STATS = {"callbacks": 0, "cache_builds": 0, "errors": 0, "last_error": ""}
-TARGET = b"sqg_warp_call"
+TARGET = "sqg_warp_call"            # str: jaxlib 0.4.28's register_custom_call_target rejects bytes (job 7839932)
 
 
 class _Launch:

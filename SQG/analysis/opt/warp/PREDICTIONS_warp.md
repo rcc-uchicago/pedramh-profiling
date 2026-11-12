@@ -114,3 +114,49 @@ Wording only; no threshold changes.
   `col_tview` loads through a strided array view and holds no strip.
 - The scorer is `score_warp.py`. It moves into this directory after the job ends, so the queued job's inputs stay
   unchanged.
+
+## Addendum 2026-11-12, AFTER round 1 (job 7839932) and BEFORE round 2: fixes, and predictions for round 2
+
+**Round 1** (debug, x3001c0s7b1n0, 105 s, `WARP_JOB_DONE failures=0`). Verdict `NO_GO / NO_GO`, invalid: the bridge
+never ran, because of my code (below). Score from `score_warp.py`: **7 confirmed, 3 half, 0 refuted, 4 untested**
+(P3, P4, P8, P13 had no value to score). What it measured, A100, 4096² per pass:
+
+| | Warp | cuFFT (torch) |
+|---|---|---|
+| row FFT complex64 (R 1, 256 threads) | 230.9 µs, 1,163 GB/s, 85% of copy (1,361 GB/s) | 206.2 µs |
+| row FFT complex128 | 566.4 µs, 948 GB/s, 69% of copy | 403.5 µs |
+| column complex64 (`tstore`, K 1) | 696.6 µs, 385 GB/s, 28% | 345.4 µs (`fft(dim=0)`) |
+| column complex128 (`tstore`, K 1) | 923.8 µs, 581 GB/s, 42% | 674.9 µs |
+| 32 × 32 transpose complex64 | 238.0 µs, 1,128 GB/s, 83% | — |
+
+- `jnp.fft.fft2` 525.8 µs: the Part X anchor holds.
+- Accuracy (rel L2 vs complex128): Warp rows 1.86e-7 vs torch 2.75e-7; Warp 2-D (NVIDIA's 3-pass) 2.77e-7 vs torch
+  4.02e-7.
+- Projected fused float64 step **1.961 ms**. The float32 projection had no fused-row number.
+
+**Four failures, all bugs in this directory's code (fixed for round 2):**
+1. **Bridge:** jaxlib 0.4.28's `register_custom_call_target` takes the target name as `str`; `warp_xla.py` passed
+   `bytes`.
+2. **`col_strided`:** transposing the FFT'd tile moved it to shared memory for the whole kernel, so `tile_fft` failed
+   to compile. Round 2 transposes a register copy.
+3. **`fused3`:** a `wp.vec2f(...)` constructor inside a `@wp.func` returns an anonymous `vector(2, float32)` class,
+   and `tile_fft` accepts only the `vec2f` / `vec2d` classes. Round 2 builds the result from the typed argument
+   (`mul(vector, scalar)` returns the argument's own class).
+4. **`col_tview`:** "too many resources requested" at 512 / 1,024 threads (registers). Round 2 runs 256 / 128.
+
+**What round 2 adds (new configs, chosen after seeing round 1):** row tiles R 2 / 4 at 512 threads, and `rowT`: a
+row FFT of R = 2 / 4 rows stored transposed (the transpose fused into the store).
+
+**Unchanged:** the decision rule, every threshold, the byte model, and P1–P14 (re-scored on round 2). Round 2's
+verdict replaces round 1's.
+
+**New predictions for round 2 (P = probability):**
+
+| # | prediction | P |
+|---|---|---|
+| 15 | the fixed bridge gives BRIDGE_OK | 0.70 |
+| 16 | fixed `col_strided` K = 1 (vec2f) is within 1.15× of `col_tstore` K = 1's 696.6 µs | 0.60 |
+| 17 | `col_tview` launches at 256 threads for K ≤ 2, and its best vec2f point reaches ≥ 35% of copy | 0.40 |
+| 18 | fixed `fused3` (vec2f) reaches ≥ 60% of copy (= P8, now testable) | 0.60 |
+| 19 | `rowT` R = 4 (vec2f) reaches ≥ 50% of copy | 0.35 |
+| 20 | round 2 reproduces round 1's row complex64 and column `tstore` K = 1 times within ±5% | 0.85 |

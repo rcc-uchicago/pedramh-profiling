@@ -237,10 +237,14 @@ def main():
 
     # ---- W3 rows --------------------------------------------------------------------------------------------------
     rows = R["phases"]["rows"] = {}
-    for RR, B in ((1, 256), (1, 128), (1, 512), (2, 256)):
+    for RR, B in ((1, 256), (1, 128), (1, 512), (2, 256), (2, 512), (4, 512)):
         k = WK.row(wp.vec2f, RR)
         kernels[f"row_f32_R{RR}_B{B}"] = (k, (N // RR,), B, "f")
         run_cfg(f"row_f32_R{RR}_B{B}", k, (N // RR,), B, [W["x64"]], [W["y64"]], B64, "c64", rows)
+    for RR, B in ((2, 512), (4, 512)):                               # round 2: the transpose fused into the store
+        k = WK.row_tstore(wp.vec2f, RR)
+        kernels[f"rowT_f32_R{RR}_B{B}"] = (k, (N // RR,), B, "f")
+        run_cfg(f"rowT_f32_R{RR}_B{B}", k, (N // RR,), B, [W["x64"]], [W["y64"]], B64, "c64", rows)
     k = WK.row(wp.vec2f, 1, inverse=True)
     kernels["irow_f32_R1_B256"] = (k, (N,), 256, "f")
     run_cfg("irow_f32_R1_B256", k, (N,), 256, [W["x64"]], [W["y64"]], B64, "c64", rows)
@@ -267,10 +271,11 @@ def main():
     # ---- W4 columns -----------------------------------------------------------------------------------------------
     cols = R["phases"]["cols"] = {}
     views = {"f": (W["x64"], W["y64"], "c64", B64), "d": (W["x128"], W["y128"], "c128", B128)}
+    # round 2 (job 7839932 found tview at 512 / 1,024 threads over the register limit): tview at 256 / 128 threads
     col_cfgs = [("f", "strided", 1, 256), ("f", "strided", 2, 256), ("f", "strided", 4, 512),
                 ("f", "tstore", 1, 256), ("f", "tstore", 2, 256), ("f", "tstore", 4, 512),
-                ("f", "tview", 4, 512), ("f", "tview", 8, 1024),
-                ("d", "strided", 1, 256), ("d", "tstore", 1, 256), ("d", "tview", 4, 512)]
+                ("f", "tview", 1, 256), ("f", "tview", 2, 256), ("f", "tview", 4, 256), ("f", "tview", 2, 128),
+                ("d", "strided", 1, 256), ("d", "tstore", 1, 256), ("d", "tview", 1, 256), ("d", "tview", 2, 256)]
     for p, mode, K, B in col_cfgs:
         name = f"col_{'f32' if p == 'f' else 'f64'}_{mode}_K{K}_B{B}"
         xv, yv, rc, nb = views[p]
@@ -327,7 +332,11 @@ def main():
             xin, yout = (W["x64"], y64) if p == "f" else (W["x128"], y128)
             try:
                 yout.zero_()
-                if "row" in name:
+                if name.startswith("rowT"):                          # stored transposed: column r = row r's FFT
+                    launch(name, [xin], [wv(yout)])
+                    torch.cuda.synchronize()
+                    acc[name] = rel(yout[:, :32].cpu().numpy().T, ref_rows)
+                elif "row" in name:
                     launch(name, [xin], [wv(yout)])
                     torch.cuda.synchronize()
                     acc[name] = rel(yout[:32].cpu().numpy(), ref_irows if name.startswith("irow") else ref_rows)
