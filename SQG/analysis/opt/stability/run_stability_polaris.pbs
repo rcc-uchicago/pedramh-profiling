@@ -1,0 +1,100 @@
+#!/bin/bash -l
+#PBS -N sqg_stability
+#PBS -A lighthouse-uchicago
+#PBS -q capacity
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=06:00:00
+#PBS -j oe
+# run_stability_polaris.pbs -- tile-rows + IF-AB3 at 25 steps per frame for 50 TU from 4 archived states (one per
+# A100), plus the production reference diagnostics of the 16 archived states. Predictions + rule:
+# SQG/analysis/opt/stability/PREDICTIONS_stability.md (written first). Capacity (user's choice, 2026-11-12).
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ \
+#        SQG/analysis/opt/stability/run_stability_polaris.pbs                    (from the repo root)
+# Needs $MEMBER_ROOT/pylibs/warp-1.17.0 and $MEMBER_ROOT/pylibs/nvmath-1.0.0; cuFFT 11.4.1 preloaded (as job 7840376).
+# End token: STAB_JOB_DONE failures=N. Results -> SQG/analysis/results/polaris_stability_<jobid>/.
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+export PYTHONUNBUFFERED=1
+WARP_PATH="${WARP_PATH:-${MEMBER_ROOT}/pylibs/warp-1.17.0}"
+NVMATH_PATH="${NVMATH_PATH:-${MEMBER_ROOT}/pylibs/nvmath-1.0.0}"
+TK=/soft/compilers/cudatoolkit/cuda-12.9.1/lib64
+TU="${TU:-50}"
+T0=$(date +%s)
+DEADLINE=$(( T0 + 5 * 3600 + 40 * 60 ))                             # stop the runs 20 min before the walltime
+OUT="${MEMBER_ROOT}/sqg_profile/stability_${JOB}"
+RES="SQG/analysis/results/polaris_stability_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+FAILURES=0
+fail() { echo "ERROR $*"; FAILURES=$((FAILURES + 1)); }
+HERE=SQG/analysis/opt/stability
+echo "=== run_stability on $(hostname) job $JOB: $(date '+%F %T') tu=$TU ==="
+nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee "$OUT/gpu.csv"
+sha256sum "$HERE"/*.py SQG/analysis/opt/tilerows/tilerows_step.py SQG/analysis/opt/timestep/if_ab3.py \
+    "$HERE"/PREDICTIONS_stability.md | tee "$OUT/sha256.txt"
+for d in "$WARP_PATH/warp" "$NVMATH_PATH/nvmath"; do
+    [ -d "$d" ] || { echo "ERROR STAB_LIB_MISSING $d"; echo "STAB_JOB_DONE failures=1"; exit 5; }
+done
+LABEL_TAIL="_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02"
+TIMES=(0100.00 0200.00 0300.00 0400.00)
+ck() { echo "${SQG_TRAINING_ROOT}/trainingdata_m0${1}${LABEL_TAIL}/checkpoint/ckpt_t${2}.npz"; }
+ALL=()
+for m in 1 2 3 4; do
+    for t in "${TIMES[@]}"; do
+        f=$(ck "$m" "$t")
+        [ -s "$f" ] || { echo "ERROR STAB_CKPT_NOT_STAGED $f"; echo "STAB_JOB_DONE failures=1"; exit 5; }
+        ALL+=(--ckpt "${m}:${f}")
+    done
+done
+
+# ---- the production reference (16 archived states), on GPU 0 beside worker 0 --------------------------------------
+CUDA_VISIBLE_DEVICES=0 "$PY" "$HERE/stability_run.py" --out "$OUT" --worker 9 --archive "${ALL[@]}" \
+    > "$OUT/archive.log" 2>&1 &
+APID=$!
+
+# ---- 4 runs, one per GPU -------------------------------------------------------------------------------------------
+pids=()
+for w in 0 1 2 3; do
+    m=$(( w + 1 ))
+    CUDA_VISIBLE_DEVICES=$w LD_PRELOAD="$TK/libnvJitLink.so.12:$TK/libcufft.so.11" "$PY" "$HERE/stability_run.py" \
+        --out "$OUT" --worker $w --ckpt "${m}:$(ck "$m" "${TIMES[$w]}")" --warp-path "$WARP_PATH" \
+        --nvmath-path "$NVMATH_PATH" --tu "$TU" --nsub 25 --deadline "$DEADLINE" > "$OUT/run_w${w}.log" 2>&1 &
+    pids+=($!)
+done
+wait "$APID" || fail STAB_ARCHIVE_RC
+grep -q "STAB_ARCHIVE_DONE" "$OUT/archive.log" || fail STAB_ARCHIVE_NO_TOKEN
+for w in 0 1 2 3; do
+    wait "${pids[$w]}" || fail "STAB_RUN_RC w=$w"
+    grep -q "STAB_RUN_DONE w=$w" "$OUT/run_w${w}.log" || fail "STAB_RUN_NO_TOKEN w=$w"
+    grep -E "^(ERROR|STAB_STATE|STAB_UNSTABLE|STAB_DEADLINE|STAB_RUN_DONE)" "$OUT/run_w${w}.log" || true
+done
+echo "=== runs done $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+
+"$PY" "$HERE/analyze_stability.py" --in "$OUT" --out "$RES" 2>&1 | tee "$OUT/analyze_stability.log" || fail STAB_ANALYSIS_RC
+grep -q "STAB_ANALYSIS_DONE" "$OUT/analyze_stability.log" || fail STAB_ANALYSIS_NO_TOKEN
+
+for f in "$OUT"/run_w*.json "$OUT"/archive.json "$OUT"/*.log "$OUT"/gpu.csv "$OUT"/sha256.txt; do
+    [ -e "$f" ] && cp "$f" "$RES"/
+done
+echo "=== end $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+echo "STAB_JOB_DONE failures=$FAILURES"
