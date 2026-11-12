@@ -1,0 +1,59 @@
+== /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/warpupd_7840397/ncu_lean32ek_fast_raw.csv
+loop_add_subtract_fusion                                     n=  1 t=   456.2us rd=  436.5MB wr=  190.5MB ld  5.89 sec/req  95.5% | st  8.00 sec/req 100.0% | regs   40 occ  70.0%
+loop_add_subtract_fusion_1                                   n=  1 t=   452.4us rd=  503.7MB wr=  129.2MB ld  5.66 sec/req  94.8% | st  8.00 sec/req 100.0% | regs   44 occ  58.8%
+loop_multiply_fusion_2                                       n=  2 t=   239.6us rd=  201.5MB wr=  120.9MB ld 26.67 sec/req  60.0% | st 16.00 sec/req 100.0% | regs   24 occ  88.0%
+input_concatenate_fusion_2                                   n=  2 t=   232.5us rd=  190.5MB wr=  124.2MB ld  4.12 sec/req  85.1% | st  8.76 sec/req  91.3% | regs   30 occ  93.6%
+void regular_fft_factor<4096, EPT<16>, 4, 1, 0, 0, 2, 1, uns n=  9 t=   216.2us rd=   82.3MB wr=   67.1MB ld  9.75 sec/req  65.9% | st 11.81 sec/req  66.6% | regs   64 occ  46.8%
+loop_convert_fusion_1                                        n=  1 t=   203.9us rd=  134.8MB wr=  117.7MB ld 32.00 sec/req  50.0% | st 32.00 sec/req  50.0% | regs   32 occ  84.4%
+void vector_fft<4096, EPT<16>, 1, 5, 8, 0, 2, 0, unsigned in n=  2 t=   189.6us rd=  134.2MB wr=  116.7MB ld  7.00 sec/req  97.9% | st  8.00 sec/req 100.0% | regs   48 occ  59.4%
+wrapped_convert_2                                            n=  2 t=   160.7us rd=  148.6MB wr=   59.9MB ld 31.90 sec/req  50.0% | st 32.00 sec/req  50.0% | regs   40 occ  61.3%
+void vector_fft_symm_r2c<4096, EPT<16>, 1, 10, 8, 0, 2, 0, u n=  4 t=   100.7us rd=   67.1MB wr=   57.7MB ld  6.95 sec/req  98.6% | st  8.63 sec/req  91.3% | regs   48 occ  57.9%
+void vector_fft_symm_c2r<4096, EPT<16>, 1, 10, 8, 0, 2, 0, u n=  2 t=    96.4us rd=   67.2MB wr=   49.8MB ld  7.07 sec/req  90.6% | st  8.00 sec/req 100.0% | regs   48 occ  58.1%
+void scal_kernel_val<float, float>(cublasScalParamsVal<T1, T n=  2 t=    93.9us rd=   67.1MB wr=   49.5MB ld  4.00 sec/req 100.0% | st  4.00 sec/req 100.0% | regs   24 occ  83.3%
+loop_multiply_fusion_18                                      n=  1 t=     3.7us rd=    0.0MB wr=    0.0MB ld  1.00 sec/req  12.5% | st  1.00 sec/req  12.5% | regs   16 occ   1.6%
+loop_multiply_fusion_17                                      n=  1 t=     3.6us rd=    0.0MB wr=    0.0MB ld  1.00 sec/req  12.5% | st  1.00 sec/req  12.5% | regs   16 occ   1.6%
+loop_multiply_fusion_19                                      n=  1 t=     3.6us rd=    0.0MB wr=    0.0MB ld  1.00 sec/req  12.5% | st  1.00 sec/req  12.5% | regs   16 occ   1.6%
+loop_multiply_fusion_14                                      n=  2 t=     3.5us rd=    0.0MB wr=    0.0MB ld  4.00 sec/req 100.0% | st  4.00 sec/req 100.0% | regs   16 occ   6.2%
+loop_multiply_fusion_16                                      n=  2 t=     3.5us rd=    0.0MB wr=    0.0MB ld  4.00 sec/req 100.0% | st  4.00 sec/req 100.0% | regs   16 occ  47.2%
+loop_multiply_fusion_15                                      n=  2 t=     3.5us rd=    0.0MB wr=    0.0MB ld  3.95 sec/req  99.7% | st  3.95 sec/req  99.7% | regs   16 occ  37.5%
+loop_add_fusion_6                                            n=  1 t=     3.3us rd=    0.0MB wr=    0.0MB ld  1.00 sec/req  12.5% | st  1.00 sec/req  12.5% | regs   16 occ   1.6%
+loop_add_fusion_5                                            n=  1 t=     3.1us rd=    0.0MB wr=    0.0MB ld  1.00 sec/req  12.5% | st  1.00 sec/req  12.5% | regs   16 occ   1.6%
+loop_add_fusion_4                                            n=  1 t=     3.1us rd=    0.0MB wr=    0.0MB ld  1.00 sec/req  25.0% | st  1.00 sec/req  25.0% | regs   16 occ   1.6%
+== /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/warpupd_7840397/ncu_warp_compact_raw.csv
+loop_multiply_fusion_2                                       n=  2 t=   240.7us rd=  201.4MB wr=  121.0MB ld 26.67 sec/req  60.0% | st 16.00 sec/req 100.0% | regs   28 occ  88.0%
+input_concatenate_fusion_2                                   n=  2 t=   233.0us rd=  190.5MB wr=  124.2MB ld  4.11 sec/req  85.1% | st  8.76 sec/req  91.3% | regs   30 occ  93.6%
+void regular_fft_factor<4096, EPT<16>, 4, 1, 0, 0, 2, 1, uns n=  7 t=   223.7us rd=   86.5MB wr=   71.5MB ld  9.36 sec/req  68.5% | st 11.33 sec/req  69.4% | regs   64 occ  46.9%
+kernels__locals__upd_compact_4a7aead0_cuda_kernel_forward    n=  1 t=   204.7us rd=  194.3MB wr=   80.6MB ld  7.85 sec/req  50.5% | st  8.00 sec/req  50.0% | regs   32 occ  88.9%
+void vector_fft<4096, EPT<16>, 1, 5, 8, 0, 2, 0, unsigned in n=  2 t=   189.6us rd=  134.2MB wr=  116.7MB ld  7.00 sec/req  97.9% | st  8.00 sec/req 100.0% | regs   48 occ  59.3%
+loop_pad_fusion_4                                            n=  2 t=   151.8us rd=   34.9MB wr=   54.8MB ld 29.32 sec/req  25.0% | st 32.00 sec/req  25.0% | regs   20 occ  85.7%
+void vector_fft_symm_r2c<4096, EPT<16>, 1, 10, 8, 0, 2, 0, u n=  4 t=    99.5us rd=   67.1MB wr=   57.8MB ld  6.95 sec/req  98.6% | st  8.63 sec/req  91.3% | regs   48 occ  57.9%
+void vector_fft_symm_c2r<4096, EPT<16>, 1, 10, 8, 0, 2, 0, u n=  2 t=    97.0us rd=   67.2MB wr=   49.8MB ld  7.08 sec/req  90.6% | st  8.00 sec/req 100.0% | regs   48 occ  58.1%
+void scal_kernel_val<float, float>(cublasScalParamsVal<T1, T n=  2 t=    93.1us rd=   67.1MB wr=   49.5MB ld  4.00 sec/req 100.0% | st  4.00 sec/req 100.0% | regs   24 occ  83.4%
+input_concatenate_fusion_10                                  n=  1 t=    61.6us rd=   59.8MB wr=   20.5MB ld 16.26 sec/req  96.9% | st  8.50 sec/req  94.1% | regs   16 occ  92.7%
+input_concatenate_fusion_11                                  n=  1 t=    61.5us rd=   59.8MB wr=   20.6MB ld 16.27 sec/req  96.9% | st  8.50 sec/req  94.1% | regs   20 occ  92.1%
+input_concatenate_fusion_8                                   n=  2 t=    61.0us rd=   59.8MB wr=   20.6MB ld 16.26 sec/req  96.9% | st  8.50 sec/req  94.1% | regs   16 occ  92.7%
+loop_multiply_fusion_17                                      n=  1 t=     3.8us rd=    0.0MB wr=    0.0MB ld  1.00 sec/req  12.5% | st  1.00 sec/req  12.5% | regs   16 occ   1.6%
+loop_multiply_fusion_19                                      n=  1 t=     3.6us rd=    0.0MB wr=    0.0MB ld  1.00 sec/req  12.5% | st  1.00 sec/req  12.5% | regs   16 occ   1.6%
+loop_multiply_fusion_16                                      n=  2 t=     3.5us rd=    0.0MB wr=    0.0MB ld  4.00 sec/req 100.0% | st  4.00 sec/req 100.0% | regs   16 occ  46.5%
+loop_multiply_fusion_14                                      n=  2 t=     3.4us rd=    0.0MB wr=    0.0MB ld  4.00 sec/req 100.0% | st  4.00 sec/req 100.0% | regs   16 occ   6.2%
+loop_multiply_fusion_15                                      n=  2 t=     3.4us rd=    0.0MB wr=    0.0MB ld  3.95 sec/req  99.7% | st  3.95 sec/req  99.7% | regs   16 occ  36.4%
+loop_add_fusion_6                                            n=  1 t=     3.3us rd=    0.0MB wr=    0.0MB ld  1.00 sec/req  12.5% | st  1.00 sec/req  12.5% | regs   16 occ   1.6%
+loop_multiply_fusion_18                                      n=  1 t=     3.2us rd=    0.0MB wr=    0.0MB ld  1.00 sec/req  12.5% | st  1.00 sec/req  12.5% | regs   16 occ   1.6%
+loop_add_fusion_7                                            n=  1 t=     3.2us rd=    0.0MB wr=    0.0MB ld  1.00 sec/req  12.5% | st  1.00 sec/req  12.5% | regs   16 occ   1.6%
+loop_add_fusion_5                                            n=  1 t=     3.1us rd=    0.0MB wr=    0.0MB ld  1.00 sec/req  25.0% | st  1.00 sec/req  25.0% | regs   16 occ   1.6%
+== /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/warpupd_7840397/ncu_warp_simt_raw.csv
+void regular_fft_factor<4096, EPT<16>, 4, 1, 0, 0, 2, 1, uns n=  9 t=   274.0us rd=  112.0MB wr=   97.8MB ld  7.66 sec/req  84.0% | st  9.20 sec/req  85.7% | regs   64 occ  46.9%
+kernels__locals__zprod_8769bb0b_cuda_kernel_forward          n=  3 t=   237.0us rd=  201.3MB wr=  123.5MB ld  6.67 sec/req  60.0% | st  8.00 sec/req  50.0% | regs   24 occ  93.0%
+kernels__locals__upd_split_212458fa_cuda_kernel_forward      n=  3 t=   203.4us rd=  194.3MB wr=   80.4MB ld  7.86 sec/req  50.4% | st  8.00 sec/req  50.0% | regs   32 occ  87.9%
+void vector_fft<4096, EPT<16>, 1, 5, 8, 0, 2, 0, unsigned in n=  6 t=   187.9us rd=  134.2MB wr=  116.7MB ld  7.00 sec/req  97.9% | st  8.00 sec/req 100.0% | regs   48 occ  59.3%
+kernels__locals__build_w_b478f53a_cuda_kernel_forward        n=  3 t=   165.2us rd=   89.5MB wr=  120.4MB ld  7.12 sec/req  53.6% | st  8.00 sec/req  50.0% | regs   24 occ  86.0%
+loop_pad_fusion_2                                            n=  3 t=   151.9us rd=   34.9MB wr=   54.8MB ld 29.32 sec/req  25.0% | st 32.00 sec/req  25.0% | regs   20 occ  85.5%
+void vector_fft_symm_c2r<4096, EPT<16>, 1, 10, 8, 0, 2, 0, u n=  3 t=    96.7us rd=   67.2MB wr=   49.8MB ld  7.07 sec/req  90.6% | st  8.00 sec/req 100.0% | regs   48 occ  58.1%
+void scal_kernel_val<float, float>(cublasScalParamsVal<T1, T n=  3 t=    93.2us rd=   67.1MB wr=   49.5MB ld  4.00 sec/req 100.0% | st  4.00 sec/req 100.0% | regs   24 occ  83.4%
+input_concatenate_fusion_7                                   n=  1 t=    61.8us rd=   59.8MB wr=   20.6MB ld 16.27 sec/req  96.9% | st  8.50 sec/req  94.1% | regs   20 occ  92.3%
+input_concatenate_fusion_4                                   n=  2 t=    61.4us rd=   59.8MB wr=   20.5MB ld 16.26 sec/req  96.9% | st  8.50 sec/req  94.1% | regs   16 occ  92.6%
+input_concatenate_fusion_6                                   n=  1 t=    60.9us rd=   59.8MB wr=   20.5MB ld 16.26 sec/req  96.9% | st  8.50 sec/req  94.1% | regs   16 occ  92.6%
+loop_add_fusion_1                                            n=  1 t=     3.2us rd=    0.0MB wr=    0.0MB ld  1.00 sec/req  25.0% | st  1.00 sec/req  25.0% | regs   16 occ   1.6%
+loop_add_fusion_2                                            n=  1 t=     3.2us rd=    0.0MB wr=    0.0MB ld  1.00 sec/req  12.5% | st  1.00 sec/req  12.5% | regs   16 occ   1.6%
+loop_add_fusion                                              n=  1 t=     3.1us rd=    0.0MB wr=    0.0MB ld  1.00 sec/req  12.5% | st  1.00 sec/req  12.5% | regs   16 occ   1.6%
+WU_NCU_SUMMARY_OK

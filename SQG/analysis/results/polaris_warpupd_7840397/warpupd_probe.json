@@ -1,0 +1,186 @@
+{
+ "errors": [],
+ "env": {
+  "jax": "0.4.28",
+  "warp": "1.17.0",
+  "gpu": "NVIDIA A100-SXM4-40GB"
+ },
+ "state": {
+  "member": 1,
+  "path": "/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_stage/AllTrainData/trainingdata_m01_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02/checkpoint/ckpt_t0100.00.npz",
+  "t": 100.0
+ },
+ "gates": {
+  "1": {
+   "rel_vs_ref": {
+    "xla_compact": 2.879069427892356e-08,
+    "xla_compact_if": 2.879069297971426e-08,
+    "warp_full": 2.879069427892356e-08,
+    "warp_compact": 2.879069427892356e-08,
+    "warp_compact_if": 2.879069297971426e-08,
+    "warp_simt": 2.6743970243060913e-08,
+    "warp_simt_if": 2.6743970080899248e-08
+   },
+   "bitwise_vs_base": {
+    "xla_compact": true,
+    "xla_compact_if": true,
+    "warp_full": true,
+    "warp_compact": true,
+    "warp_compact_if": true,
+    "warp_simt": false,
+    "warp_simt_if": false
+   },
+   "finite": {
+    "xla_compact": true,
+    "xla_compact_if": true,
+    "warp_full": true,
+    "warp_compact": true,
+    "warp_compact_if": true,
+    "warp_simt": true,
+    "warp_simt_if": true
+   },
+   "rel_vs_base": {
+    "xla_compact": 0.0,
+    "xla_compact_if": 0.0,
+    "warp_full": 0.0,
+    "warp_compact": 0.0,
+    "warp_compact_if": 0.0,
+    "warp_simt": 2.9364071369103812e-08,
+    "warp_simt_if": 2.9364071206447513e-08
+   },
+   "fast_vs_u1": 2.879069427892356e-08,
+   "if32_vs_if64": 2.879069297971426e-08
+  },
+  "40": {
+   "rel_vs_ref": {
+    "xla_compact": 4.010727827898212e-07,
+    "xla_compact_if": 4.015563638522953e-07,
+    "warp_full": 4.010727827898212e-07,
+    "warp_compact": 4.010727827898212e-07,
+    "warp_compact_if": 4.015563638522953e-07,
+    "warp_simt": 3.852954685939156e-07,
+    "warp_simt_if": 3.85047450366166e-07
+   },
+   "bitwise_vs_base": {
+    "xla_compact": true,
+    "xla_compact_if": true,
+    "warp_full": true,
+    "warp_compact": true,
+    "warp_compact_if": true,
+    "warp_simt": false,
+    "warp_simt_if": false
+   },
+   "finite": {
+    "xla_compact": true,
+    "xla_compact_if": true,
+    "warp_full": true,
+    "warp_compact": true,
+    "warp_compact_if": true,
+    "warp_simt": true,
+    "warp_simt_if": true
+   },
+   "rel_vs_base": {
+    "xla_compact": 0.0,
+    "xla_compact_if": 0.0,
+    "warp_full": 0.0,
+    "warp_compact": 0.0,
+    "warp_compact_if": 0.0,
+    "warp_simt": 4.287252468210075e-07,
+    "warp_simt_if": 4.2868428619969695e-07
+   },
+   "fast_vs_u1": 4.010727827898212e-07,
+   "if32_vs_if64": 4.015563638522953e-07
+  },
+  "400": {
+   "rel_vs_ref": {
+    "xla_compact": 1.3125172245814777e-06,
+    "xla_compact_if": 1.3128817240129852e-06,
+    "warp_full": 1.3125172245814777e-06,
+    "warp_compact": 1.3125172245814777e-06,
+    "warp_compact_if": 1.3128817240129852e-06,
+    "warp_simt": 1.2736106707473854e-06,
+    "warp_simt_if": 1.2736997300424199e-06
+   },
+   "bitwise_vs_base": {
+    "xla_compact": true,
+    "xla_compact_if": true,
+    "warp_full": true,
+    "warp_compact": true,
+    "warp_compact_if": true,
+    "warp_simt": false,
+    "warp_simt_if": false
+   },
+   "finite": {
+    "xla_compact": true,
+    "xla_compact_if": true,
+    "warp_full": true,
+    "warp_compact": true,
+    "warp_compact_if": true,
+    "warp_simt": true,
+    "warp_simt_if": true
+   },
+   "rel_vs_base": {
+    "xla_compact": 0.0,
+    "xla_compact_if": 0.0,
+    "warp_full": 0.0,
+    "warp_compact": 0.0,
+    "warp_compact_if": 0.0,
+    "warp_simt": 1.4878154771728147e-06,
+    "warp_simt_if": 1.488449928024604e-06
+   },
+   "fast_vs_u1": 1.3125172245814777e-06,
+   "if32_vs_if64": 1.3128817240129852e-06
+  }
+ },
+ "verdict": {
+  "xla_compact": [
+   true,
+   true
+  ],
+  "xla_compact_if": [
+   true,
+   true
+  ],
+  "warp_full": [
+   true,
+   true
+  ],
+  "warp_compact": [
+   true,
+   true
+  ],
+  "warp_compact_if": [
+   true,
+   true
+  ],
+  "warp_simt": [
+   true,
+   true
+  ],
+  "warp_simt_if": [
+   true,
+   true
+  ]
+ },
+ "bench_ms_per_step": {
+  "lean_u1": 6.402100686294337,
+  "lean32ek_fast": 2.696791561320424,
+  "if32": 2.7479666230889657,
+  "if64": 6.918039878364652,
+  "xla_compact": 2.5052498164586723,
+  "xla_compact_if": 2.515602509956807,
+  "warp_full": 2.6393921106743314,
+  "warp_compact": 2.5332681857980788,
+  "warp_compact_if": 2.5335449965981147,
+  "warp_simt": 2.371515037957579,
+  "warp_simt_if": 2.3717172040293613
+ },
+ "bridge_stats": {
+  "callbacks": 37449,
+  "cache_builds": 18,
+  "errors": 0,
+  "last_error": ""
+ },
+ "failures": 0,
+ "wall_s": 228.7
+}

@@ -2636,3 +2636,49 @@ The ML step is then ~46% of the optimizer step.
 - It ran with cuFFT 11.4.1 preloaded; production's wheel is 11.0.2, so a rerun without the preload is still owed.
 - The statistical gates (A/B/E/D) ran for `lean32ek_fast`. tilerows32's error is the same size, but the gates are
   not the same test, so the user decides.
+
+## E. Warp kernels inside the JAX step, plus the thread-level view (job 7840397)
+
+**Ask (user):** "yes try it": call a Warp update kernel from the JAX `lean32ek_fast` step through the bridge.
+
+**Design** (`SQG/analysis/opt/warpupd/`, `PREDICTIONS_warpupd.md` first). A 2×2 grid, each arm also with IF-AB3:
+- XLA or Warp for the update, on the full or the compact layout (`xla_compact` is the pure-XLA control);
+- plus `warp_simt`: Warp one-thread-per-element kernels for every irregular step (`build_w` with the mirror gather,
+  Z = conj(p)θ, Hermitian split + update), with XLA doing only the FFTs.
+
+**Run.**
+- debug-scaling, x3107c0s25b0n0, 453 s, `WU_JOB_DONE failures=0`. Production cuFFT 11.0.2 (no preload).
+- A debug copy (7840341) waited ~1 h and was cancelled once this copy started.
+- Scored 10 confirmed / 1 refuted.
+
+**Accuracy:**
+- every gate passes;
+- `xla_compact`, `warp_full` and `warp_compact` (and their IF versions) are **bitwise** equal to
+  `lean32ek_fast` / if32 at 1, 40 and 400 steps;
+- `warp_simt` is not bitwise (one fft2(Z) in place of two rfft2s) but slightly *more* accurate
+  (3.85e-7 vs 4.01e-7 at 40 steps).
+
+| arm (production cuFFT) | ms/step | vs `lean32ek_fast` |
+|---|---|---|
+| `lean32ek_fast` | 2.697 | 1.00× |
+| `warp_full` | 2.639 | 1.02× |
+| `warp_compact` (the idea as stated) | 2.533 | 1.06× |
+| `xla_compact` (pure XLA) | 2.505 | 1.08× |
+| **`warp_simt`** | **2.372** | **1.14×** |
+| _if versions | +0.0 to +0.4% | |
+
+- The update kernel alone gains through the compact layout, and XLA does that slightly better (2.505 vs 2.533).
+- Warp wins once it does all the irregular gathers: `warp_simt` is 5.3% faster than `xla_compact` and passes the
+  pre-set "worth it" rule.
+- It stays far behind the tile-row step (D: 1.578 ms).
+
+**The thread-level view** (Nsight Compute, one launch each, caches flushed):
+- **Warp `build_w` reads 89.5 MB, its unique data, in 165 µs.** XLA's `build_w` fusion reads 190.5 MB in 232 µs. The
+  mirrored ψ̂(−k) is read twice by XLA and once by the one-thread-per-element kernel.
+- **Warp's vec2f loads are two 4-byte loads.** That is 50% bytes-per-sector per instruction (P10 refuted), but DRAM
+  bytes equal the unique data (update: 194 MB read). It costs instruction issue, not bandwidth.
+- **XLA's compact→full pad fusion** (`loop_pad_fusion`) runs at 29 sectors per request with 25% of each sector used:
+  152 µs. That is why compact storage gains less in XLA. The tile-row step's Warp expand does the same in 79 µs.
+- **XLA's product fusion** loads at 26.7 sectors per request, 60% used (real / imag halves of complex p).
+- **XLA's compensated-update fusions** are coalesced (5.7–5.9 sectors per request, 95% used). The `u1` trigger keeps
+  doing its job.

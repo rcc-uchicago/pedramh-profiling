@@ -131,7 +131,15 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     - ran with cuFFT 11.4.1 preloaded (production wheel 11.0.2: rerun owed);
     - the statistical gates were run for `lean32ek_fast`, not this step (the user's call).
   - The first submission (7840360) died on Warp rejecting numpy-scalar constants (fixed; see "Known issues").
-  - The Warp-update 2×2 probe (warpupd, job 7840397) is running.
+  - **Warp update kernels inside the JAX step (warpupd, job 7840397; 10 confirmed / 1 refuted; notes Part XVII E):**
+    - all arms pass; `xla_compact`, `warp_full` and `warp_compact` are bitwise equal to `lean32ek_fast`;
+    - ms/step: `warp_full` 2.639, `warp_compact` 2.533, `xla_compact` 2.505, **`warp_simt` 2.372 (1.14×)**,
+      `lean32ek_fast` 2.697.
+    - The update kernel's gain is the compact layout, which XLA does as well. Warp wins once it does all the
+      irregular gathers.
+    - Nsight: Warp `build_w` reads its unique 89.5 MB vs XLA's 190.5 MB; XLA's compact pad fusion is 25%
+      sector-efficient; Warp's vec2f loads are scalarized (50% per instruction; DRAM bytes unique).
+    - Far behind the tile-row step (1.578 ms).
 
 - **2026-11-12 (evening)** — **SQG round 2 measured: IF-AB3 makes 25 steps/frame admissible (job 7839988), the Warp
   route works on jax 0.4.28 (jobs 7839932, 7840069), and a hybrid cuFFT + callbacks + Warp step is built (job 7840175
