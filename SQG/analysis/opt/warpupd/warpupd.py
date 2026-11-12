@@ -31,11 +31,13 @@ VARIANTS = ("xla_compact", "warp_full", "warp_compact", "warp_simt")
 def kernels(dt, if_mode):
     import warp as wp
     opts = {"fuse_fp": False, "enable_backward": False}
-    C1 = np.float32((23 / 12) * dt)                                   # as JAX rounds the Python float for complex64
-    C2 = np.float32((-16 / 12) * dt)
-    C3 = np.float32((5 / 12) * dt)
+    # The float32 values JAX uses for complex64, held as Python floats (exact): Warp rejects numpy scalars as
+    # compile-time constants ("Invalid external reference type", job 7840360) and types Python floats as float32.
+    C1 = float(np.float32((23 / 12) * dt))
+    C2 = float(np.float32((-16 / 12) * dt))
+    C3 = float(np.float32((5 / 12) * dt))
     IFM = int(bool(if_mode))
-    S = np.float32(1.0 / (N * N))
+    S = float(np.float32(1.0 / (N * N)))
     vec6 = wp.types.vector(length=6, dtype=wp.float32)               # (hi', lo', T) of one mode
 
     @wp.func

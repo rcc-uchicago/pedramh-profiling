@@ -45,9 +45,11 @@ def from_compact(c, dtype):
 def kernels(dt, if_mode, block_dim):
     import warp as wp
     opts = {"fuse_fp": False, "enable_backward": False}
-    C1, C2, C3 = (np.float32((23 / 12) * dt), np.float32((-16 / 12) * dt), np.float32((5 / 12) * dt))
+    # float32 values held as Python floats (exact): Warp rejects numpy scalars as compile-time constants (job 7840360)
+    C1, C2, C3 = (float(np.float32((23 / 12) * dt)), float(np.float32((-16 / 12) * dt)),
+                  float(np.float32((5 / 12) * dt)))
     IFM = int(bool(if_mode))
-    S = np.float32(1.0 / (N * N))
+    S = float(np.float32(1.0 / (N * N)))
     NN = N
 
     @wp.kernel(module="unique", module_options=opts)
