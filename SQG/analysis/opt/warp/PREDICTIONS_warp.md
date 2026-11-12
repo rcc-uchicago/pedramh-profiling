@@ -103,3 +103,14 @@ real. The forcing patch is ignored. `warp_fft_probe.py` recomputes these from th
   `WARP_PROBE_DONE failures=N`.
 - The job ends `WARP_JOB_DONE failures=N`.
 - Results → `SQG/analysis/results/polaris_warp_<jobid>/` (`warp_probe.json`, logs).
+
+## Addendum 2026-11-12, before the run (job 7839932 still queued; no number seen): reading notes for scoring
+
+Wording only; no threshold changes.
+- **Prediction 6** mixes two references. Its "35–65 %" is of `BW_copy`. Its "51 %, Part X" is a fraction of the
+  A100-40GB DRAM peak (1,555 GB/s). Each clause is scored against its own reference: frac_copy ∈ [0.35, 0.65] and
+  GB/s / 1,555 ≤ 0.61. The measured torch `fft(dim=0)` is reported next to them.
+- **Prediction 7's "strips"** are the two shared-memory strip kernels (`col_strided`, `col_tstore`) at K = 4.
+  `col_tview` loads through a strided array view and holds no strip.
+- The scorer is `score_warp.py`. It moves into this directory after the job ends, so the queued job's inputs stay
+  unchanged.
