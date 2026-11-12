@@ -29,8 +29,8 @@ def main():
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copy2(src, dst)
                 lines.append(f"{hashlib.sha256(open(src, 'rb').read()).hexdigest()}  {src}")
-    head = subprocess.run(["git", "-c", "core.preloadIndex=false", "rev-parse", "HEAD"], capture_output=True,
-                          text=True).stdout.strip()
+    head = subprocess.run(["git", "-c", "core.preloadIndex=false", "rev-parse", "HEAD"], stdout=subprocess.PIPE,
+                          universal_newlines=True).stdout.strip()             # python 3.6 (the login node's python3)
     with open(os.path.join(dest, "MANIFEST.sha256"), "w") as f:
         f.write("\n".join(lines) + "\n")
     with open(os.path.join(dest, "GIT_HEAD"), "w") as f:
