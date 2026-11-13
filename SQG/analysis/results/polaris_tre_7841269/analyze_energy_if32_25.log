@@ -1,0 +1,7 @@
+ENERGY_TABLE SPE tau=0.5 r_ref=-1.085e-05 (r_IF -1.030e-05, quad 1.6e-08); if32_25 s=-4.95e-06 (max|s| 2.00e-05); f64ic32 s=-1.90e-13 (max|s| 6.24e-13); dquant s=-1.13e-02 (max|s| 1.26e-02, sA -1.13e-02)
+ENERGY_TABLE VIE tau=0.5 r_ref=-5.796e-07 (r_IF -5.781e-07, quad 1.9e-08); if32_25 s=-1.06e-06 (max|s| 4.02e-06); f64ic32 s=-1.94e-13 (max|s| 2.87e-13); dquant s=-1.18e-02 (max|s| 1.33e-02, sA -1.18e-02)
+ENERGY_CANDIDATE S max|s|=2.00e-05 (2.00e-01 x T_E) equiv_double=False detected=True
+ENERGY_CANDIDATE V max|s|=4.02e-06 (4.02e-02 x T_E) equiv_double=False detected=True
+ENERGY_TIMING ms/step lean_u1=6.4474 if32_25=2.83785 f64ic32=6.44525 dquant=6.4456500000000005 lean32=None
+ENERGY_VERDICT PASS_E tau_eval=0.5
+ENERGY_ANALYSIS_DONE

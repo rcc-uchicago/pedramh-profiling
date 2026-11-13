@@ -1,0 +1,5 @@
+2375d1b10e15d46e9f3f807db02e59ceaf7350534de9e69282915a29f88df761  SQG/analysis/opt/energy/analyze_energy.py
+433a2d4647b0a4d676987b3ca51d7e68808e58dabe6d71dccf762ae6509ea379  SQG/analysis/opt/energy/energy_budget.py
+ed71f33f417c28250e50d484733054390391d469877731adb544cca0e6aa3d64  SQG/analysis/opt/energy/score_energy.py
+fd1c852c39b4df07ed78f7623fe40498e660296b617e08d2f0a675c50cc16a1f  SQG/analysis/opt/energy/test_analyze_energy.py
+68f6b8417887a15bd37ad306d1d653243f0390c0b56447d28453f8bab0410604  SQG/analysis/opt/o12run/tilerows_advance.py
