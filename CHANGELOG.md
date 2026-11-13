@@ -124,9 +124,23 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     - gate A/B's pipeline reproduces `lean32ek`'s sealed statistics 72/72;
     - the modified energy analysis reproduces job 7836358's PASS_E.
   - Jobs:
-    - E: 7841269 (debug-scaling).
-    - A/B: waits for the debug slot (another session's job holds it); submitted automatically when it frees.
-    - D: capacity, once A/B gives the bias pattern.
+    - E: 7841269 (debug-scaling) — PASS_E (commit 9a0843ad).
+    - A/B: 7841299 — A PASS, B NOT_PASS on B3 detection in k2-4 only (commit b60744a9).
+    - D, first try: capacity 7841338 (doses 860/8600) **died in its stage-0 self-test** after 17 s (exit 6,
+      no arm trained; log in `SQG/analysis/results/polaris_trgateD_7841338/`).
+      - **Cause: a harness bug, not a gate result.** The job exports `DOSE_LO/DOSE_HI` = 860/8600 (58b1d1bd), and
+        the self-test's `analyze_dose` call inherited them, so it looked for arms `a860_sA` / `a8600_sA`.
+        `test_gateD.synthetic_run` still wrote `a1000_sA` / `a10000_sA`, so every synthetic case read
+        `INCONCLUSIVE_NO_POWER`.
+      - **Fix (bdcaab2f, test only):** the synthetic arms are named and shifted from the dose pair. The test runs
+        for 1000/10000 and for the env doses. `analyze_dose.py`, the rule and the thresholds are unchanged.
+      - **Lesson:** when a harness value becomes env-configurable, its self-test must exercise the env value — the
+        bare-default test kept passing.
+    - D smoke: 7843287 (debug, `SMOKE=1`, 860/8600, snapshot `sqg_profile/src_trgateD_bdcaab2f`) — PASS
+      (`DOSE_JOB_DONE failures=0`, 351 s). `GATED_TEST_OK` with PASS_D / FAIL_D / INCONCLUSIVE_NO_POWER for both
+      pairs; training at 0.433 s/step; 8/8 rollouts; both analyses print a verdict.
+    - D: **resubmitted as capacity 7843532** (the user's go-ahead). Same arguments as 7841338 except `TR_SRC`; the
+      same run name `gateD_tr_v1` and frames `gateD_frames` (resumable).
 
 - **2026-11-13** — **SQG 50-TU stability of tile-rows + IF-AB3 at 25 steps/frame (capacity job 7840662): STABLE,
   STATS PASS, production's 0.72 CFL policy EXCEEDED; 7 confirmed / 3 refuted. Notes Part XVII G.**

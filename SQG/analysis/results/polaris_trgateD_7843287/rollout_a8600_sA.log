@@ -1,0 +1,2 @@
+ROLLOUT_DONE arm=a8600_sA which=best ckpt_step=100 steps=500 ics=4 blown=0 first_blow=-1 seconds=21 -> /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/gateD_smoke_7843287/a8600_sA/rollout_best.npz
+ROLLOUT_DONE arm=a8600_sA which=last ckpt_step=300 steps=500 ics=4 blown=0 first_blow=-1 seconds=20 -> /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/gateD_smoke_7843287/a8600_sA/rollout_last.npz
