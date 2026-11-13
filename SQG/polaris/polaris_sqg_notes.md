@@ -2682,3 +2682,85 @@ The ML step is then ~46% of the optimizer step.
 - **XLA's product fusion** loads at 26.7 sectors per request, 60% used (real / imag halves of complex p).
 - **XLA's compensated-update fusions** are coalesced (5.7–5.9 sectors per request, 95% used). The `u1` trigger keeps
   doing its job.
+
+## F. Tile-rows (and IF-AB3) inside o1.2 itself (jobs 7840805, 7840909)
+
+**Ask.** Option C of the 2026-11-12 plan: the user chose A (the 50-TU stability run, G below), with "I build C (o1.2
+integration) on debug-scaling meanwhile". D measured the tile-row step standalone (1.578 ms). This runs it as o1.2's
+own solver.
+
+**Design** (`SQG/analysis/opt/o12run/tilerows_advance.py`, wired into `o12_polaris.py`; `PREDICTIONS_o12_tilerows.md`
+first).
+- **One call per frame.** o1.2 calls `self.state = advance(self.state)` once per ring frame (40 steps of DT =
+  2e-4 TU). Its only other use of the state is `coarse(st)`, a float64 irfft2 strided to 256².
+- **Detecting a new segment.** `advance()` continues its own state when it receives the object it returned last. Any
+  other state is a freshly loaded checkpoint, which starts a segment.
+- **Segment start, IF arms.** The checkpoint has DT history, so the arm takes the 2 float64 IF-AB3 switching steps,
+  then n − 2 steps. Every frame stays on o1.2's 2e-4 grid.
+- **Tile-row state.** It stays on the GPU between frames: hi + lo and 3 tendency slots on the compact block.
+  - After each frame, hi and lo go to JAX by DLPack and are expanded to the complex128 qh that `coarse` reads.
+  - A device-wide sync at each call orders JAX and torch.
+- **Gate in situ** (rank 0, first segment), using the probes' G32 / GIF rule: frames 1 and 4 vs float64 of the same
+  scheme, next to the float32 JAX twin.
+- **Arms:** `lean32ek_fast`, `if32_25` (pure-JAX float32 IF-AB3 at 25 steps per frame), `tilerows40`,
+  `tilerows_if25`, and `tilerows_if25` with cuFFT 11.4.1 preloaded.
+- **Same o1.2 knobs as Part XIII:** batch 16, 600 fill pairs, 4 epochs × 30 steps.
+
+**The first submission (7840681) died in 7 s on every arm.** `from model_UViT import ...` failed because the code
+snapshot (`snapshot_src.py`) had copied o1.2's file but not its sibling `SQG/model_UViT.py`.
+- The snapshot tool now copies every `SQG/*.py`.
+- The job imports the model from the snapshot before any arm runs (`O12_MODEL_IMPORT_OK`).
+
+**Job 7840805** (debug, 1,388 s, `failures=0`). Scored 9 confirmed / 4 refuted.
+
+| arm | s / optimizer step | o1.2 schedule, 14 A100s |
+|---|---|---|
+| `lean32ek_fast` | 1.7076 (Part XIII: 1.7107) | 93.9 h |
+| `if32_25` | 1.2404 | 68.1 h |
+| `tilerows40` | 1.5102 (predicted 1.18) | 82.9 h |
+| `tilerows_if25` | 1.2222 (predicted 0.89) | 67.1 h |
+| `tilerows_if25`, cuFFT 11.4.1 preloaded | 1.2170 | 66.9 h |
+
+- **Gates pass**, and the tile-row arms are slightly closer to float64 than their JAX twins: 2.73e-7 vs 3.41e-7
+  (IF, frame 1); 2.87e-7 vs 3.58e-7 (DT, frame 1).
+- **The production cuFFT 11.0.2 works.** The preload buys 0.4% and is not needed. This settles D's owed rerun.
+- **WORTH** (s_step(tilerows_if25) ≤ 0.80 × s_step(if32_25)) **failed: 0.985.**
+- **Why.** Fill frames take 89.2 ms per 40 steps and 65.5 ms per 25 steps. That is 1.58 ms/step, exactly D's
+  kernel, plus ~26 ms of fixed glue per frame that the JAX arms do not pay.
+
+**Job 7840909** (debug, 912 s, `failures=0`). It diagnoses and removes the overhead (follow-up F1–F7, written
+first; **7/7 confirmed**).
+- **Per-frame breakdown** (`O12_TR_TIMING`, medians over frames 50–1200):
+
+  | per frame (25 steps) | old expand (XLA scatter) | new expand (contiguous blocks) |
+  |---|---|---|
+  | solver run | 39.97 ms | 39.96 ms |
+  | entry sync | 1.01 ms | 1.04 ms |
+  | hand-off + expand | **25.66 ms** | **0.54 ms** |
+  | outside `advance()` | 0.15 ms | 0.10 ms |
+
+- **The cause was the expand.** It built qh with `.at[rows, :CC].set(c)`, a complex128 XLA scatter that costs 25.7 ms
+  for 3.7 M elements.
+- **The fix** (`full_from_compact`) builds the same array from two contiguous row blocks around a zero block, then
+  zero columns. It is bitwise equal to the scatter version in situ and to `tilerows_step.from_compact` in the
+  numpy test.
+- **Result:** **`tilerows_if25` 0.926 s/step vs `if32_25` 1.240** in the same job, a ratio of 0.747. WORTH holds for
+  the fixed glue (the rule is unchanged; job 7840805's fail stays recorded for the old glue).
+
+**Where it leaves o1.2** (14 A100s, o1.2's global batch 224 and 195,250 steps):
+
+| solver | s / opt step | full schedule | vs `ref` | numerics |
+|---|---|---|---|---|
+| `ref` (Part XIII) | 4.897 | 268.4 h | 1.00× | production |
+| `lean_u1` | 3.4925 | 191.4 h | 1.40× | bitwise |
+| `lean32ek_fast` | 1.708 | 93.9 h | 2.87× | gates A/E/D pass; admission is the user's call |
+| `if32_25` | 1.240 | 68.3 h | 3.95× | IF-AB3 at h = 8e-6: needs its statistical gates |
+| **`tilerows_if25`** | **0.926** | **50.9 h** | **5.29×** | same as `if32_25`, slightly closer to float64 |
+
+- The ML step is now ~46% of each optimizer step: 0.926 − 12 × 0.0419 = 0.42 s. That is the next ceiling.
+- **Caveats:**
+  - every new arm's frames differ from production's: `O12_BITWISE` 0.22 at the IF arms' first checked frame,
+    information only;
+  - IF-AB3 at 25 steps per frame still needs the long-run stability (G) and the statistical gates (option B: the
+    user's call) before any production use;
+  - the timing is from 1 node with in-sample validation (Part XIII's caveats apply).

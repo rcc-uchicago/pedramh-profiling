@@ -114,6 +114,18 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-13** — **SQG option C: tile-rows + IF-AB3 as o1.2's own solver: 0.926 s/step vs `lean32ek_fast` 1.708
+  and `ref` 4.897 (5.29×); o1.2's 14-A100 schedule 268 → 50.9 h. Jobs 7840805 + 7840909; notes Part XVII F.**
+  - **First run (7840805):** gates pass, but the tile-row arms paid ~26 ms of glue per frame, so WORTH failed
+    (0.985). That verdict stays recorded.
+  - **Diagnosed (7840909, 7/7 confirmed):** the cause was the complex128 XLA scatter in `expand` (25.7 ms → 0.54 ms
+    with contiguous blocks, bitwise equal). WORTH holds for the fixed glue (0.747).
+  - The production cuFFT 11.0.2 works (the preload is not needed).
+  - The first submission (7840681) died on a snapshot packaging miss (`model_UViT.py`): fixed, with an import
+    pre-flight.
+  - **Still owed before production use:** the 50-TU stability run (capacity 7840662, running) and the IF-AB3
+    statistical gates (the user's call).
+
 - **2026-11-12 (late night)** — **SQG 50-TU stability of tile-rows + IF-AB3 at 25 steps/frame: harness reviewed and
   fixed, smoke 7840661 (debug-scaling, 0.2 TU) + run 7840662 (capacity, 1 node, 6 h) queued from a frozen
   snapshot.**
