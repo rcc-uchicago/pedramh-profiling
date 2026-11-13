@@ -114,6 +114,20 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-13 (in progress)** — **SQG: the same gates (A, B, E, D) for `tilerows_if25`.** The user asked "did we
+  also test if it avoids drifting and overfitting" (only `lean32ek_fast` had gate D), then "okay do the same gates
+  for tilerows_if25".
+  - Rules and thresholds are unchanged, with production (`lean_u1`) as the reference.
+  - Prereg: `SQG/analysis/opt/tilegates/PREDICTIONS_gates_tilerows.md` (18 predictions; gate D's doses from the
+    arm's bias size); scorer `score_gates_tilerows.py`.
+  - Harness checks before submission:
+    - gate A/B's pipeline reproduces `lean32ek`'s sealed statistics 72/72;
+    - the modified energy analysis reproduces job 7836358's PASS_E.
+  - Jobs:
+    - E: 7841269 (debug-scaling).
+    - A/B: waits for the debug slot (another session's job holds it); submitted automatically when it frees.
+    - D: capacity, once A/B gives the bias pattern.
+
 - **2026-11-13** — **SQG 50-TU stability of tile-rows + IF-AB3 at 25 steps/frame (capacity job 7840662): STABLE,
   STATS PASS, production's 0.72 CFL policy EXCEEDED; 7 confirmed / 3 refuted. Notes Part XVII G.**
   - **Stability:** 4 × 50 TU, finite; the gate at h passes ×4; energy budget closes to ≤ 2.1e-5.
