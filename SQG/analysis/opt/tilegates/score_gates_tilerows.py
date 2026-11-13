@@ -61,11 +61,12 @@ def score(ab_dir=None, e_dir=None, d_path=None):
         for k in ("E1", "E2", "E3", "E4", "E5"):
             P[k] = None
     d = jload(d_path) if d_path else None
-    if d:
-        P["D1"] = d.get("verdict") == "PASS_D"
-        of = d.get("overfitting", {})
+    if d:                                                            # analyze_dose.py's dose_summary.json (best)
+        vd = d.get("verdict", {})
+        P["D1"] = vd.get("verdict") == "PASS_D"
+        of = d.get("overfit", {})
         P["D2"] = None if not of else all(not x.get("overfit", True) for k, x in of.items() if k.startswith("a0_"))
-        P["D3"] = d.get("positive_control_drifts")
+        P["D3"] = vd.get("power_drift")
     else:
         P["D1"] = P["D2"] = P["D3"] = None
     verdict = {k: ("UNSCORED" if v is None else ("CONFIRMED" if v else "REFUTED")) for k, v in P.items()}

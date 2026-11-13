@@ -41,8 +41,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import dose_common as DC                                             # noqa: E402
 
-ARMS = {"a0_sA": 0.0, "a0_sB": 0.0, "a1000_sA": 1000.0, "a10000_sA": 10000.0}
-REF, SEED_B, LOW_D, HIGH_D = "a0_sA", "a0_sB", "a1000_sA", "a10000_sA"
+# doses: env DOSE_LO / DOSE_HI (the arm directories are a<DOSE_LO>_sA / a<DOSE_HI>_sA, as run_tr_gateD_polaris.pbs names
+# them; PREDICTIONS_gates_tilerows.md, 2026-11-13); unset = job 7835786's 1000 / 10000.
+_LO, _HI = os.environ.get("DOSE_LO", "1000"), os.environ.get("DOSE_HI", "10000")
+ARMS = {"a0_sA": 0.0, "a0_sB": 0.0, f"a{_LO}_sA": float(_LO), f"a{_HI}_sA": float(_HI)}
+REF, SEED_B, LOW_D, HIGH_D = "a0_sA", "a0_sB", f"a{_LO}_sA", f"a{_HI}_sA"
 WINDOW, NOISE_FACTOR, SURVIVE_MIN, KAPPA_POWER, OVERFIT_RATIO = 250, 0.1, 0.5, 0.3, 1.10
 
 
@@ -91,7 +94,8 @@ def main():
     clim, clim_sd, n_clim = climatology(a.frames, G)
     clim_low = clim[list(DC.LOW_BANDS)].sum()
     res = {"which": a.which, "climatology": {"band_mean": clim.tolist(), "band_sd": clim_sd.tolist(), "n_frames": n_clim,
-                                            "low_mean": float(clim_low)}, "arms": {}}
+                                            "low_mean": float(clim_low)}, "arms": {},
+           "doses": {"low": ARMS[LOW_D], "high": ARMS[HIGH_D], "pattern": DC.PATTERN}}
     print(f"DOSE_CLIM frames={n_clim} E_low={clim_low:.4e} bands=" + " ".join(f"{v:.3e}" for v in clim), flush=True)
 
     ro, of = {}, {}
