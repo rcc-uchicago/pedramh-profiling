@@ -1,0 +1,55 @@
+{
+ "predictions": {
+  "0": "CONFIRMED",
+  "1": "CONFIRMED",
+  "1b": "REFUTED",
+  "2": "REFUTED",
+  "3": "CONFIRMED",
+  "4": "CONFIRMED",
+  "5": "CONFIRMED",
+  "6": "CONFIRMED",
+  "7": "REFUTED",
+  "8": "CONFIRMED"
+ },
+ "facts": {
+  "stability": "STABLE",
+  "prod_policy": "EXCEEDED",
+  "stats": "PASS",
+  "cfl_max": [
+   0.7930805484471766,
+   0.6139914378515247,
+   0.6070638919857405,
+   0.6269018477434354
+  ],
+  "n_cfl_ge_060": [
+   242,
+   5,
+   3,
+   9
+  ],
+  "ms_per_step_wall": [
+   1.9157630559158325,
+   1.9264556106567383,
+   1.924663725090027,
+   1.9252804623794555
+  ],
+  "wall_run_s": [
+   11973.5,
+   12040.3,
+   12029.1,
+   12033.0
+  ],
+  "gate_h": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "run_status": {
+   "0": "COMPLETE",
+   "1": "COMPLETE",
+   "2": "COMPLETE",
+   "3": "COMPLETE"
+  }
+ }
+}
