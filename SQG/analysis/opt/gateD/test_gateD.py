@@ -5,9 +5,11 @@
   * band_energy_np sums to the field's mean square (zero-mean field).
   * pair_index / val_pairs / rollout_ics on fake segments.
   * analyze_dose on a synthetic run, with a known drift and absorption:
-    - PASS_D when the dose-1000 effect / 1000 is far below the seed spread;
+    - PASS_D when the low-dose effect / low dose is far below the seed spread;
     - FAIL_D when it is not;
     - INCONCLUSIVE_NO_POWER when the positive control shows nothing.
+    Run for the default doses 1000 / 10000 and, when the job sets them, env DOSE_LO / DOSE_HI (job 7841338 died
+    here: the synthetic arms were named a1000 / a10000 while analyze_dose looked for a860 / a8600).
   * With torch: bias_hat and band_energy on torch equal the numpy versions to float32 accuracy.
 
   python3 SQG/analysis/opt/gateD/test_gateD.py          # prints GATED_TEST_OK
@@ -78,17 +80,19 @@ def test_indexing(d):
     assert ics.shape == (4, DC.NC, DC.NC) and tags == [(0, 0), (0, 125), (1, 0), (1, 125)]
 
 
-def synthetic_run(run, frames, G, cx, cd, delta_lo, delta_hi, kap_hi=1.0, seed_noise=0.02, T=1000, n_ic=8):
-    """Arm dirs with history.json + rollout_best.npz: R_0A = 0, R_0B = seed_noise, R_1000 = delta_lo,
-    R_10000 = delta_hi (relative to the climatology), and one-step predictions f_a = f_0A + dose kappa B_hat."""
+def synthetic_run(run, frames, G, cx, cd, delta_lo, delta_hi, doses, kap_hi=1.0, seed_noise=0.02, T=1000, n_ic=8):
+    """Arm dirs with history.json + rollout_best.npz: R_0A = 0, R_0B = seed_noise, R_lo = delta_lo,
+    R_hi = delta_hi (relative to the climatology), and one-step predictions f_a = f_0A + dose kappa B_hat.
+    doses = (lo, hi) as strings; the arms are a<lo>_sA / a<hi>_sA, as run_tr_gateD_polaris.pbs names them."""
+    lo, hi = doses
     clim, _, _ = AD.climatology(frames, G)
     _, va = DC.open_segments(frames, [4])
     xv, yv, pick = DC.val_pairs(va, 16)
     B = DC.bias_hat_np(xv.astype(np.float64), yv.astype(np.float64), cx, cd)
     rng = np.random.RandomState(5)
     f0 = rng.randn(*xv.shape)
-    lev = {"a0_sA": (0.0, 0.0), "a0_sB": (seed_noise, 0.0), "a1000_sA": (delta_lo, 1000.0),
-           "a10000_sA": (delta_hi, 10000.0 * kap_hi)}
+    lev = {"a0_sA": (0.0, 0.0), "a0_sB": (seed_noise, 0.0), f"a{lo}_sA": (delta_lo, float(lo)),
+           f"a{hi}_sA": (delta_hi, float(hi) * kap_hi)}
     for arm, (r, shift) in lev.items():
         d = os.path.join(run, arm)
         os.makedirs(d, exist_ok=True)
@@ -102,30 +106,43 @@ def synthetic_run(run, frames, G, cx, cd, delta_lo, delta_hi, kap_hi=1.0, seed_n
                  ic_tags=np.zeros((n_ic, 2)), preds=(f0 + shift * B).astype(np.float32), val_pick=pick)
 
 
-def run_analysis(run, frames, out):
+def run_analysis(run, frames, out, doses):
+    env = dict(os.environ, DOSE_LO=doses[0], DOSE_HI=doses[1])      # analyze_dose reads its arm names from these
     p = subprocess.run([sys.executable, os.path.join(HERE, "analyze_dose.py"), "--run", run, "--frames", frames,
                         "--out", out, "--n-val", "16"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                       universal_newlines=True)
+                       universal_newlines=True, env=env)
     last = [l for l in p.stdout.splitlines() if l.startswith("DOSE_ANALYSIS_DONE")]
     assert p.returncode == 0 and last, (p.returncode, p.stdout[-2000:], p.stderr[-2000:])
     return last[-1].split()[1].split("=")[1], p.stdout
 
 
+def dose_pairs():
+    """The defaults (job 7835786) and, if the job sets them, the env doses."""
+    pairs = [("1000", "10000")]
+    env = (os.environ.get("DOSE_LO"), os.environ.get("DOSE_HI"))
+    if all(env) and env not in pairs:
+        pairs.append(env)
+    return pairs
+
+
 def test_analysis(G, cx, cd):
-    with tempfile.TemporaryDirectory() as d:
-        frames = os.path.join(d, "frames")
-        os.makedirs(frames)
-        fake_frames(frames)
-        verdicts = {}
-        for case, (lo, hi, kh) in {"pass": (0.001, 0.05, 1.0), "fail": (5.0, 50.0, 1.0),
-                                   "nopower": (0.0, 0.0, 0.0)}.items():
-            run = os.path.join(d, case)
-            synthetic_run(run, frames, G, cx, cd, lo, hi, kap_hi=kh)
-            v, out = run_analysis(run, frames, os.path.join(d, case + "_out"))
-            verdicts[case] = v
-            if case == "pass":
-                assert "kappa: a0_sB(noise ref)" in out or "a1000_sA=1.000" in out, out
-    assert verdicts == {"pass": "PASS_D", "fail": "FAIL_D", "nopower": "INCONCLUSIVE_NO_POWER"}, verdicts
+    verdicts = {}
+    for doses in dose_pairs():
+        got = {}
+        with tempfile.TemporaryDirectory() as d:
+            frames = os.path.join(d, "frames")
+            os.makedirs(frames)
+            fake_frames(frames)
+            for case, (lo, hi, kh) in {"pass": (0.001, 0.05, 1.0), "fail": (5.0, 50.0, 1.0),
+                                       "nopower": (0.0, 0.0, 0.0)}.items():
+                run = os.path.join(d, case)
+                synthetic_run(run, frames, G, cx, cd, lo, hi, doses, kap_hi=kh)
+                v, out = run_analysis(run, frames, os.path.join(d, case + "_out"), doses)
+                got[case] = v
+                if case == "pass":
+                    assert "kappa: a0_sB(noise ref)" in out or f"a{doses[0]}_sA=1.000" in out, out
+        assert got == {"pass": "PASS_D", "fail": "FAIL_D", "nopower": "INCONCLUSIVE_NO_POWER"}, (doses, got)
+        verdicts["/".join(doses)] = got
     return verdicts
 
 
