@@ -114,6 +114,17 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-13** — **SQG 50-TU stability of tile-rows + IF-AB3 at 25 steps/frame (capacity job 7840662): STABLE,
+  STATS PASS, production's 0.72 CFL policy EXCEEDED; 7 confirmed / 3 refuted. Notes Part XVII G.**
+  - **Stability:** 4 × 50 TU, finite; the gate at h passes ×4; energy budget closes to ≤ 2.1e-5.
+  - **Statistics:** S1 / S2 / S3 pass (window means and octave bands inside the 16-state range; no common drift).
+  - **Worker 0** reached CFL_h 0.793: 39 samples ≥ 0.72, in two short episodes (TU 2.45–2.64 and 33.02), during a
+    dissipation burst. Workers 1–3 peaked ≤ 0.627.
+  - **Report only:** shells k > 500 carry 1.02–1.21× the archive mean, rising toward KMAX. Option B's gates should
+    test this.
+  - Refuted: P1b, P2, P7 (1.92 ms/step wall including host-copy diagnostics).
+  - **The user's calls:** whether o1.2 (which has no CFL abort) may run through such episodes, and option B.
+
 - **2026-11-13** — **SQG option C: tile-rows + IF-AB3 as o1.2's own solver: 0.926 s/step vs `lean32ek_fast` 1.708
   and `ref` 4.897 (5.29×); o1.2's 14-A100 schedule 268 → 50.9 h. Jobs 7840805 + 7840909; notes Part XVII F.**
   - **First run (7840805):** gates pass, but the tile-row arms paid ~26 ms of glue per frame, so WORTH failed

@@ -2764,3 +2764,81 @@ first; **7/7 confirmed**).
   - IF-AB3 at 25 steps per frame still needs the long-run stability (G) and the statistical gates (option B: the
     user's call) before any production use;
   - the timing is from 1 node with in-sample validation (Part XIII's caveats apply).
+
+## G. 50 time units of tile-rows + IF-AB3 at 25 steps per frame (job 7840662)
+
+**Ask (user, 2026-11-12):**
+- "how can we try out tile-rows+IF-ab3, can we submit in capacity", then option A, "50-TU stability".
+- "use 2 code reviewers and a fable principal scientist to make sure it is accurate".
+
+**Before the run.**
+- **Review** (workflow wf_8c6d4a2d-cde): ready with changes. Every required change was applied first:
+  - a gate at h;
+  - every diagnostics sample stored;
+  - stop only on non-finite values or CFL ≥ 1.0, with production's 0.72 abort reported as a separate verdict;
+  - INCONCLUSIVE kept distinct from UNSTABLE;
+  - a scope paragraph in the predictions.
+- **The review's drift test was replaced.** It suggested a per-run 2 SE test with an estimated N_eff. Simulated at
+  this run length first, that test gave 6–20 % false positives per run, because the ACF estimate is biased low.
+  S3 became a between-run common-drift t-test instead: 5.0–7.7 % false positives (`calibrate_s3_*.py`).
+- **Smoke 7840661** ran the exact job at 0.2 TU: pass.
+- **Code** ran from a frozen snapshot (`snapshot_src.py`).
+
+**Run.**
+- Capacity, 1 node, x3003c0s13b1n0, 2026-11-12 23:01 → 2026-11-13 02:23. `STAB_JOB_DONE failures=0`.
+- Workers: member w + 1 at t = 100 (w + 1); 2 float64 switching steps to h = 8e-6; 6.25 M tile-row steps each.
+
+**Gate at h** (TileRows vs float64 IF-AB3, from the switched state): pass on all 4 workers.
+- After 1 step: 2.5–3.2e-8, against if32's 2.6–3.2e-8.
+- After 40 steps: 2.7–3.2e-7, against 2.7–3.0e-7.
+- Damping table: exact to 1.2e-10.
+
+| verdict | result |
+|---|---|
+| STABILITY | **STABLE**: 4/4 complete, every sample finite, CFL_h < 1.0 |
+| PROD_POLICY (production's 0.72 abort) | **EXCEEDED**: worker 0 |
+| STATS | **PASS**: S1, S2, S3 |
+
+| worker (state) | CFL_h max | samples ≥ 0.60 / ≥ 0.72 (of 20,867) | window SPE / VIE | SPE slope (/TU) |
+|---|---|---|---|---|
+| 0 (m1, t=100) | **0.793** | 242 / **39** | 35.7 / 10.56 | −0.31 |
+| 1 (m2, t=200) | 0.614 | 5 / 0 | 33.3 / 9.79 | −0.20 |
+| 2 (m3, t=300) | 0.607 | 3 / 0 | 32.5 / 9.61 | +0.07 |
+| 3 (m4, t=400) | 0.627 | 9 / 0 | 36.8 / 10.85 | +0.19 |
+| archive (16 states) | 0.375 at DT = 0.600 at h | — | 24.0–48.3 / 6.8–14.8 | — |
+
+**What the numbers say.**
+- **Climate.** S1 passes: every window mean is inside the archive's range. S2 passes: the pooled octave-band
+  energies are 0.90–1.10 × the archive mean, all inside its range. S3 passes: mean slope −0.065 /TU against a 95%
+  half-width of 0.367, so no common drift.
+- **Energy budget.** It closes to 1.0–2.1e-5 of the injected energy over 40 TU. The scheme creates no energy.
+- **Worker 0's excursion is two short episodes, not a trend.**
+  - TU 2.45–2.64: 35 samples, longest streak 15 samples = 0.036 TU, peak 0.793.
+  - TU 33.02–33.03: 4 samples.
+  - The run recovered each time. The peak coincides with viscous dissipation at 2.4× its run median: a strong-front
+    burst.
+  - At DT the same velocity would read CFL 0.496, above the 0.42 recorded in A-SQG_data.py's comment for the
+    production step. One cannot tell from this run whether the IF-AB3 run makes sharper fronts or production simply
+    never sampled such an event. The comment does not give the length it covers.
+- **CFL tail.** It is heavier than exponential: the fit gives 1.2e-4 per sample above 0.72, observed 1.9e-3 at
+  worker 0. Crossings cluster in episodes.
+- **High wavenumbers (report only).** Shells k > 500 carry 2–21% more energy than the archive mean, rising toward
+  KMAX (1300–1365: 1.02–1.21×). This is inside the 16-state envelope but systematic in sign. It is the first thing
+  the statistical gates (option B) should test.
+
+**Scored** (`score_stability.py`): **7 confirmed, 3 refuted.**
+- Confirmed: P0 gate, P1 STABLE, P3 ≥ 0.60 reached, P4–P6 S1–S3, P8 each run ≤ 3.5 h (3.33–3.34 h).
+- Refuted: P1b production policy; P2 CFL max 0.55–0.70; P7 ≤ 1.75 ms/step.
+- P7 measured 1.92 wall including diagnostics. The diagnostics' DLPack hand-off fell back to a host copy (a layout
+  quirk, fixed in the driver after the smoke; this run used the frozen code). The tile-row step itself is 1.58.
+
+**What it means for o1.2.**
+- **Stability.** IF-AB3 at 25 steps per frame with the tile-row step runs 4 × 50 TU stably and inside production's
+  climate, with closed energy.
+- **Production's 0.72 abort heuristic would fire.** About once per 100–200 TU here (one run, two episodes, in
+  200 TU). o1.2's solver has no abort, so it would ride through such episodes as these runs did. Whether that is
+  acceptable is the user's call.
+- **Bounds.**
+  - 200 TU bound rare failures only to ≲ 1 per 67 TU (95%), against ~6,700 TU per o1.2 schedule.
+  - The high-k excess and the episode velocities are what option B's statistical gates should judge.
+  - `if32_25` (pure JAX) shares the scheme and the time step, so these results speak to it too.
