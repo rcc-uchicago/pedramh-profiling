@@ -74,7 +74,9 @@ def full_from_compact(xp, c, n, nk, km):
     return xp.pad(xp.concatenate([c[km:], mid, c[:km]], axis=0), ((0, 0), (0, nk - cc)))
 
 
-def make(GD, stride, scheme, *, rank=0, log=print, gate=False):
+def make(GD, stride, scheme, *, rank=0, log=print, gate=False, history=False):
+    """history=True (tile-row arms): the returned state's _updates are the true newest and second tendencies
+    (expanded to complex128) instead of the input's -- for callers that read them (energy_budget.py's Q terms)."""
     import jax
     import jax.numpy as jnp
     from pyqg_jax import steppers as pst
@@ -201,6 +203,10 @@ def make(GD, stride, scheme, *, rank=0, log=print, gate=False):
         c = hi.astype(c128) + lo.astype(c128)
         return full_from_compact(jnp, c, N, NK, TS.KM)[None]
 
+    @jax.jit
+    def expand_one(t):                                               # a compact complex64 tendency -> (1, N, NK) c128
+        return full_from_compact(jnp, t.astype(c128), N, NK, TS.KM)[None]
+
     xmode = os.environ.get("O12_TR_EXPAND", "concat")
     if xmode not in ("concat", "scatter"):
         raise SystemExit(f"ERROR O12_TR_EXPAND={xmode!r} not in (concat, scatter)")
@@ -275,8 +281,12 @@ def make(GD, stride, scheme, *, rank=0, log=print, gate=False):
         if timing:
             qh = jax.block_until_ready(qh)
             timing_row(t0, t1, t2, t3, time.time())
+        upd = st._updates
+        if history:
+            tn, to = solver.T[solver.slot[0]], solver.T[solver.slot[1]]
+            upd = (upd[0].update(qh=expand_one(to_jax(tn))), upd[1].update(qh=expand_one(to_jax(to))))
         out = pst.AB3State(state=st.state.update(qh=qh), t=st.t + jnp.float32(stride * DT), tc=st.tc + stride,
-                           _ablevel=st._ablevel, _updates=st._updates)
+                           _ablevel=st._ablevel, _updates=upd)
         if G["on"] and not G["done"] and S["segments"] == 1:
             gate_frame(qh)
         S["last"] = out

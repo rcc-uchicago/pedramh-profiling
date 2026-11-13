@@ -269,12 +269,18 @@ def report(out):
 
 
 def main():
+    global CAND, REQUIRED
     ap = argparse.ArgumentParser()
     ap.add_argument("--in", dest="indir", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--candidate", default=CAND,
+                    help="the arm judged (default lean32ek_fast; PREDICTIONS_gates_tilerows.md: tilerows_if25)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
+    CAND = a.candidate                                                # the same rule, another candidate
+    REQUIRED = (REF, CAND, NULL, CAL)
     out = analyze(load(a.indir))
+    out["candidate_arm"] = CAND
     with open(os.path.join(a.out, "energy_summary.json"), "w") as fh:
         json.dump(jsonable(out), fh, indent=1)
     write_table(out, os.path.join(a.out, "energy_table.csv"))

@@ -1,0 +1,115 @@
+#!/bin/bash -l
+#PBS -N sqg_trab
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -j oe
+# run_tr_ab_polaris.pbs -- gates A and B for tilerows_if25 (user, 2026-11-13: "do the same gates for tilerows_if25").
+# Rules: SQG/analysis/opt/tilegates/PREDICTIONS_gates_tilerows.md (written first; ACCEPTANCE_gates_AB.md unchanged).
+#   python3 SQG/analysis/opt/stability/snapshot_src.py <snap>                    (from the repo root: freeze the code)
+#   qsub -v TR_SRC=<snap> -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ \
+#        SQG/analysis/opt/tilegates/run_tr_ab_polaris.pbs
+# 4 x tr_pairs.py (GPU w: the taxonomy job's states, member ((w + i) mod 4) + 1 at t = TIMES[i], 4 pairs each), then
+# gates_ab_tr.py. End token (every exit path): TRAB_JOB_DONE failures=N. Results -> SQG/analysis/results/
+# polaris_trab_<jobid>/ (incl. bias_pattern_tilerows_if25.json for gate D); pair npz stay in $MEMBER_ROOT/sqg_profile/.
+set -eo pipefail
+FAILURES=0
+DONE_PRINTED=0
+fail() { echo "ERROR $*"; FAILURES=$((FAILURES + 1)); }
+finish() {
+    rc=$?
+    if [ "$DONE_PRINTED" -eq 0 ]; then
+        [ "$rc" -ne 0 ] && { echo "ERROR TRAB_JOB_EXIT rc=$rc"; FAILURES=$((FAILURES + 1)); }
+        echo "TRAB_JOB_DONE failures=$FAILURES"
+    fi
+}
+trap finish EXIT
+cd "${PBS_O_WORKDIR}"
+REPO="${PBS_O_WORKDIR}"
+SRC="${TR_SRC:-${REPO}}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${SRC}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+export PYTHONUNBUFFERED=1
+WARP_PATH="${WARP_PATH:-${MEMBER_ROOT}/pylibs/warp-1.17.0}"
+NVMATH_PATH="${NVMATH_PATH:-${MEMBER_ROOT}/pylibs/nvmath-1.0.0}"
+TAXO="${TAXO:-${MEMBER_ROOT}/sqg_profile/taxonomy_7824121}"
+OUT="${MEMBER_ROOT}/sqg_profile/trab_${JOB}"
+RES="${REPO}/SQG/analysis/results/polaris_trab_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+cd "$SRC"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+if [ "$SRC" != "$REPO" ]; then
+    sha256sum -c --quiet MANIFEST.sha256 || { echo "ERROR TRAB_SNAPSHOT_MANIFEST"; exit 4; }
+    cp MANIFEST.sha256 GIT_HEAD "$OUT"/
+fi
+HERE=SQG/analysis/opt/tilegates
+for d in "$WARP_PATH/warp" "$NVMATH_PATH/nvmath" "$TAXO/sealed"; do
+    [ -d "$d" ] || { echo "ERROR TRAB_INPUT_MISSING $d"; exit 5; }
+done
+T0=$(date +%s)
+echo "=== run_tr_ab on $(hostname) job $JOB: $(date '+%F %T') src=$SRC taxo=$TAXO ==="
+nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee "$OUT/gpu.csv"
+sha256sum "$HERE"/*.py SQG/analysis/opt/o12run/tilerows_advance.py "$HERE"/PREDICTIONS_gates_tilerows.md \
+    | tee "$OUT/sha256.txt"
+"$PY" SQG/analysis/opt/o12run/test_tilerows_advance.py 2>&1 | tee "$OUT/test_tilerows_advance.log" || fail TR_TEST
+grep -q "O12_TR_TEST_OK" "$OUT/test_tilerows_advance.log" || fail TR_TEST_NO_TOKEN
+
+# ---- the taxonomy job's states: worker w, state i = member ((w + i) mod 4) + 1 at t = TIMES[i] ---------------------
+LABEL_TAIL="_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02"
+TIMES=(0100.00 0200.00 0300.00 0400.00)
+declare -a WARGS
+for w in 0 1 2 3; do
+    a=""
+    for i in 0 1 2 3; do
+        m=$(( (w + i) % 4 + 1 ))
+        f="${SQG_TRAINING_ROOT}/trainingdata_m0${m}${LABEL_TAIL}/checkpoint/ckpt_t${TIMES[$i]}.npz"
+        [ -s "$f" ] || { echo "ERROR TRAB_CKPT_NOT_STAGED $f"; exit 5; }
+        a="$a --ckpt ${m}:${f}"
+    done
+    WARGS[$w]="$a"
+done
+pids=()
+for w in 0 1 2 3; do
+    mkdir -p "$OUT/warp_cache_w$w"
+    # shellcheck disable=SC2086
+    CUDA_VISIBLE_DEVICES=$w WARP_CACHE_PATH="$OUT/warp_cache_w$w" "$PY" "$HERE/tr_pairs.py" --out "$OUT" --worker $w \
+        ${WARGS[$w]} --taxo "$TAXO" --warp-path "$WARP_PATH" --nvmath-path "$NVMATH_PATH" \
+        > "$OUT/worker_${w}.log" 2>&1 &
+    pids+=($!)
+done
+for w in 0 1 2 3; do
+    wait "${pids[$w]}" || fail "TRAB_WORKER_RC w=$w"
+    grep -q "TRAB_WORKER_DONE w=$w" "$OUT/worker_${w}.log" || fail "TRAB_WORKER_NO_TOKEN w=$w"
+    grep -E "^(ERROR|TRAB_STATE|TRAB_WORKER_DONE)" "$OUT/worker_${w}.log" || true
+done
+echo "=== workers done $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+
+OPENBLAS_NUM_THREADS=8 "$PY" "$HERE/gates_ab_tr.py" --taxo "$TAXO" --new "$OUT" --out "$RES" 2>&1 \
+    | tee "$OUT/gates_ab_tr.log" || fail TRAB_ANALYSIS_RC
+grep -q "GATES_AB_TR_DONE" "$OUT/gates_ab_tr.log" || fail TRAB_ANALYSIS_NO_TOKEN
+
+for f in "$OUT"/worker_*.json "$OUT"/*.log "$OUT"/gpu.csv "$OUT"/sha256.txt "$OUT"/MANIFEST.sha256 "$OUT"/GIT_HEAD; do
+    if [ -e "$f" ]; then cp "$f" "$RES"/ || fail "TRAB_COPY $f"; fi
+done
+echo "=== end $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+DONE_PRINTED=1
+echo "TRAB_JOB_DONE failures=$FAILURES"

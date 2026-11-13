@@ -1,0 +1,112 @@
+#!/bin/bash -l
+#PBS -N sqg_tre
+#PBS -A lighthouse-uchicago
+#PBS -q debug-scaling
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -j oe
+# run_tr_energy_polaris.pbs -- gate E (PREDICTIONS_energy.md's rule, unchanged) for tilerows_if25 (user, 2026-11-13:
+# "do the same gates for tilerows_if25"). Rules: SQG/analysis/opt/tilegates/PREDICTIONS_gates_tilerows.md (first).
+#   qsub -v TR_SRC=<snap> -o .../sqg_profile/logs/ SQG/analysis/opt/tilegates/run_tr_energy_polaris.pbs
+# 4 x energy_budget.py (GPU w: member w + 1 at t = 100 (w + 1), as job 7836358), arms lean_u1, tilerows_if25, f64ic32,
+# dquant, if32_25; then analyze_energy.py --candidate tilerows_if25 (deciding) and --candidate if32_25 (reported).
+# End token (every exit path): TRE_JOB_DONE failures=N. Results -> SQG/analysis/results/polaris_tre_<jobid>/.
+set -eo pipefail
+FAILURES=0
+DONE_PRINTED=0
+fail() { echo "ERROR $*"; FAILURES=$((FAILURES + 1)); }
+finish() {
+    rc=$?
+    if [ "$DONE_PRINTED" -eq 0 ]; then
+        [ "$rc" -ne 0 ] && { echo "ERROR TRE_JOB_EXIT rc=$rc"; FAILURES=$((FAILURES + 1)); }
+        echo "TRE_JOB_DONE failures=$FAILURES"
+    fi
+}
+trap finish EXIT
+cd "${PBS_O_WORKDIR}"
+REPO="${PBS_O_WORKDIR}"
+SRC="${TR_SRC:-${REPO}}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${SRC}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+export PYTHONUNBUFFERED=1
+T0=$(date +%s)
+DEADLINE=$(( T0 + 52 * 60 ))
+TAU="${TAU:-0.5}"
+WARP_PATH="${WARP_PATH:-${MEMBER_ROOT}/pylibs/warp-1.17.0}"
+NVMATH_PATH="${NVMATH_PATH:-${MEMBER_ROOT}/pylibs/nvmath-1.0.0}"
+FRAMES="${FRAMES:-${MEMBER_ROOT}/sqg_profile/gateD_frames}"
+OUT="${MEMBER_ROOT}/sqg_profile/tre_${JOB}"
+RES="${REPO}/SQG/analysis/results/polaris_tre_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+cd "$SRC"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+if [ "$SRC" != "$REPO" ]; then
+    sha256sum -c --quiet MANIFEST.sha256 || { echo "ERROR TRE_SNAPSHOT_MANIFEST"; exit 4; }
+    cp MANIFEST.sha256 GIT_HEAD "$OUT"/
+fi
+HERE=SQG/analysis/opt/energy
+for d in "$WARP_PATH/warp" "$NVMATH_PATH/nvmath" "$FRAMES"; do
+    [ -d "$d" ] || { echo "ERROR TRE_INPUT_MISSING $d"; exit 5; }
+done
+echo "=== run_tr_energy on $(hostname) job $JOB: $(date '+%F %T') tau=$TAU src=$SRC ==="
+nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee "$OUT/gpu.csv"
+sha256sum "$HERE"/*.py SQG/analysis/opt/o12run/tilerows_advance.py | tee "$OUT/sha256.txt"
+"$PY" "$HERE/test_analyze_energy.py" 2>&1 | tee "$OUT/test_analyze_energy.log" || fail ENERGY_ANALYSIS_TEST
+grep -q "ENERGY_ANALYSIS_TEST_OK" "$OUT/test_analyze_energy.log" || fail ENERGY_ANALYSIS_TEST_NO_TOKEN
+
+LABEL_TAIL="_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02"
+TIMES=(0100.00 0200.00 0300.00 0400.00)
+declare -a CKPT
+for w in 0 1 2 3; do
+    m=$(( w + 1 ))
+    f="${SQG_TRAINING_ROOT}/trainingdata_m0${m}${LABEL_TAIL}/checkpoint/ckpt_t${TIMES[$w]}.npz"
+    [ -s "$f" ] || { echo "ERROR TRE_CKPT_NOT_STAGED $f"; exit 5; }
+    CKPT[$w]="${m}:${f}"
+done
+ARMS="lean_u1,tilerows_if25,f64ic32,dquant,if32_25"
+pids=()
+for w in 0 1 2 3; do
+    mkdir -p "$OUT/warp_cache_w$w"
+    CUDA_VISIBLE_DEVICES=$w WARP_CACHE_PATH="$OUT/warp_cache_w$w" "$PY" "$HERE/energy_budget.py" --out "$OUT" \
+        --worker $w --ckpt "${CKPT[$w]}" --tau "$TAU" --frames-dir "$FRAMES" --deadline "$DEADLINE" --arms "$ARMS" \
+        --warp-path "$WARP_PATH" --nvmath-path "$NVMATH_PATH" > "$OUT/worker_${w}.log" 2>&1 &
+    pids+=($!)
+done
+for w in 0 1 2 3; do
+    wait "${pids[$w]}" || fail "TRE_WORKER_RC w=$w"
+    grep -q "ENERGY_WORKER_DONE w=$w" "$OUT/worker_${w}.log" || fail "TRE_WORKER_NO_TOKEN w=$w"
+    grep -E "^(ERROR|ENERGY_IC|ENERGY_ARM|ENERGY_DEADLINE|ENERGY_BITWISE|ENERGY_WORKER_DONE)" \
+        "$OUT/worker_${w}.log" || true
+done
+echo "=== workers done $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+
+for cand in tilerows_if25 if32_25; do
+    "$PY" "$HERE/analyze_energy.py" --in "$OUT" --out "$RES/candidate_${cand}" --candidate "$cand" 2>&1 \
+        | tee "$OUT/analyze_energy_${cand}.log" || fail "TRE_ANALYSIS_RC $cand"
+    grep -q "ENERGY_ANALYSIS_DONE" "$OUT/analyze_energy_${cand}.log" || fail "TRE_ANALYSIS_NO_TOKEN $cand"
+done
+
+for f in "$OUT"/worker_*.json "$OUT"/*.log "$OUT"/gpu.csv "$OUT"/sha256.txt "$OUT"/MANIFEST.sha256 "$OUT"/GIT_HEAD; do
+    if [ -e "$f" ]; then cp "$f" "$RES"/ || fail "TRE_COPY $f"; fi
+done
+echo "=== end $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+DONE_PRINTED=1
+echo "TRE_JOB_DONE failures=$FAILURES"

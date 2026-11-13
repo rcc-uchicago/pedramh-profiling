@@ -28,7 +28,8 @@ NC, HALF, LAG = AT.NC, AT.HALF, 100
 BANDS, BNAME = AT.BANDS, AT.BNAME
 VAL_SEED = 20261110
 LOW_BANDS = (0, 1)                                                    # k 1-2 and 2-4: the k <= 4 "large scales"
-PATTERN = os.path.join(HERE, "bias_pattern_lean32ek.json")
+PATTERN = os.environ.get("DOSE_BIAS_PATTERN") or os.path.join(HERE, "bias_pattern_lean32ek.json")   # env: gate D
+# for another arm's pattern (PREDICTIONS_gates_tilerows.md, 2026-11-13); unset = job 7835786's lean32ek pattern
 
 
 def geometry():

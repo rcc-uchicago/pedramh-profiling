@@ -46,6 +46,10 @@ import lean_solver as LS                                             # noqa: E40
 import lean32_fast as LF                                             # noqa: E402  (lean32ek_fast)
 
 ARMS = ("lean_u1", "lean32ek_fast", "f64ic32", "dquant", "lean32")   # run order: reference and candidate first
+# 2026-11-13 (PREDICTIONS_gates_tilerows.md): IF-AB3 arms at 25 steps per 40-step call (h = 8e-6), through
+# o12run/tilerows_advance.py; not in the default --arms. CFL and ms/step use each arm's own step.
+ARMS_EXTRA = ("tilerows_if25", "if32_25")
+ARM_STEPS = {"tilerows_if25": 25, "if32_25": 25}                     # solver steps per call (else STRIDE)
 FIELDS = ("SPE", "VIE", "P_S", "nu_S", "mu_S", "P_V", "nu_V", "mu_V",
           "Q_S", "Q_V", "B_S", "B_V", "A_S", "A_V", "E_S", "E_V")
 CHECK_CALLS = (0, 1, 10, 100, 1000, 2500)
@@ -73,11 +77,13 @@ def main():
     ap.add_argument("--frames-dir", default="")
     ap.add_argument("--deadline", type=float, default=0.0, help="epoch seconds; 0 = none")
     ap.add_argument("--arms", default=",".join(ARMS))
+    ap.add_argument("--warp-path", default="", help="tilerows_if25 only")
+    ap.add_argument("--nvmath-path", default="", help="tilerows_if25 only")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     W = args.worker
     arms = [a for a in args.arms.split(",") if a]
-    unknown = sorted(set(arms) - set(ARMS))
+    unknown = sorted(set(arms) - set(ARMS) - set(ARMS_EXTRA))
     if unknown:
         raise SystemExit(f"ERROR ENERGY_UNKNOWN_ARM {unknown}")
 
@@ -127,6 +133,20 @@ def main():
     adv = {"lean_u1": lambda st: u1_call(st, cu1), "lean32ek_fast": lambda st: fast_call(st, c32),
            "f64ic32": lambda st: u1_call(st, cu1), "dquant": lambda st: u1_call(st, c_dq),
            "lean32": lambda st: l32_call(st, tab32)}
+    if set(arms) & set(ARMS_EXTRA):
+        for p in ("timestep", "tilerows", "o12run"):
+            sys.path.insert(0, os.path.join(OPT, p))
+        if "tilerows_if25" in arms:
+            import site
+            sys.path.insert(0, args.warp_path)
+            site.addsitedir(args.nvmath_path)
+            import warp as wp
+            wp.config.enable_backward = False
+            wp.init()
+        import tilerows_advance as TA
+        for a in ARMS_EXTRA:
+            if a in arms:
+                adv[a] = TA.make(GD, STRIDE, a, rank=W, log=print, gate=False, history=True)
 
     def round32(st):
         r = lambda a: a.astype(jnp.complex64).astype(jnp.complex128)                       # noqa: E731
@@ -168,13 +188,14 @@ def main():
     coarse = jax.jit(lambda st: jnp.fft.irfft2(st.state.qh[0], s=(N, N))[::M, ::M].astype(jnp.float32))
     iS = {k: FIELDS.index(k) for k in FIELDS}
 
-    def diag_check(st, row):
-        """max relative difference of budget() vs GD.diagnostics (SPE, VIE, eps_nu, eps_mu; P relative to eps), CFL."""
+    def diag_check(st, row, dt_arm=DT):
+        """max relative difference of budget() vs GD.diagnostics (SPE, VIE, eps_nu, eps_mu; P relative to eps), and
+        the CFL number at the arm's own step dt_arm."""
         values, _, umax = jax.device_get(diag(st))
         mine = [row[iS["SPE"]], row[iS["VIE"]], row[iS["nu_S"]], row[iS["mu_S"]], row[iS["P_S"]]]
         scale = [abs(values[0]), abs(values[1]), abs(values[2]), abs(values[3]), abs(values[2]) + abs(values[3])]
         rel = max(abs(float(m) - float(v)) / max(s, 1e-300) for m, v, s in zip(mine, values, scale))
-        return rel, float(umax) * GD.KMAX * DT
+        return rel, float(umax) * GD.KMAX * dt_arm
 
     frames = None
     frames_fn = os.path.join(args.frames_dir, f"m{member:02d}_t{t_c:07.2f}.npy") if args.frames_dir else ""
@@ -216,6 +237,9 @@ def main():
             continue
         try:
             f = adv[arm]
+            steps = ARM_STEPS.get(arm, STRIDE)
+            dt_arm = STRIDE * DT / steps
+            info.update({"steps_per_call": steps, "dt": dt_arm})
             s = round32(st0) if arm == "f64ic32" else st0
             rows = [budget(s, bc)]
             rel_max, cfl_max = 0.0, 0.0
@@ -238,7 +262,7 @@ def main():
                     res["bitwise_vs_gateD"][str(i)] = bool(np.array_equal(fr.view(np.uint32),
                                                                           frames[i].view(np.uint32)))
                 if i % DIAG_EVERY == 0:
-                    rel, cfl = diag_check(s, np.asarray(jax.device_get(rows[-1])))
+                    rel, cfl = diag_check(s, np.asarray(jax.device_get(rows[-1])), dt_arm)
                     rel_max, cfl_max = max(rel_max, rel), max(cfl_max, cfl)
                     if args.deadline and time.time() > args.deadline and i < n_calls:
                         info["stopped_by_deadline"] = stopped = True
@@ -250,7 +274,7 @@ def main():
                 vals, done = vals[:-1], done - 1
             np.savez(os.path.join(args.out, f"budget_w{W}_{arm}.npz"), vals=vals, fields=np.array(FIELDS))
             info.update({"calls": done, "seconds": round(t2 - t0, 1), "compile_call_s": round(t1 - t0, 1),
-                         "ms_per_step": round(1e3 * (t2 - t1) / max((len(rows) - 2) * STRIDE, 1), 4),
+                         "ms_per_step": round(1e3 * (t2 - t1) / max((len(rows) - 2) * steps, 1), 4),
                          "finite": bool(np.all(np.isfinite(vals))), "cfl_max": cfl_max, "diag_max_rel": rel_max})
             print(f"ENERGY_ARM w={W} arm={arm} calls={done} seconds={info['seconds']:.0f} "
                   f"ms/step={info['ms_per_step']:.3f} finite={info['finite']} CFLmax={cfl_max:.3f} "
