@@ -59,8 +59,8 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   - **B** `profile_overlap_midway.sh` (does the solver overlap the UViT step? serial vs background thread, pyqg AB3 vs
     fixed level) and **C** `profile_uvit_midway.sh` (torch.profiler of the UViT step) — built, CPU-smoked (C), **not
     submitted**.
-  - **Polaris route (unblocks GPUs):** paste `SQG/polaris/PROFILING_PROMPT.md` into a session on a Polaris
-    login node (branch `sqg`). Code-only profiling on the `debug` queue; no checkpoint or data transfer needed.
+  - **Polaris route: DONE 2026-11-03** (branch `sqg-polaris-profiling`, draft PR against `sqg`; see the dated
+    entry below and `SQG/polaris/polaris_sqg_notes.md`). All three jobs PASS on Polaris debug, n = 2 each.
   - **Blocked on GPUs:** pedramh-gpu midway3-0423 is fully held by Weidong's no-time-limit generator job; midway3-0608
     is reserved (`node_test`, user ndtrung) until 2026-11-04 00:00. The `gpu` partition is V100 (not representative).
   - Hypothesis under test (two independent Opus reviews): pyqg_jax `AB3Stepper.apply_updates` uses a runtime
@@ -113,6 +113,787 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-11-14** — **SQG: Warp built-ins reference (1.19.0) read in full and audited against the tile-row step:
+  nothing applicable is unused except one fusion (est. 0–13%); upgrading Warp gains nothing. No code, no jobs.**
+  Write-up `SQG/analysis/opt/warp/WARP_BUILTINS_AUDIT_2026-11-14.md`.
+  - **Read:** the 300-entry index, plus all 179 detail pages in the solver-relevant categories (Tile, Scalar,
+    Vector, Utility, Operators, Other, Code Generation). The other 121 entries (geometry, volumes, quaternions,
+    RNG) were read at index level only.
+  - **Version:** we run 1.17.0. Its registry already has every tile primitive, `aligned=` loads, the
+    3–8-argument `tile_map`, `tile_axpy`, `tile_empty`, `div_approx`, reversed tile views and
+    `tile_load_indexed`; cuFFTDx was active (`"mathdx": 1`). The 19 built-ins new in 1.18/1.19 are norms and
+    quaternion/transform helpers. `tile_matmul(precision="tf32")` is new but would change the arithmetic.
+  - **Finding:** per op (7840376), the SIMT and tile kernels run at 67–96% of the 1.36 TB/s copy rate. The cuFFT
+    column passes run at 48% and the 2-D C2R at 33%. So gains need fewer bytes moved, not faster arithmetic.
+    Already used or measured: cuFFTDx, `block_dim`, rows per block, `tile_map` fusion, tile column layouts,
+    `enable_backward=False`. `aligned=True` applies only to shared tiles, so it has ~no expected gain.
+  - **Open candidates (unrun):**
+    1. In-tile C2R via `tile_load_indexed` or a reversed `tile_view`: −0.2 to +0.02 ms/step. Needs a probe,
+       then the full gate battery.
+    2. Skip rewriting W's zero rows (out-of-place column FFT): ~2%. Needs a bitwise check.
+- **2026-11-13 (in progress)** — **SQG: the same gates (A, B, E, D) for `tilerows_if25`.** The user asked "did we
+  also test if it avoids drifting and overfitting" (only `lean32ek_fast` had gate D), then "okay do the same gates
+  for tilerows_if25".
+  - Rules and thresholds are unchanged, with production (`lean_u1`) as the reference.
+  - Prereg: `SQG/analysis/opt/tilegates/PREDICTIONS_gates_tilerows.md` (18 predictions; gate D's doses from the
+    arm's bias size); scorer `score_gates_tilerows.py`.
+  - Harness checks before submission:
+    - gate A/B's pipeline reproduces `lean32ek`'s sealed statistics 72/72;
+    - the modified energy analysis reproduces job 7836358's PASS_E.
+  - Jobs:
+    - E: 7841269 (debug-scaling) — PASS_E (commit 9a0843ad).
+    - A/B: 7841299 — A PASS, B NOT_PASS on B3 detection in k2-4 only (commit b60744a9).
+    - D, first try: capacity 7841338 (doses 860/8600) **died in its stage-0 self-test** after 17 s (exit 6,
+      no arm trained; log in `SQG/analysis/results/polaris_trgateD_7841338/`).
+      - **Cause: a harness bug, not a gate result.** The job exports `DOSE_LO/DOSE_HI` = 860/8600 (58b1d1bd), and
+        the self-test's `analyze_dose` call inherited them, so it looked for arms `a860_sA` / `a8600_sA`.
+        `test_gateD.synthetic_run` still wrote `a1000_sA` / `a10000_sA`, so every synthetic case read
+        `INCONCLUSIVE_NO_POWER`.
+      - **Fix (bdcaab2f, test only):** the synthetic arms are named and shifted from the dose pair. The test runs
+        for 1000/10000 and for the env doses. `analyze_dose.py`, the rule and the thresholds are unchanged.
+      - **Lesson:** when a harness value becomes env-configurable, its self-test must exercise the env value — the
+        bare-default test kept passing.
+    - D smoke: 7843287 (debug, `SMOKE=1`, 860/8600, snapshot `sqg_profile/src_trgateD_bdcaab2f`) — PASS
+      (`DOSE_JOB_DONE failures=0`, 351 s). `GATED_TEST_OK` with PASS_D / FAIL_D / INCONCLUSIVE_NO_POWER for both
+      pairs; training at 0.433 s/step; 8/8 rollouts; both analyses print a verdict.
+    - D: **resubmitted as capacity 7843532** (the user's go-ahead). Same arguments as 7841338 except `TR_SRC`; the
+      same run name `gateD_tr_v1` and frames `gateD_frames` (resumable).
+
+- **2026-11-13** — **SQG 50-TU stability of tile-rows + IF-AB3 at 25 steps/frame (capacity job 7840662): STABLE,
+  STATS PASS, production's 0.72 CFL policy EXCEEDED; 7 confirmed / 3 refuted. Notes Part XVII G.**
+  - **Stability:** 4 × 50 TU, finite; the gate at h passes ×4; energy budget closes to ≤ 2.1e-5.
+  - **Statistics:** S1 / S2 / S3 pass (window means and octave bands inside the 16-state range; no common drift).
+  - **Worker 0** reached CFL_h 0.793: 39 samples ≥ 0.72, in two short episodes (TU 2.45–2.64 and 33.02), during a
+    dissipation burst. Workers 1–3 peaked ≤ 0.627.
+  - **Report only:** shells k > 500 carry 1.02–1.21× the archive mean, rising toward KMAX. Option B's gates should
+    test this.
+  - Refuted: P1b, P2, P7 (1.92 ms/step wall including host-copy diagnostics).
+  - **The user's calls:** whether o1.2 (which has no CFL abort) may run through such episodes, and option B.
+
+- **2026-11-13** — **SQG option C: tile-rows + IF-AB3 as o1.2's own solver: 0.926 s/step vs `lean32ek_fast` 1.708
+  and `ref` 4.897 (5.29×); o1.2's 14-A100 schedule 268 → 50.9 h. Jobs 7840805 + 7840909; notes Part XVII F.**
+  - **First run (7840805):** gates pass, but the tile-row arms paid ~26 ms of glue per frame, so WORTH failed
+    (0.985). That verdict stays recorded.
+  - **Diagnosed (7840909, 7/7 confirmed):** the cause was the complex128 XLA scatter in `expand` (25.7 ms → 0.54 ms
+    with contiguous blocks, bitwise equal). WORTH holds for the fixed glue (0.747).
+  - The production cuFFT 11.0.2 works (the preload is not needed).
+  - The first submission (7840681) died on a snapshot packaging miss (`model_UViT.py`): fixed, with an import
+    pre-flight.
+  - **Still owed before production use:** the 50-TU stability run (capacity 7840662, running) and the IF-AB3
+    statistical gates (the user's call).
+
+- **2026-11-12 (late night)** — **SQG 50-TU stability of tile-rows + IF-AB3 at 25 steps/frame: harness reviewed and
+  fixed, smoke 7840661 (debug-scaling, 0.2 TU) + run 7840662 (capacity, 1 node, 6 h) queued from a frozen
+  snapshot.**
+  - The user's choices: option A (50-TU stability) on capacity; "use 2 code reviewers and a fable principal
+    scientist" → workflow wf_8c6d4a2d-cde: ready_with_changes.
+  - **Applied before any run** (`SQG/analysis/opt/stability/`, commits ea0f726c, 497383a2):
+    - a gate at h before the long run: TileRows had only been checked at DT;
+    - every diagnostics sample stored;
+    - stop only on non-finite or CFL_h ≥ 1.0, with production's 0.72 policy a separate verdict;
+    - expected workers, with INCONCLUSIVE ≠ UNSTABLE;
+    - NaN / missing-npz safe analyzer, and a 41-sample window on the frame clock;
+    - archive pass first, per-worker Warp caches, end token on every exit path;
+    - a scope paragraph in PREDICTIONS (200 TU bounds rare aborts only to ~1/67 TU at 95 %).
+  - **Finding (simulation, pre-run):** the review's per-run drift test (|slope| ≤ 2 SE with an estimated N_eff) has
+    6–20 % false positives per run at this run length (τ_I 0.5–3 TU), because the ACF estimate is biased low at
+    N_eff ≈ 7–40.
+    - S3 is now a between-run common-drift t-test (3 dof): 5.0–7.7 % false positives, power 0.8 at 2 sd(b).
+    - The 2 SE test is report-only (`calibrate_s3_2se.py`, `calibrate_s3_common.py`).
+  - **Queues** at submission: capacity 50 queued / 12 running, debug-scaling 16 / 1. The capacity slot is no longer
+    free.
+  - **Code freeze:** `snapshot_src.py` copies SQG/analysis (minus results) + SQG/fixed_ring to
+    `$MEMBER_ROOT/sqg_profile/src_stability_497383a2/`; the job runs it (`STAB_SRC`, manifest checked), so worktree
+    edits are safe while it waits.
+  - Scoring: `score_stability.py` (P0–P8, self-test OK), written before the run.
+  - **Option C built and queued: job 7840681** (debug: debug-scaling allows 1 queued job per user, and the smoke
+    holds it). Files in `SQG/analysis/opt/o12run/`, commit a07e90a2, snapshot `src_o12tr_a07e90a2`.
+    - `tilerows_advance.py` makes tile-rows (and IF-AB3) o1.2's own per-frame `advance`. Arms: `lean32ek_fast`,
+      `if32_25`, `tilerows40`, `tilerows_if25`, and `tilerows_if25_cufft114`, which settles the owed preload
+      question.
+    - In-situ gate: rank 0's first segment vs float64 of the same scheme.
+    - Predicted: tilerows_if25 0.89 s/step vs 1.71, about 49 h per o1.2 schedule.
+    - `PREDICTIONS_o12_tilerows.md` + `score_o12_tilerows.py` were written first.
+
+- **2026-11-12 (night)** — **SQG tile-row step: Warp tile FFTs (cuFFTDx) for rows + cuFFT kept-column passes + Warp
+  one-thread-per-element kernels → 1.578 ms/step vs `lean32ek_fast` 2.708 (1.72×), gates pass (job 7840376;
+  11 confirmed / 0 refuted). Notes Part XVII D.**
+  - The user's prompts: use Warp for the irregular memory access (`wp.tid()`), and use its tile FFTs.
+  - **Design** (`SQG/analysis/opt/tilerows/`, standalone on torch buffers):
+    - Warp per-element kernels: `build_w` with the mirrored gather (0.147 ms), expand (0.079), and the Hermitian split
+      + compensated update (0.216);
+    - cuFFT: strided column FFTs on the kept 2731 columns only (0.275 + 0.276) and the C2R (0.302);
+    - one Warp tile kernel per row: tile_fft → conj(p)·θ → tile_fft (0.302).
+  - **Accuracy:** tilerows32's error equals `lean32ek_fast`'s (2.33e-7 vs 2.27e-7 at 40 steps; bands 0.97–1.35×).
+    The IF-AB3 variant costs nothing (1.577 ms).
+  - **Per optimizer step:** 1.47× at n = 40, **1.95× with IF-AB3 at n = 25** (94 → ~48 h on 14 A100s).
+  - **Caveats:**
+    - standalone: o1.2's JAX solver needs a custom-call integration or a torch-side solver;
+    - ran with cuFFT 11.4.1 preloaded (production wheel 11.0.2: rerun owed);
+    - the statistical gates were run for `lean32ek_fast`, not this step (the user's call).
+  - The first submission (7840360) died on Warp rejecting numpy-scalar constants (fixed; see "Known issues").
+  - **Warp update kernels inside the JAX step (warpupd, job 7840397; 10 confirmed / 1 refuted; notes Part XVII E):**
+    - all arms pass; `xla_compact`, `warp_full` and `warp_compact` are bitwise equal to `lean32ek_fast`;
+    - ms/step: `warp_full` 2.639, `warp_compact` 2.533, `xla_compact` 2.505, **`warp_simt` 2.372 (1.14×)**,
+      `lean32ek_fast` 2.697.
+    - The update kernel's gain is the compact layout, which XLA does as well. Warp wins once it does all the
+      irregular gathers.
+    - Nsight: Warp `build_w` reads its unique 89.5 MB vs XLA's 190.5 MB; XLA's compact pad fusion is 25%
+      sector-efficient; Warp's vec2f loads are scalarized (50% per instruction; DRAM bytes unique).
+    - Far behind the tile-row step (1.578 ms).
+
+- **2026-11-12 (evening)** — **SQG round 2 measured: IF-AB3 makes 25 steps/frame admissible (job 7839988), the Warp
+  route works on jax 0.4.28 (jobs 7839932, 7840069), and a hybrid cuFFT + callbacks + Warp step is built (job 7840175
+  queued). Notes Part XVII.**
+  - **Time step (7839988, `TS_VERDICT n_adm=25 valid=True`; 12 confirmed / 2 half / 2 refuted):**
+    - production's dt error is first order (prod80/prod40 0.49–0.51);
+    - IF-AB3 removes it (≥ 10× smaller at n = 40);
+    - IF-AB3 at 25 steps per frame is 2.4–4× more accurate than production at 40 in every band (worst 0.41, sub).
+    - CFL_max at DT is 0.379, so n = 25 gives 0.607 vs the 0.72 abort (production-sampled 0.42 would give 0.672);
+      n = 20 fails CFL.
+    - Projection 1.38–1.40× per optimizer step (94 → 68 h).
+    - Costs +1.8% per float32 step, and float32 precision is unchanged (ratio 0.99–1.01).
+    - Adopting it shifts o1.2's targets by ≈ production's own dt error. That is the user's call; long-run stability at
+      n = 25 is untested.
+  - **Warp (user's suggestion):**
+    - warp-lang 1.17.0's legacy custom-call path, via our `warp_xla.py`, works on jax 0.4.28: `BRIDGE_OK`, 8.6 µs
+      per call.
+    - Round 1's four failures were our bugs, now in "Known issues".
+    - Round 2: `GO_F32` (projection 1.578 ms) / `GO_F64` (1.763 ms).
+    - Warp's column FFT is 2× cuFFT's, so FFTs stay in cuFFT.
+  - **Ecosystem survey:** no Warp QG/SQG/climate solver exists. XLB (LBM) reports Warp ≈ 8× JAX; pyspectral uses
+    Warp around `torch.fft`; nvmath-python offers cuFFT LTO callbacks written in Python.
+  - **Hybrid build (`SQG/analysis/opt/hybrid/`; user: "start building it"):**
+    - 3 cuFFT calls with fused nvmath callbacks (`build_w` on load, θ̂ read on load, conj(p)θ on load with a kept-mode
+      store) and 1 Warp update kernel on the compact block;
+    - float32 = `lean32ek`'s compensated update (`fuse_fp=False`), optional IF-AB3; float64 = `lean_u1`'s;
+    - index algebra verified on the callbacks' own source (`test_hybrid_math.py`);
+    - gates G32 / GIF / G64 preregistered.
+    - **Job 7840175 (`HYB_JOB_DONE failures=0`; 11 confirmed / 1 refuted): accurate but not faster.**
+      - All gates pass: hybrid32's error equals `lean32ek_fast`'s (2.34e-7 vs 2.27e-7 at 40 steps; bands
+        0.98–1.35×); hybrid64 = `lean_u1` to 5.3e-15 after 4,000 steps.
+      - Speed: hybrid32 2.94 ms vs `lean32ek_fast` 2.71 (8% slower); hybrid64 4.28 vs `lean_u1` 6.40 (1.50×).
+      - Cause: cuFFT LTO callbacks roughly doubled each C2C (1.09–1.13 vs 0.60 ms plain), more than the fused passes
+        they remove. The CUDA graph changes nothing.
+      - Pre-set "worth integrating": no.
+      - The measured best stays `lean32ek_fast` + IF-AB3 at n = 25 (1.38× per optimizer step).
+  - **Not done:** the solver/ML overlap retest (`profile_overlap.py` knows only ref/fixed).
+
+- **2026-11-12** — **SQG solver speed, research round 2 (workflow wf_1a24fad4-309; no jobs). Notes Part XVI;
+  write-up `SQG/analysis/opt/research_2026-11-12/SOLVER_SPEED_RESEARCH.md`.**
+  - **Method.** 5 tracks (codebases, FFT kernels, time stepping, XLA-reachable, frontier), each adversarially
+    verified against its sources and Part X's per-op table.
+  - **Biggest lever: exact integrating-factor AB3.** It removes o1.2's first-order split error at ~0 cost and allows
+    28/25 steps per frame instead of 40: 1.30–1.40× per optimizer step, gated.
+  - **Bitwise:** compact kept-mode storage, −0.22 to −0.27 ms/step, pure JAX.
+  - **Custom FFT:** cuFFT LTO callbacks (gyaradax pattern, LGPL-3.0) + cuFFTDx bring the step to ~1.6–2.1 ms, but jax
+    0.4.28 has no FFI. That needs the legacy custom call, or a JAX upgrade that collides with torch 2.3.1's cuDNN pin.
+  - **Stacked:** 1.40–1.78×, ≤ 2.1× with CFL-adaptive n.
+  - **Dead ends recorded:** tensor-core / FP64-TC / Ozaki FFTs, ETDRK4/AB4/leapfrog, parareal/SDC, temporal blocking,
+    VkFFT, cuFFT upgrades, porting other codes. Stochastic rounding was already measured worse.
+  - **Correction:** Part III B's 21% overlap was 21% of the ML step, not of wall.
+  - **Next:** the user's choice of IF-AB3 gating, compact storage, the custom-FFT route, and an overlap retest.
+
+- **2026-11-12** — **SQG gate D: capacity job 7835786 DONE (`DOSE_JOB_DONE failures=0`), PASS_D on best.pt and
+  last.pt. Notes Part XV.**
+  - **The ask (user, 11-10).** "can we check if rollouts overfit and drift?": a training dose-response on
+    `capacity` (prereg `SQG/analysis/opt/gateD/PREDICTIONS_gateD.md`, committed first).
+  - **Design.**
+    - 4 o1.2-UViT arms, 195,250 steps each at batch 16, trained on members 1–3 of 16 bitwise `lean_u1` 1-TU
+      segments; member 4 held out.
+    - Targets y + α·B̂ (`lean32ek`'s band bias pattern), α = 0 (2 seeds), 1,000, 10,000 (positive control).
+    - 16 ICs × 50-TU rollouts per arm and checkpoint.
+    - 24.8 node-h on one node, no restart.
+  - **Validity.** All checks pass:
+    - frames 16/16 bitwise vs 7824121;
+    - 0/16 rollouts blown in every arm;
+    - the positive control drifts beyond the noise in 52/90 window-band cells (best.pt), with the same sign in 10/10
+      windows per band, following B̂'s sign for k < 64 (post hoc).
+  - **Result.**
+    - The real-bias effect, extrapolated from α = 1,000, is ≤ 2.4e-4 of a band energy, 55× below the pass line
+      (0.1 × noise); 31× on last.pt.
+    - The α = 1,000 effect itself is inside the seed spread (80/90 cells).
+    - No overfitting: final/min val 1.0035 / 1.0022 for the α = 0 arms.
+    - The trained models' own drift (E_low 16–26% low on best.pt; k ≥ 128 −70%) is 2–3 orders of magnitude above
+      any precision effect.
+    - Scored 5 confirmed / 3 refuted: 3 overfit, 5 κ in [0.5, 1.5] (one-step absorption is noise-dominated on
+      best.pt), 8 E_low within ±20%.
+  - **What it means.**
+    - The pre-set chain for `lean32ek_fast` is now A PASS / B detection-only / energy PASS_E / D PASS_D, which is
+      the prereg's "case for admitting `lean32ek_fast`". Its o1.2 schedule is 94 h vs 191 h (`lean_u1`) on 14 A100s.
+    - Admitting it is the user's call. It is equivalent at the trained-model level, not numerically.
+    - Limits: ~1/14 of o1.2's samples, band-level pattern only, 2 seeds.
+  - **Results** in `SQG/analysis/results/polaris_gateD_7835786/`. Frames, checkpoints and rollouts stay in
+    `$MEMBER_ROOT/sqg_profile/gateD_{frames,v1}/`.
+
+- **2026-11-11** — **SQG MD-style energy-budget test: debug job 7836358 DONE (`ENERGY_JOB_DONE failures=0`),
+  PASS_E. Notes Part XIV.**
+  - **The ask (user).** "yes do the MD debug job": ANALOGUES.md §2.6's offer.
+    - MD codes accept a precision model on long-run energy conservation.
+    - Our forced-dissipative analogue is the closure of the SPE and VIE budgets.
+  - **Design** (`SQG/analysis/opt/energy/`, prereg `PREDICTIONS_energy.md` committed first, bc296f00):
+    - 4 archived states × 0.5 TU (100,000 steps) × 5 arms;
+    - the paired spurious source s = r(arm) − r(`lean_u1`) as a fraction of the injection;
+    - PASS_E if max |s(`lean32ek_fast`)| ≤ 1e-4.
+    - Changed from the offered ≥ 10 TU before the run: 10 TU of `lean_u1` is 3.6 h per state.
+  - **Validity.** All checks pass:
+    - `lean_u1` frames bitwise equal to gate D's production frames, 24/24;
+    - `budget()` equals `GD.diagnostics` to 4.2e-16;
+    - the float64 null ≤ 6.2e-13;
+    - the `dquant` calibration recovers its exactly known 1.1e-2 source to 6 digits.
+  - **Result.**
+    - `lean32ek_fast`: s = −5.5e-6 to +1.4e-6 (SPE) and −4.7e-6 to +1.2e-6 (VIE) over the 4 states, 18–21× below the
+      tolerance. Its sign varies by state and it does not grow with time.
+    - Its damping table contributes only ~1e-8, so the source is the float32 tendency arithmetic *(inference)*.
+    - Plain `lean32`: −1.4e-2, about 140× over the tolerance; 82–85% of it is the float32 decay table.
+    - The float64 scheme's own residual (−3.5e-6 to −2.9e-5 SPE, ~−6e-7 VIE) is the integrating-factor term, to
+      0.92–1.13.
+  - **MD's stricter "equivalent to double" (reported only).** Not met: the candidate's budget error is ≤ 2.4× float64's
+    on SPE but up to 8.6× on VIE, whose float64 residual is only ~6e-7.
+  - **Scorecard:** 14/17 confirmed. Refuted:
+    - P3: SPE dissipation is 62–79% hypofriction, so the integrating-factor term is ~1e-5, not ~1e-4;
+    - P11: the candidate's source is 5.5e-6, not ≤ 1e-6;
+    - P13: EQUIV_DOUBLE.
+  - **Speed** (budget included): `lean_u1` 6.443, `lean32ek_fast` 2.742, `lean32` 3.239 ms/step.
+  - **Also:** `SQG/analysis/opt/energy/MATH_energy.md`, at the user's request: the SQG math step by step, why
+    Fourier space, how we modified the original step (with drawings), and the MD comparison.
+    - Written by a two-writer + two-checker workflow; the main session applied the checkers' 4 errors and 7 minors.
+    - The fixes: a stale "job not run" status; a 30× slip in an absolute SPE change; the 16-state SPE range (24–48,
+      not 32–46; the same slip is in the prereg, now a dated erratum); Part 5's line numbers moved to the pinned
+      `fixed_ring/A-SQG_data.py`; two redrawn ASCII drawings.
+    - §8.1 adds the results.
+  - **Next:**
+    - gate D (capacity 7835786) still running; its write-up becomes notes Part XV;
+    - not tested: a ≥ 10-TU climate comparison and per-shell budgets.
+
+- **2026-11-10 (late night)** — **SQG gate D: smoke 7835759 passed (failures=0); production submitted as capacity job
+  7835786.**
+  - **The ask (user).** "Can we check if rollouts overfit and drift": the training dose-response, on capacity.
+  - **The harness:** `SQG/analysis/opt/gateD/`, with predictions and the decision rule in `PREDICTIONS_gateD.md`
+    (committed first).
+  - **What the smoke (debug, 6 min, tiny sizes) checked.**
+    - The tests pass on the GPU; torch matches numpy to 5e-7.
+    - Stored frames are bitwise equal to job 7824121's production frames.
+    - Training runs at 0.434 s/step, so 195,250 steps ≈ 23.5 h.
+    - Rollouts, blow-up handling and both analyses produce verdicts.
+    - Its science is meaningless by design (300 steps on 453 pairs).
+  - **The production run:**
+    - 16 one-time-unit `lean_u1` segments, about 20 GB in `sqg_profile/gateD_frames`;
+    - arms `a0_sA`, `a0_sB`, `a1000_sA`, `a10000_sA`, each 195,250 steps;
+    - 16 × 50-time-unit rollouts per arm;
+    - run name `gateD_v1` (resumable);
+    - end token `DOSE_JOB_DONE`.
+  - **Do not edit `SQG/analysis/opt/gateD/*.py` until it ends.** It reads them at each stage.
+  - **Also added:** a molecular-dynamics section to ANALOGUES.md (§2.6). AMBER SPFP, OpenMM, GROMACS and LAMMPS all
+    use single-precision forces with higher-precision accumulation, which is `lean32ek`'s design. AMBER deprecated its
+    all-single mode, matching our rejection of plain float32. MD's acceptance test is long-run energy drift; our
+    analogue is the steady-state energy budget.
+
+- **2026-11-10 (night)** — **SQG item 4: gates A and B run by us, on the user's decision. Item 3's sealed file is
+  opened. lean32ek passes A, and fails B on detection only.**
+  - **User decisions:**
+    - the user decides item 4 ("ignore weidong/jesswan");
+    - results are not hidden ("do not seal anything we don't need to hide results");
+    - gate C later.
+  - **How it was run.** The rules were pushed before opening: `ACCEPTANCE_gates_AB.md` + `gates_ab.py`, 09970f75.
+    The sha256 matched `6f1d0e51…`.
+  - **The yardstick.** The alias floor of o1.2's frames (production only) stands in for the trained model's error:
+    ε_floor = 0.087 … 0.730, T_b = (0.1/√n_b)·ε_floor = 1.2e-3 … 7.3e-2. That is conservative.
+  - **Gate A (noise): PASS for all arms.** Var(e)/A_b is 8e-10 to 6e-8, against < 1e-2.
+  - **Gate B (bias): NOT_PASS for all arms, on B3 (detection) only. Magnitudes pass by ≥ 100×.**
+    - `lean32ek` has a real, detectable bias: |z| up to 16; on alias-free frames z_d −15 to −23 and 75–88% of shells
+      flagged at k 4–32.
+    - Its size is ≤ 4.4e-6 of Δ (sub) and ≈ 4–6e-7 (af), d-aligned: the delta is ≈ 5e-7 too small. That is 73–509×
+      below plain float32 and ≥ 100× below T_b.
+    - The dt arms miss B3 by 1–2 shells with only 8 pairs. Every |z| ≤ 3.
+  - **Predictions:**
+    - **P2 REFUTED.** lean32ek is not bias-free; the team's theory bound of ≤ 1e-7 was too low.
+    - **P5 CONFIRMED.** The dt order ratio is −1.42 to −1.51 in all bands: o1.2's dt sensitivity is first order (the
+      operator split), not AB3's third order.
+    - **Item 3 final:** 9 confirmed / 2 half / 1 refuted.
+  - **Decision state.**
+    - Under the pre-set rules, lean32ek_fast is not admitted yet. The next step is gate D (dose-response fine-tune,
+      which needs stored frames and a trained model).
+    - Admitting it on magnitude would be a post-hoc rule change: the user's call, to be recorded as such.
+  - **Unresolved.** Our alias floor is ≈ 1.9× TEAM_REPORT's table in every band, though the fractions agree. If the
+    table missed a half-plane factor, o1.1's val 0.0043 would sit at ≈ 1.0× the floor, not 1.9×. That matters for
+    item 2.
+
+- **2026-11-10 (evening)** — **SQG: verified citations for `lean32ek` / `lean32ek_fast` / `lean32sr`, written into
+  the code and docs.**
+  - **What was checked, and how.** Seven references, each against its Crossref record. Klöwer et al. 2022 was also
+    checked against its full text.
+  - **Where they now appear:** the docstrings of `lean32_precise.py`, `f32_update.py` and `lean32_fast.py`;
+    `MATH_delta.md` §6; notes Part XI; and ANALOGUES.md's sources.
+  - **Corrections.** ANALOGUES.md had abbreviated or slightly wrong titles for Klöwer 2022, Paxton 2022 and Kimpson
+    2023. They are fixed.
+  - **The attribution, as recorded.**
+    - The compensated state is published (Klöwer et al. 2022, doi:10.1029/2021MS002684).
+    - So are TwoSum (Møller 1965 / Knuth), Fast2Sum (Dekker 1971) and compensated summation (Kahan 1965 / Higham 1993).
+    - The expm1 damping table and the fast form's cos-trigger and 3-slot ring are ours, with no external source.
+  - **Checks:** the edited files compile; `test_f32_update.py` prints `F32_UPDATE_TEST_OK`.
+
+- **2026-11-10 (later)** — **SQG: o1.2 itself runs on Polaris A100s (job 7835278, `failures=0`, notes Part XIII).
+  A full o1.2 schedule extrapolates to 268 h (production solver), 191 h (`lean_u1`) or 94 h (`lean32ek_fast`) on 14
+  A100s.**
+  - **The ask (user).** Run our own o1.2 and generate logs. Extrapolate the A100 speeds; no H200 comparison.
+  - **The harness:** `SQG/analysis/opt/o12run/`.
+    - `o12_polaris.py` execs o1.2's own file, unedited, with 34 exact-match, line-count-preserving patches: paths;
+      torch 2.3.1 strict fp32; the vendored solver's BLOCK_T / CHECKPOINT_DIR; members 1–4; zarr / wandb / matplotlib
+      stand-ins.
+    - o1.2's first-segment check is re-pointed at job 7824121's production frames.
+    - Knobs: batch 16, a short fill and schedule.
+  - **Measured** (1 node, 4 A100s, strict fp32):
+    - `ref` and `lean_u1` frames are **bitwise equal to production**.
+    - Steady s/step: 4.897 / 3.4925 / 1.7107. That is solver (12 frames × 40 steps) + an ML step of 0.40–0.42 s: a
+      pure sum, so solver speed-ups pass through one for one.
+    - Fill 0.373 / 0.257 / 0.109 s per frame.
+    - Validation 0.27 s and saves ~0.75 s per epoch; peak 20.4 GiB; 40.81 M parameters.
+  - **Full o1.2 schedule** (14 A100s on 4 nodes, batch 16 = o1.2's global 224, 195,250 steps):
+
+    | solver | wall-clock | node-h | GPU-h |
+    |---|---|---|---|
+    | `ref` | 268 h | 1,074 | 3,757 |
+    | `lean_u1` | 191 h | 765 | 2,679 |
+    | `lean32ek_fast` | 94 h | 376 | 1,315 |
+
+    The step term is ≥ 98.9% of every projection, and GPU-h hardly depend on the layout. Restarts are not modelled:
+    resume is from `best.pt`, which re-runs epochs.
+  - **Scorecard:** 7 confirmed / 1 half / 0 refuted. The half is P2: `lean32ek_fast`'s 2.6e-3 max |Δθ| is above my
+    band. It is the expected float32 drift: the taxonomy harness shows 2.6e-4 to 1.5e-3 at 4,000 steps, and θ's max is
+    ≈ 44.
+  - **A science-grade full Polaris run would still need:**
+    - BUF de-duplication or a shrink (137 GB / rank × 4 > 512 GB);
+    - ≈ 1.3 TB of checkpoints (we have 16);
+    - a held-out val store;
+    - ≈ 765 node-h preemptable with `lean_u1`.
+
+    The user's call.
+
+- **2026-11-10** — **SQG item 3: archive run 7824121 scored (notes Part XII). The run is valid. Plain float32 is a
+  learnable bias. The candidates stay sealed.**
+  - **The run.** 1-node debug, x3001c0s13b0n0, 2026-11-06 22:15–22:44. `TAXO_JOB_DONE failures=0`,
+    `TAXO_ANALYSIS_DONE valid=True`. 16 archived states (members 1–4 × t = 100–400), 64 pairs. Summaries are in
+    `SQG/analysis/results/polaris_taxonomy_7824121/`.
+  - **Validity.** All gates pass.
+    - V1: prod == lean_u1 bitwise.
+    - V2: κ 1.036 / 0.997 / 0.992 at k < 8.
+    - V3, paired: recovery 0.961–1.007, power z 5.2–17.6.
+    - V4: dt40 == lean_u1 on 8 of 8 states.
+  - **Sealed, unopened:** the bias statistics of lean32ek (and its fast form), dt 2e-4/30 and 2e-4/32, and the dt order
+    ratio. sha256 `6f1d0e5153918a3b14faf6e29795d91263a032479121bf87a4417fb173b78be1`.
+  - **Measured, unsealed.**
+    - **lean32 is a learnable bias.** 67–74% of shells are flagged at k 2–16. Its learnable bias is 2.2e-3 of Δ at
+      k 2–4, 5× its noise level.
+    - **It is mostly mechanism A.** The float32 `decay` table alone (`dquant`) gives 2.14e-3. A ⊕ B in quadrature
+      reproduces lean32's learnable bias to within 2% at k 2–8.
+    - **Mechanism B (state rounding) is learnable too, but small.** It flags 35% / 26% of shells at k 4–8 / 8–16, at
+      ≤ 1.9× its noise level.
+    - **This corrects Part XI's "state rounding is the cause, not the damping table".** That line was read off
+      lean32e, inside a float32 state, where the two mechanisms cannot be separated.
+    - **lean32ek's size.** e_Δ 9.43e-6 overall, the same as on the synthetic state (8.8e-6). On o1.2's frames it is
+      below production's own dt-halving sensitivity in every band (ratio 0.19–0.93). Its k 1–2 error is mostly folded
+      small-scale noise: alias-free / sub = 0.068.
+    - **lean32ek_fast:** 2.698 ms = 3.44× production, bitwise equal to lean32ek at 40 / 400 / 4,000 steps.
+    - **Negative controls.**
+      - Shells: 0.50% / 0.42% flagged (nominal 0.27%).
+      - z_x is calibrated: 0 of 32 cells over 3.
+      - z_d runs hot: 3 of 16 cells over 3. Most likely this is stochastic rounding's own small d-term (negative in 6
+        of 8 bands, −4.6 / −5.5 at k 8–32).
+  - **Scorecard.**
+    - Confirmed (8): 1, 3, 6, 7, 9, 10, 12, 13.
+    - Half (2):
+      - 8: stochastic rounding's shell rate is above 1% at k 2–4 (1 of 6) and k 8–16 (1 of 68) per band, but 0.42%
+        pooled.
+      - 11: lean32ek's e_Δ, 9.43e-6, is just under the [1e-5, 4e-5] range.
+    - Refuted: none.
+    - Sealed: 2 and 5.
+    - P4 (no prior): LEARNING.
+  - **Raise before anyone unseals.** P2's "≤ 1% of shells in each band up to k 64" would fail a truly unbiased lean32ek
+    with probability ≈ 25% at the nominal rate, or ≈ 43% at the observed 0.46%.
+    - The reason is that bands to k 16 hold only 2 / 6 / 20 / 68 shells.
+    - f64ic32, unbiased by construction, already fails it at k 8–16.
+    - Any new reading has to go in a dated addendum before the sealed file is opened. That is the user's / owners'
+      call.
+  - **Next (waiting on people):**
+    - item 4: the acceptance-protocol memo for jesswan / Weidong (gates A–D, the floor table, this MDE table, the
+      controls);
+    - item 1: the user's o1.2 / o1.1 / offline logs and `*_best.pt` / `*_last.pt` (gate B's eps_model,b needs items
+      1 → 2);
+    - where the 6.4 GB of staged checkpoints should live. They are in the main checkout's root, symlinked into
+      `sqg_stage`.
+
+- **2026-11-06 (later)** — **SQG item 3 (generator-error taxonomy): harness built, pre-registered and smoked (job
+  7823653, `failures=0`); the archive run waits on staging.**
+  - **Smoke facts** (synthetic state, 4 near-duplicate copies, unscored; `SQG/analysis/results/polaris_taxonomy_smoke_7823653/`).
+    - Bitwise: prod == lean_u1; lean32ek_fast == lean32ek at 40/400/4,000 steps; dt-ladder n=40 == lean_u1.
+    - **lean32ek_fast 2.694 ms/step = 3.45× production**, bitwise to lean32ek (3.340 ms). lean32sr 2.789,
+      lean_u1 6.405.
+    - Control a: κ 1.08 / 1.00 / 0.99 at k < 8.
+    - Alias split 0.084: lean32ek's large-scale error in o1.2's frames is mostly folded small-scale noise.
+    - Production's own dt sensitivity |D(2.5e-6)|/|Δ| is 2.3e-4 at k 1–2 on o1.2's subsampled frames, but 9e-7
+      alias-free. The step error reaches the targets' large scales only through aliasing, at ≈ 8× lean32ek's
+      float32 error there.
+  - **Control-b design fixed after the smoke** (PREDICTIONS addendum, before the archive run).
+    - The pre-set "z ≥ 3" was unsigned, but the planted shift damps (α < 0).
+    - Its ratio α_inj/α_inj64 contained lean32ek's own coefficient, so it would void the run exactly when lean32ek is
+      biased.
+    - Now paired: recovery α(inj − lean32ek)/α(inj64) on the same pairs. Smoke: 0.987–1.079. Power: |α(inj64)|/SE.
+      Smoke: 5.3–30.6. Both PASS.
+    - Leak, noted honestly: on the near-duplicate smoke states, the old z values hinted at an x-aligned component in
+      lean32ek's error at k 2–8. That is not evidence for archive states.
+    - Negative controls flag 2.1–2.3% of shells on the 4-cluster smoke (nominal 0.27%; 16-cluster test 0.37%). A
+      reading rule for P2/P8 is fixed in the addendum.
+  - **Code** in `SQG/analysis/opt/taxonomy/` (commit 3854307c):
+    - `taxonomy.py`, the per-GPU worker;
+    - `lean32_fast.py`: lean32ek with the u1 trigger + 3-slot ring, which must be bitwise, and a stochastic-rounding
+      control;
+    - `dt_ladder.py`: a variable-step AB3 switch, then lean_u1's code at h;
+    - `analyze_taxonomy.py`: per-band and per-shell clustered regressions of the paired error on (x, Δ), the MDE
+      before any z, and two positive controls;
+    - `PREDICTIONS_taxonomy.md`: validity gates V1–V4 + 13 predictions.
+  - **Tests (stdlib / numpy, login node).**
+    - dt-ladder order ratios −0.637 / −1.507 vs theory −0.639 / −1.500.
+    - The variable-step switch adds 1e-9 vs 1e-6 for naive weights.
+    - Analysis: the null flags 0.37% of shells; a planted band bias is recovered at 0.93 (z 7.5); a per-shell
+      random-sign bias is flagged in 100% of its shells at 0.99 of its size; end-to-end passes on a fake job dir.
+  - **Design facts worth keeping.**
+    - float32's damping error is a per-SHELL bias with random sign. A per-band pooled fit under-reads it, so the
+      analysis also fits per shell.
+    - The x-coefficient of a damping-rate error is −δr·0.02 whether the band is static or swept. That makes it the
+      robust control-a prediction; the d-coefficient is not.
+  - **Sealing (user's choice).** Until jesswan/Weidong sign item 4's gates, the bias statistics of lean32ek, dt
+    2e-4/30 and dt 2e-4/32 go to `$MEMBER_ROOT/sqg_profile/taxonomy_<job>/sealed/sealed_taxonomy.json`. Only its
+    sha256 is committed.
+  - **Blocked:** the 16 archived checkpoints (members 1–4 × `ckpt_t0{100,200,300,400}.00.npz`, ≈ 6.4 GB) must be
+    copied from Midway `/project/pedramh/weidong/SQG/SQG_deterForcing/AllTrainData/<label>/checkpoint/` to
+    `$MEMBER_ROOT/sqg_stage/AllTrainData/<label>/checkpoint/` (user, byte-for-byte). The job refuses to start without
+    them (`TAXO_CKPTS_NOT_STAGED`).
+
+- **2026-11-06** — **SQG: the math of the delta table, a three-agent "what else to test" plan, and analogues from
+  other fields** (no jobs submitted). Everything is in `SQG/analysis/opt/team_2026-11-06/` and
+  `SQG/analysis/opt/delta/MATH_delta.md`.
+  - **Math (`MATH_delta.md`).**
+    - e_Δ = e_frame · ‖F‖/‖Δ‖ exactly. The measured ratio is identical across variants: 32 at lag 40, 1.83 at 4,000.
+    - The state-rounding estimate u|θ|/|i| reproduces `lean32`'s 1-step error band by band (6.1e-3 vs 5.3e-3 at
+      k1–2).
+    - `lean32`'s k1–2 error is flat or rising with lag, i.e. a bias. TwoSum/Fast2Sum leaves `lean32ek` with only
+      the float32 tendency error.
+  - **Team (workflow `wf_0391b43a-95e`: Opus NUMERICS + Opus LEARNING + Fable PS, 5 rounds, read-only).**
+    - **The finding that reframes the program:** o1.2's `[::16]` subsample aliases 4096² k ≥ 128 content into the
+      target. That puts **0.00222 (lo) / 0.00377 (central)** of o1.1's 0.0043 val MSE out of reach of any data,
+      step or precision change. Main session independently got ≈ 0.0020.
+    - **PS plan** (8 items, ~26 node-h; the decisive five ≈ 4 node-h):
+      1. free stdout/checkpoint parse: pins 168 vs ~142 h, counts restarts, retrieves the final vals;
+      2. per-band val vs the floor table: the pivot test, replay + fewer steps vs online value;
+      3. noise-vs-bias taxonomy of generators on 16 archived states, with two positive controls;
+      4. an owner-signed acceptance protocol before unblinding;
+      5. a 4.3 TB tee/replay of the 256² stream;
+      6. compile + activation checkpointing;
+      7. resume from `last.pt`;
+      8. compressed OneCycle + the first two-seed replication.
+    - **Rejected:** 2048² restarts, densification, a custom f64 FFT, offset views.
+    - **Main-session check:** the solver's own "2.2e8 steps ~287 h on an H100" gives 4.7 ms/step, which leaves
+      ≈ 0.45 s/step (≈ 24 h of 168 h) of non-solver overhead.
+    - **Correction:** channels_last is 38.5% *slower*, not a gain. The R1 brief had it backwards; memory fixed.
+  - **Analogues (`ANALOGUES.md`, 14 systems).**
+    - Klöwer et al. 2022 used compensated time integration in Float16 shallow water, i.e. `lean32ek`. It beat mixed
+      precision there too (3.6× vs 2.75×).
+    - Stochastic rounding (Paxton 2022) turns the bias into noise. Proposed as a calibration arm for item 3.
+    - Melissa's online gain is new-data diversity, which o1.2 (re-integrating the archive) does not buy.
+    - The online loop that adds information is on-policy (Rasp 2020; Frezat 2022).
+  - **Next:** owners' answers to the 8 questions in `TEAM_REPORT.md`. Item 1 needs the user to point at the o1.2 /
+    o1.1 logs.
+- **2026-11-06** — **SQG delta-fidelity job 7819310 DONE (`DELTA_JOB_DONE failures=0`), notes Part XI. Plain float32
+  damages o1.2's training delta; a compensated float32 state fixes 98% of it.** Results in
+  `SQG/analysis/results/polaris_delta_7819310/`.
+  - **Median e_Δ at the 4,000-step lag over 8 pairs** (spun-up synthetic state):
+
+    | variant | all | k1–2 | k2–4 | ms/step |
+    |---|---|---|---|---|
+    | `lean32` | **5.5e-4** | **3.6e-3** | **2.0e-3** | 3.20 |
+    | `lean32e` (expm1 damping) | 4.3e-4 | 3.2e-3 | 1.4e-3 | 3.20 |
+    | `lean32ek` (compensated) | **8.8e-6** | 2.2e-5 | 5.2e-6 | **3.35** |
+    | `mixed` | 8.7e-6 | 2.2e-5 | 5.2e-6 | 4.73 |
+    | float64 from a once-rounded state (floor) | 2.3e-7 | | | |
+  - **`lean32`'s error is systematic:** its frame error grows 160× over 100× the steps; `lean32ek`'s grows 13×.
+    Its 1-step increment error at k1–2 is 5.3e-3, vs 4.3e-6 for `lean32ek` / `mixed`. The compensation survives
+    XLA.
+  - **Pre-set gate (≤ 2× floor): all four FAIL.** `mixed` / `lean32ek` are 37–38× the floor (float32 FFT term).
+    Verdicts stand; the gate is not loosened.
+  - **Predictions:** 5 confirmed, 2 half, 4 refuted. The floor and rms(Δ) were off, and `mixed` / `lean32ek` were
+    predicted to pass.
+  - **Decision is the user's / jesswan / Weidong's:**
+    - **Do not use plain float32 (`lean32`, `lean32_u1_ring3`) for o1.2's targets.**
+    - If a pre-set tolerance at ≈ 1e-5 of Δ is acceptable, use `lean32ek` (2.77×; with the trigger + ring
+      ≈ 3.4×, untested).
+    - Otherwise stay on float64: `lean_u1` 1.45×, round 2 ≈ 1.7×.
+  - **Caveat:** the start state is not archive-like (rms(Δ) 0.825 vs 0.27). A definitive rerun needs 2–3 archived
+    checkpoints staged from Midway (`delta_fidelity.py --state-in`), plus a long-run bias check.
+- **2026-11-05** — **SQG Nsight job 7819082 DONE (`NSIGHT_DONE failures=0`), notes Part X.** Results in
+  `SQG/analysis/results/polaris_nsight_lean_7819082/`. Predictions: 14 confirmed, 6 half, 1 refuted.
+  - **`lean32` 3.198 ms/step, by op:** AB3 fusion 926 µs (28.8%), 2 RFFT 615, C2C 540, IRFFT 503, products 253,
+    `build_w` 235, copies 99. GPU busy 99.4%. Ideal 2.82 GB/step ≈ 2.09 ms at 1.35 TB/s.
+  - **The AB3 fusion over-fetches 2.2–2.9×** (4 elements per thread; ncu: 75% excessive sectors). **Seed 1's cos
+    trigger fixes it:** the fusion reads exactly its 369 MB, at 89% of peak.
+  - **Bitwise rewrites of `lean32`:** trigger **2.641 ms (1.211×)**; 3-slot ring 3.104 (0 copies); both
+    **2.524 ms = 3.68× production**.
+  - **cuFFT column passes run at 41–52% of DRAM peak** (uncoalesced global on the half-plane, shared bank
+    conflicts on the full plane). Only a custom FFT reaches them (≈ 0.43 ms).
+  - **cuFFT 11.4.1 via `LD_PRELOAD`:** confirmed mapped, no change (< 1%). **Not a lever.**
+  - **Float64 `lean_u1` 6.40 ms:** 3 IRFFTs = 47%. Next is `lean64`'s C2C packing (≈ −0.9 ms) + the trigger on its
+    last 4-element fusion (≈ −0.15) → ≈ 5.3–5.5 ms.
+  - Ranked list: notes Part X. `lean32_u1_ring3`'s precision question is still Part XI (job 7819310).
+- **2026-11-05** — **SQG float32 vs o1.2's training delta: two mechanisms found; delta-fidelity job built**
+  (`SQG/analysis/opt/delta/`). The user: "we need to be sure that fp32 is not impacting δ as it is very small".
+  Round 1b compared frames, not deltas.
+  - **Damping quantization.** `decay` stored in float32 quantizes each mode's damping rate, because rate·DT ≈
+    1e-7..5e-6 and float32 spacing below 1 is 6e-8. Rate error: up to ±20% at k = 4–16 (rms 11–13%), ±5% in
+    the forcing ring, 0.1% at k = 1. It is deterministic per mode, applies every step, and is present in plain
+    float32 too.
+  - **Sub-ulp rounding.** A float32 state rounds sub-ulp per-step changes systematically wherever the increments
+    vary slowly, i.e. the large scales, where Δ is smallest (k = 1–2: Δ ≈ 4% of θ).
+    `test_f32_update.py` (emulated float32, one forced k = 8.4 mode, 100k steps): the 4,000-step delta is
+    **31% off** for `lean32`'s update and **also for expm1 damping alone**. The compensated (TwoSum hi + lo)
+    update gives 8.8e-8. So any float32 *state* has this; the fixes are a float64 state (`mixed`) or a
+    compensated float32 state (`lean32ek`, +1 complex64 array).
+  - **The GPU test** (`delta_fidelity.py`, `run_delta_polaris.pbs`):
+    - spin-up of a synthetic −5/3 field (no archived checkpoint on Polaris);
+    - per-band increments;
+    - 8 × 4,000-step pairs on o1.2's coarse frames for `mixed` / `lean32` / `lean32e` / `lean32ek` vs float64,
+      with a float64-from-rounded-state floor.
+
+    Pre-set gate: e_Δ ≤ max(2 × floor, 1e-6), overall and in each band holding ≥ 1% of Δ energy.
+    Predictions: `PREDICTIONS_delta.md` (written first). It is auto-submitted when 7819082 starts (debug allows
+    one waiting job per user).
+  - **Until it reports: do not ship `lean32` to o1.2.** `lean_u1` (float64, bitwise) is unaffected.
+- **2026-11-05** — **SQG Nsight job on `lean32` submitted: 1-node debug job 7819082**
+  (`SQG/analysis/opt/nsight/run_nsight_lean_polaris.pbs`, walltime 0:55). The user asked for an Nsight analysis of
+  `lean32` and where the solver can still improve. End token `NSIGHT_DONE failures=N`; results →
+  `SQG/analysis/results/polaris_nsight_lean_7819082/`. Predictions: `SQG/analysis/opt/nsight/PREDICTIONS_nsight.md`
+  (written first). Don't edit `SQG/analysis/opt/nsight/` or the two new summarizers while it is queued.
+  - **New tools.**
+    - `summarize_nsys_ops.py`: GPU time per XLA op per step, via the XLA thunk NVTX ranges. Validated on job E's
+      real f32 capture: AB3 fusion 649.8 µs/step (job E: 650), GPU busy 98.1%.
+    - `summarize_ncu_window.py`: every kernel of one loop period, from an unfiltered ncu window.
+    - `lean32_probes.py`: exact rewrites of `lean32` (seed 1's cos trigger, seed 1's 3-slot ring, both).
+  - **Leads going in.**
+    - `lean32`'s byte model is ≈ 2.8 GB/step ≈ 2.1 ms at 1.35 TB/s, vs 3.19 ms measured.
+    - Its HLO still has 2 full-size tendency copies per 2-step iteration.
+    - Job E's half-plane column FFT pass (`regular_fft_factor<4096>`) runs at ≈ 0.68 TB/s, half its neighbours.
+      Hypothesis: a 2,049-wide complex64 row is 16,392 B, so rows are not 32 B-aligned.
+    - `decay` is an exact circular 2/3 truncation, so most of the half-plane is zero every step.
+    - CUDA 12.9.1's cuFFT 11.4.1 (the env has 11.0.2) can be swapped in by `LD_PRELOAD`: XLA dlopens
+      `libcufft.so.11` by soname. Phase 3 is report-only.
+- **2026-11-05** — **SQG round 1c (7815637) DONE, `OPT_R1C_DONE failures=0`.** Notes Part IX; summaries in
+  `SQG/analysis/results/polaris_opt_round1c_7815637/`.
+  - **Seed 1: all three pass, bitwise at 1/40/480/4,000 steps, `t` exact.** `lean` 7.970 ms (1.165×),
+    **`lean_u1` 6.400 ms (1.451×; optimizer step 4.470 → 3.086 s)**, `lean_split` 7.078 (1.312×). So `lean_u1` is a
+    bitwise float64 speed-up that needs no science sign-off. The run-time `dt` fixed `t` in both seeds.
+  - **NCCL over CXI is solved.**
+    - A (7815096's env + FI_LOG) fails again, and FI_LOG shows `cuda_hmem_dl_init(): Failed to dlopen
+      libcudart.so` on 8/8 ranks. That confirms the cause.
+    - **B, a dir holding `libcudart.so` → the env's own `libcudart.so.12`, passes at 31.5 GB/s:** GDRDMA on 24/24
+      NET lines, CUDA HMEM up 8/8, 0 errors.
+    - C (`GDR_LEVEL=LOC`) passes at 17.2 GB/s, host-staged; combine_handoffs' 2-node 18.0 GB/s was GDR 0.
+    - D (`cuda-12.9.1` prepend) passes at 32.6 GB/s.
+    - B and D log 24 harmless-looking `cuPointerSetAttribute … CUDA_ERROR_NOT_SUPPORTED` warnings each.
+  - **Replicate vs decouple (DDP over B, GDR):**
+    - replicate `lean32`: 1.946 s/step on 8 GPUs; DDP cost 5.2 ms. 0.514 rank-steps/s per GPU.
+    - replicate `ref`: 4.897 s/step (vs 4.887 s on 1 GPU); DDP cost 4.8 ms.
+    - decouple `lean32` (2 cross-node DDP trainers + 6 simulators): 0.4235 s/step free-running; ≈ 0.515 s paced to
+      12 fresh pairs/step (derived). That is ≈ 0.485 rank-steps/s per GPU, 0.94× replicate, so equal GPU-seconds
+      holds: 3.8× shorter steps at a 4× smaller global batch.
+  - **Harness bug found and fixed (separate commit).** The paced phase was reported by its median (0.424 s, wait
+    median 0.0). The simulators' bursts hide the waits, so the trainer now records the phase mean.
+  - **Predictions:** 9 confirmed, 3 half (#6 busbw above range, #8 s/step 1–2% faster than the 1-GPU sum, #9
+    paced s/step not measured as stated), 0 refuted.
+  - **Next (the user's):** ship `lean_u1` (bitwise) to o1.2 while `lean32` waits for validation? Round 2 = the u1
+    trigger + C2C packing. Size a decoupled run at ≥ 3.7 `lean32` simulators per trainer.
+  - **Open, cheap (combine_handoffs):** were the 24 `cuPointerSetAttribute … NOT_SUPPORTED` warnings in B/D from
+    NCCL's cuMem buffers? Test with an arm `B_shim` + `NCCL_CUMEM_ENABLE=0` in the next 2-node job; the warnings
+    should disappear if so. Don't silence them with `disable_cuda_sync_memops` in gated runs before that A/B.
+- **2026-11-05** — **SQG round 1c submitted: 2-node debug job 7815637** (`SQG/analysis/opt/run_round1c_polaris.pbs`,
+  walltime 0:59).
+  - **User decisions (11-05):** rerun seed 1; carry `lean32` toward o1.2 (precision in production still needs
+    statistical validation + jesswan / Weidong's sign-off); measure both replicate and decouple; submit without a
+    further approval once the critics' changes were in.
+  - **Phase 1:** seed 1 (`lean` / `lean_u1` / `lean_split`) under round 1b's `t` rule (run-time `dt`; `t` within
+    1e-6).
+  - **Phase 2: four NCCL probe arms**, each judged by `multisim/probe_verdict.py` (NCCL_PROBE_OK needs a completed
+    all_reduce + busbw, which fixes round 1b's token bug):
+    - A: 7815096's env + `FI_LOG_LEVEL=info`;
+    - B: a `libcudart.so` shim pointing at the env's own `.so.12` (combine_handoffs' preferred fix);
+    - C: `GDR_LEVEL=LOC`;
+    - D: makani/ACE2's `cuda-12.9.1/lib64` prepend.
+  - **Phase 3:** replicate `lean32` / decouple `lean32` / replicate `ref`, with DDP over the first passing arm (order
+    B, D, A, C).
+  - **Library check (readelf):**
+    - the aws-ofi-nccl plugin needs `libcudart.so.12`, and its RUNPATH dir no longer exists, so torch's
+      already-loaded 12.1 copy satisfies it;
+    - libfabric 2.3.1 dlopens the unversioned `libcudart.so` and `libgdrapi.so`, both absent.
+  - **combine_handoffs' answers:**
+    - their GDR runs were nccl-tests (NCCL 2.28.3, cudart 12.9), not torch, with libfabric resolving a
+      `cuda-13.0.1` `libcudart.so`;
+    - gdrcopy is opt-in and harmless; the RDZV vars are ruled out;
+    - FI_LOG's `Number of CUDA devices detected` marks a working CUDA HMEM.
+  - **Pre-submission review:** 2 read-only Fable critics; 3 minor harness fixes applied (receiver join timeout,
+    guarded rank-0 aggregation, NCCL-timeout docstrings); the job script had 0 defects.
+  - Predictions: `SQG/analysis/opt/PREDICTIONS_round1c.md`. Results →
+    `SQG/analysis/results/polaris_opt_round1c_7815637/`. Don't edit `SQG/analysis/opt/` while it is queued.
+- **2026-11-05** — **SQG job 7815096 DONE (`OPT_R1B_MS_DONE failures=1`).** Round 1b passed. Of the 2-node arms, 4/5
+  passed; the NCCL-over-CXI probe failed. Notes Part VIII; summaries in
+  `SQG/analysis/results/polaris_opt_round1b_ms_7815096/`.
+  - **Round 1b (one A100): all three pass their pre-set gates.** ms per solver step vs ref 9.290:
+
+    | variant | ms/step | speedup | optimizer step |
+    |---|---|---|---|
+    | `lean64` | 7.051 | 1.318× | 3.40 s |
+    | `mixed` | 4.714 | 1.971× | 2.28 s |
+    | `lean32` | 3.189 | 2.913× | 1.55 s (vs 4.47) |
+
+    - `t` is now exact for all three (run-time `dt`).
+    - `lean64`'s 256² float32 frames are **bitwise** equal to production's after 4,000 steps (fields ≤ 1e-13).
+    - `lean32` is float32 itself: its 1-step and 4,000-step differences equal the original step run in float32 to 3
+      digits (4.36e-4 coarse, −8.36e-5 SPE).
+    - `mixed` keeps a float64 state and is 70× closer at 4,000 steps.
+  - **2-node arms.**
+    - **Independent simulators:** scaling efficiency 0.9999 (ref) / 1.0024 (lean32).
+    - **Stream (7 simulators → 1 trainer, gloo over hsn0, RAM only, nothing written to disk):** the trainer stays
+      at its standalone 0.419 s/step. A send is ≈1 ms per 6.3 MB message. Fresh pairs per trainer step:
+      `ref` 8.14 (solver-bound), `lean32` 22.6 (trainer-bound). One trainer needs 10.7 / 8.1 / 5.4 / 3.7
+      simulators (ref / lean64 / mixed / lean32) to get o1.2's 12 fresh pairs per step.
+    - **Decoupling trades GPUs for wall-clock at equal GPU-hours.** Replicating o1.2 only grows the global batch.
+  - **NCCL probe FAILED: cxi can't register NCCL's GPU buffers.**
+    - Stack: torch 2.3.1's NCCL 2.20.5 + aws-ofi-nccl 1.6.0, under `NCCL_NET_GDR_LEVEL=PHB`.
+    - Plugin v6 and the cxi provider loaded on 8/8 ranks. Intra-node is `P2P/CUMEM/read` ×24, SHM 0.
+    - Every inter-node hop chose GDRDMA. On all 4 network ranks: `cxil_map: write error`, then
+      `NET/OFI Unable to register memory (type = 2) … RC: -14, Error: Bad address`.
+    - `Connected all rings` was never reached, so there is no busbw. No arm ran without `NCCL_PROTO=Simple`.
+    - `NCCL_CXI_OK providers=8` only means the provider was selected.
+    - These answers went to combine_handoffs (SendMessage, 11-05).
+    - **Their reply.** GDR works on their stack (7629096: 4 nodes, NCCL 2.28.3, `GDRDMA`, `GDR 1`), with cuMem on
+      too. Their leading cause: cray libfabric 2.3.1 dlopens the unversioned `libcudart.so`, and sqg-env has only
+      `libcudart.so.12`, so CUDA HMEM init fails and cxi pins GPU addresses as host memory (EFAULT).
+    - **Checked here:** the libfabric strings, and that no dir on the job's `LD_LIBRARY_PATH` has `libcudart.so`.
+      The mechanism itself is unconfirmed (no `FI_LOG`).
+    - **Next probe:** A `FI_LOG_LEVEL=info`; B a `libcudart.so` → env `libcudart.so.12` shim; C
+      `NCCL_NET_GDR_LEVEL=LOC`. Gate the probe's token on a completed all_reduce + busbw.
+  - **Predictions scored without edits.**
+    - Round 1: the gates all mispredicted (cause: the gates); 2/6 speed ranges hit; every speed miss was slower.
+    - Round 1b: 7 confirmed, 1 confirmed with two edge misses (≤ 2%), 1 half (#5: cxi yes, bandwidth never measured).
+  - **Open (the user's):** a seed-1 `lean_u1` rerun under round 1b's `t` rule; which precision goes into o1.2
+    (precision is jesswan / Weidong's call); replicate vs decouple.
+- **2026-11-05** — **SQG handoff for a fresh session: `SQG/polaris/sqg_opt_handoff.md`.** It gives the state, the
+  steps after 7815096 (scoring, the NCCL answers owed to combine_handoffs, notes Part VIII), the open decisions (seed 1
+  rerun, which variant goes into o1.2, replicate vs decouple), and the Polaris multi-node recipe.
+- **2026-11-05** — **SQG round 1b + 2-node independent-simulation smoke submitted: debug job 7815096** (2 nodes,
+  8 A100s). Phase 1 reruns `lean64` / `mixed` / `lean32` under gates written before the rerun (user request):
+  float32 variants ≤ min(1e-4, 2 × the ORIGINAL step's float32 error from the same state, same run); `lean64` ≤
+  1e-12; `tc`/`_ablevel` exact, `t` within 1e-6 relative (exact `t` reported as information); `t` now advances
+  by a run-time `dt`. Phase 2 (`SQG/analysis/opt/multisim/`) runs an NCCL-over-CXI probe (aws-ofi-nccl v1.6.0
+  with torch 2.3.1's bundled NCCL, never tried before; recipe from combine_handoffs), 8 independent trajectories (ref
+  and lean32), and an o1.2-style stream: 7 simulators send pairs over gloo/hsn0 to 1 trainer GPU running o1.2's
+  UViT from an in-RAM FIFO, with nothing written to disk, as online training does. Predictions:
+  `SQG/analysis/opt/PREDICTIONS_round1b.md`. Results → `SQG/analysis/results/polaris_opt_round1b_ms_7815096/`.
+  **Do not edit `SQG/analysis/opt/` while it is queued** (the job reads it at start).
+- **2026-11-05** — **SQG round 1 (7814300) DONE: every variant FAILED its pre-set gate; verdicts stand.** Measured
+  ms/step vs ref 9.29: `lean` 8.00, `lean_u1` 6.40 (1.45×, bitwise fields), `lean_split` 7.07, `lean64` 7.07 (≤
+  2.9e-14), `mixed` 4.68 (1.98×), `lean32` 3.20 (2.90×). Two causes. (1) All of them fail on the float32 time
+  counter `t` (`tc`/`_ablevel` were fine), which the step never reads; the likely cause is XLA folding the
+  unrolled `(t + dt) + dt`. (2) `mixed` and `lean32` (2.30e-5) also fail the 1e-5 float32 limit, which was below
+  plain float32's own error: the original step run in float32 scores 2.48e-5 from the same state. So the limit
+  measured float32, not the variants. Projected o1.2 online wall-clock on the H200 (7 days today, solver ≈ 87%):
+  `lean_u1` ≈ 5.1 d, `mixed` ≈ 4.0 d, `lean32` ≈ 3.0 d; the offline floor is 21 h if the solver is hidden on
+  extra simulation GPUs. Results: `SQG/analysis/results/polaris_opt_round1_7814300/`.
+- **2026-11-04** — **SQG solver-optimization round 1 submitted: debug job 7814300.** Built by two Opus seeds and
+  reviewed by a Fable principal scientist (user's design; user policy: bitwise not required, a tolerance fixed
+  before the run decides). Six variants: seed 1 float64 JAX `lean` / `lean_u1` / `lean_split` (drop exact ×1/+0
+  terms, 3-slot AB3 ring, unroll-1 and split tricks against the AB3 fusion's over-fetch); seed 2 `lean64` (u, v from
+  one forward C2C FFT, 2-slot ring), `mixed` (float32 nonlinear term), `lean32`. Gates: ≤ 1e-12 (f64) / ≤ 1e-5 (f32)
+  after 1 step from a random and a synthetic CFL-0.3 state. Report-only: per-|k|-band errors and a float32 baseline
+  of the original step. Predictions in `SQG/analysis/opt/PREDICTIONS_round1.md`; results →
+  `SQG/analysis/results/polaris_opt_round1_7814300/`.
+- **2026-11-04** — **SQG: the 5 full-field copies per solver step are traced** (job A capture, each copy attributed to
+  its issuing XLA thunk). 2/step are the AB3 history rotation inside the AB3 update graph (pyqg_jax
+  `AB3Stepper.apply_updates`, steppers.py:501, under `lax.scan`'s one-buffer-per-slot carry). 3/step are the three
+  inverse (C2R) FFTs copying their inputs (θ̂, û, v̂); the forward FFTs copy nothing. Removable: rotation ≈0.39 ms
+  bitwise (unroll by 3 / ring index); û, v̂ ≈0.39 ms only with an input-overwriting FFT call; θ̂'s copy is needed.
+  This **corrects** the "≈1 ms, all loop-carry" estimate to ≈0.4–0.8 ms. Notes Part IV addendum.
+- **2026-11-04** — **SQG job E 7813816 PASS: a float32 solver step is 2.6× faster (9.30 → 3.61 ms; 4.47 → 1.74 s of
+  solver per optimizer step).** Checks pass: the builder is bitwise equal to `GD.inner`, and there is no hidden f64 in
+  the f32 HLO. Every kernel scales ≈2× with its bytes (cuFFT 3,059 → 1,512 µs/step) **except the AB3 fusion: 3,288 →
+  650 µs (5.1×)**. So ≈2 ms/step of the f64 fusion is float64-specific, not data. Both precisions still evaluate the
+  no-op filter's sqrt/exp, which is software-emulated in f64. Job F (Nsight Compute, **7814044**, submitted)
+  separates that from register pressure. Prediction 2 (1.6–2.0×) refuted; notes Part VI. Float32 is timing only.
+- **2026-11-04** — **SQG: a STRIDE-400 online run reportedly overfit** (user report; run details not seen here).
+  This contradicts the decorrelation entry's advice to sample online pairs at Δt/10–Δt/4. In o1.2, `STRIDE` also sets
+  the data *quantity*: pairs per segment 4,901 → 491, the start buffer (4 segments) 19,604 → 1,964 pairs, fresh pairs
+  per optimizer step S/STRIDE 12 → 1 (S must be a multiple of STRIDE). The 262,144-pair buffer then never fills, so
+  the first pairs are sampled ≈150× (vs ≈7× at STRIDE 40). The 40-step near-duplicates cost no extra solver time
+  and probably also act as augmentation (untested). **Keep STRIDE 40 for online training; do not thin a saved frame
+  store without a test.** No translation augmentation: the forcing is a fixed spatial pattern. A discriminating test
+  is STRIDE 40 with every 10th pair buffered (same solver cost, STRIDE-400 density).
+- **2026-11-04** — **SQG jobs E and F: the solver's GPU work.** E (`profile_solver_fp32.py`, debug **7813816**,
+  queued) times the production step in float32 vs float64. It reports only if its builder is bitwise equal to
+  `GD.inner` and the f32 HLO holds no full-size f64/c128 field. F (`profile_ab3_ncu*.py/.pbs`, `summarize_ncu.py`;
+  written by a subagent, reviewed; `NCU_TEST_OK`) is Nsight Compute on the AB3 fusion and three contrast kernels. It
+  is **not yet submitted**, because the debug queue allows 1 queued job per user (`queued_jobs_threshold`). Predictions
+  in notes Part VI. Also answered: torchdiffeq / PyG do not touch the bottleneck (CFL-bound stepping; FFTs on a
+  regular periodic grid).
+- **2026-11-04** — **SQG job D 7813332 PASS (`PHASES_OK` × 3), 4 of 5 predictions confirmed, 1 half refuted.** In
+  the production order there are 507 syncs and 506 DtoH per optimizer step. 480 of each come from one HLO op
+  (`conditional.277.0`, the `lax.switch`) and block 4,412 of 4,920 ms. The other 27 are cheap (`flush` 24, 0.08 ms;
+  `loss_item` 2, waiting on the network's own GPU work; harness 1). The network phases issue 0 syncs. Without the
+  switch the wait moves into `cuLaunchKernel` (91% of launches slow, 3.84 s/step), not into `flush`. Parser counts
+  equal nsys `cuda_api_sum` ÷ 6. Notes Part V; summaries in `SQG/analysis/results/polaris_phases_7813332/`.
+- **2026-11-04** — **SQG job D: per-phase sync audit of the online optimizer step, tooling done, job 7813332
+  submitted** (`debug`, 1 A100, 40 min; branch `sqg-polaris-profiling`; notes Part V). Jobs A/B counted syncs
+  for the solver alone. D attributes every CUDA API call, and the GPU work it issued, to the NVTX phase open on its
+  thread (`SQG_NVTX=1` in `profile_overlap.py`). Every sync and DtoH is also attributed to the XLA op that issued it
+  (`summarize_nsys_phases.py`, stdlib sqlite3; `PHASES_TEST_OK`). **Validated on job A's capture:** 480.0
+  `cuStreamSynchronize` + 480.0 4-byte pinned DtoH per 480 steps, all inside `conditional.277.0
+  (while/body/cond)`, equal to A's totals. Five predictions are pre-registered (`flush` = 24 pageable DtoH + 24
+  syncs/step, `loss_item` = 2, ML phases 0, …). Also found while explaining the solver: XLA's "68 GFLOP/step" is
+  its FFT cost model, 8·(log₂4096)² flops per element (3 IRFFT × 8.4 M + 2 RFFT × 16.8 M = 67.6 GFLOP), not real
+  arithmetic (≈5 GFLOP textbook). The cuFFT kernels run at ≈1.3 TB/s, close to the HBM limit, but
+  `loop_add_multiply_fusion_1` (3.27 ms, 39.5%) is far below it. Nsight Compute on that kernel is the next solver
+  lead. Next: read 7813332 (`PHASES_OK` ×3), score Part V.
+  - **The largest solver kernel is the whole AB3 update** (notes Part IV addendum, from `hlo_ref.txt`). It moves
+    ≈1.27 GB in 3.27 ms (≈390 GB/s, vs ≈1.3 TB/s for cuFFT). Three parts of it cannot change the answer: pyqg's
+    filter (sqrt + f64 exp per coefficient; exactly 1 at `filterfac=0`), a dense 134 MB F̂ read every step
+    (24 nonzero modes), and a probable zero background-gradient term (unverified). Candidate: a lean step in o1.2
+    behind a bitwise gate, estimated headroom ≤ ≈2.5 ms/step; ncu on the fusion first.
+- **2026-11-03** — **SQG online-training profiling ran on Polaris (jobs A/B/C, n = 2 each, `debug`, 1 A100 per
+  job)** (branch `sqg-polaris-profiling`; write-up `SQG/polaris/polaris_sqg_notes.md`; summaries in
+  `SQG/analysis/results/polaris_*`). Code findings only, with no cross-GPU ratios:
+  - **The `lax.switch` hypothesis: mechanism confirmed, consequence incomplete.** `ref` does 1 DtoH + 1
+    `cuStreamSynchronize` per solver step, so Python is blocked for every 40-step call. The `fixed` AB3 level is
+    bitwise identical and has 0 syncs, but the host still cannot run more than ~1 call ahead: ~1,000 launches per
+    call fill the CUDA launch queue (`cuLaunchKernel` 414 µs vs 2.7 µs).
+  - **Overlap is limited by the GPU, not the host.** `serial_ref` = solver + ML exactly (4.887 s). A background-
+    thread solver hides at most 21% of the ML step, because the solver alone keeps the GPU 99% busy. The best arm
+    is −1.4%. `sample()` is 0.3% of the ML step.
+  - **~5 × 134 MB loop-carry D2D copies per solver step** = 10.6% of solver time; `donate` removes a different
+    3 × 134 MB copy per call.
+  - **UViT:** batch 32 OOMs a 40 GB A100, so ML numbers are at batch 16 (416 ms/step). Kernel time is spread
+    (GEMM 26%, elementwise 20%, native depthwise conv 19%, LayerNorm 15%; 3,562 launches/step). `channels_last`
+    is +38.5%, and `cudnn.benchmark` −0.3%.
+  - Of the 6 pre-registered predictions, #2, #3 and #5 are confirmed in full. #1, #4 and #6 are confirmed in part;
+    the refuted sub-claims are #1's `fixed` half, #4's `thread_fixed` ≈ max, #6's "few kernels dominate" and #6's
+    `channels_last` < 15%. The scorecard is in the notes. Ranked code changes with their
+    gates are in the notes' Part IV. None are implemented.
+  - **Env:** `module load conda` works again (ALCF fixed the modulefile 2026-09-16; makani jobs already log
+    `MAKANI_ENV_SOURCE = module-conda`). SQG has its own `$MEMBER_ROOT/conda-envs/sqg-env` (py3.10, pip copy of
+    wdenv; CUDA from the wheels, no modules at run time; `SQG/polaris/setup_sqg_env.sh`). The login-node import
+    check was replaced by a GPU probe job (09-24 ruling).
+  - **Gotchas:** `profile_uvit.py`'s `top_ops` percentages double-count (ops + kernels + ranges); use
+    `summarize_uvit_trace.py`. `SQG/analysis/results/` is gitignored, so add results with `git add -f`. The brief's
+    default `MEMBER_ROOT=/eagle/lighthouse-uchicago/members/$USER` doesn't exist for every user (rmehta1987 →
+    mehta5).
+  - Optional NUMA arm not run: the step is GPU-bound. Jobs: probe 7809334, C 7809340 (OOM @32) / 7809341 /
+    7809408, A 7809356 / 7809412, B 7809385 / 7809433.
 
 - **2026-11-02** — **SQG Polaris `debug`-queue profiling prompt** (`SQG/polaris/PROFILING_PROMPT.md`, commit
   41570a38). Self-contained handoff for a Polaris session to port jobs A/B/C to PBS. Scope is the **code**: solver
@@ -214,6 +995,65 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 ## Known issues / failed approaches (do NOT re-attempt)
 
 Each is attributed to its source doc — verify there before acting.
+
+- **(docs) GitHub math: write for Chrome's native MathML** (`MATH_energy.md`, commits 364bc8d7 / 4b12095a,
+  2026-11-12).
+  - GitHub turns TeX into native `<math>`, which Chrome lays out itself.
+  - **`\tag{n}`** becomes `<mlabeledtr>`, which Chrome/Edge does not lay out: the equation renders as a vertical
+    column of symbols. Write `\qquad\text{(n)}` instead.
+  - **`aligned`'s column alignment is ignored** (the `=` signs stagger). Use `gathered`.
+  - **A ```` ```math ```` fence nested in a list item stays a code block** on the file view (the `/markdown` API
+    converts it, so testing through the API is misleading). Use inline `` $`…`$ `` there.
+  - **Verify on the live page** in headless Chrome (rendered heights, `mlabeledtr` count, screenshots). "GitHub
+    recognised it as math" is not a check.
+
+- **(SQG) Per-run drift tests with an estimated autocorrelation time are anti-conservative on 40-TU runs**
+  (`SQG/analysis/opt/stability/calibrate_s3_2se.py`, 2026-11-12).
+  - At τ_I 0.5–3 TU (SPE relaxes in 2.4–3.4 TU, Part XIV) a 40-TU run has N_eff ≈ 7–40, and the truncated ACF sum
+    underestimates g by 16–52 %. |slope| ≤ 2 SE then gives 6–20 % false positives per run.
+  - Use independent runs instead: the between-run t-test is 5.0–7.7 % (`calibrate_s3_common.py`).
+
+- **(Polaris, SQG) NVIDIA Warp + jax 0.4.28: version box and four traps** (jobs 7839932, 7840069; notes Part XVII B).
+  - **Version:** only warp-lang ≤ 1.17.0 has the legacy XLA custom call that JAX 0.4.25–0.7.x can use. 1.18 removed
+    it, and the FFI wrappers need JAX ≥ 0.5. Warp's own legacy `jax_kernel` hard-codes block_dim 256 and
+    launch-dim-shaped outputs, so it cannot run tile kernels; use `SQG/analysis/opt/warp/warp_xla.py`.
+  - **Custom-call name:** jaxlib 0.4.28's `register_custom_call_target` takes the target name as `str`, not `bytes`.
+  - **Tile storage:** a tile has one storage class per kernel. Transposing an FFT'd register tile moves it to shared
+    memory and `tile_fft` stops compiling. Transpose a `tile_map(ident, ·)` copy instead.
+  - **Vector class:** `wp.vec2f(...)` inside a `@wp.func` returns an anonymous `vector(2, float32)` class, which
+    `tile_fft` rejects. Build results from a typed argument (`r = p * 0.0`, then set components).
+  - **Limits:** register tiles of (K, 4096) at 512–1,024 threads, and R ≥ 4 row tiles, exceed the register limit.
+    Strips with K = 4 need 147–279 KB of shared memory.
+  - **Speed, not a bug:** Warp's column FFT is 2× cuFFT's (694 vs 348 µs, complex64 4096²). Keep cuFFT for
+    transforms. Its row FFT is near cuFFT (232 vs 206 µs).
+  - **FMA contraction:** Warp's module option `fuse_fp` defaults to True. Error-free transforms (TwoSum / Fast2Sum)
+    need `module_options={"fuse_fp": False}`.
+  - **Constants:** closure constants must be Python int / float (or Warp types), not numpy scalars. A
+    `np.float32` gives "Invalid external reference type" at parse time (job 7840360). Python floats are typed
+    float32 in kernels.
+
+- **(Polaris, SQG) Fusing the SQG step's pointwise work into cuFFT via LTO callbacks (nvmath-python) is slower at
+  4096², not faster** (job 7840175; notes Part XVII C).
+  - Measured: each C2C went from 0.60 ms (plain) to 1.09–1.13 ms with our load/store callbacks; the C2R with a
+    load callback took 0.52 ms. The whole hybrid step is 2.94 ms vs XLA's `lean32ek_fast` 2.71.
+  - Not yet separated: the callback path's own cost vs our callbacks' work (64-bit index math, mirrored gathers,
+    scattered kept-mode stores).
+  - Before retrying, measure an identity-callback C2C at 4096². Don't re-run the full hybrid as is.
+  - Setup that worked: nvmath-python 1.0.0 + numba-cuda 0.30.4 `--no-deps` beside sqg-env, plus `LD_PRELOAD` of
+    CUDA 12.9.1's `libnvJitLink.so.12` and `libcufft.so.11` (11.4.1). LTO callbacks need cuFFT ≥ 11.3; the env's
+    wheel is 11.0.2.
+
+- **(Polaris, SQG env) NCCL over CXI with torch 2.3.1's bundled NCCL 2.20.5 + aws-ofi-nccl v1.6.0 +
+  `NCCL_NET_GDR_LEVEL=PHB` fails at connect.**
+  - Symptom: `cxil_map: write error` → `NET/OFI Unable to register memory (type = 2) … RC: -14, Error: Bad address`
+    on every rank that does an inter-node hop; the rest hang.
+  - **Cause CONFIRMED (job 7815637):** libfabric's `cuda_hmem_dl_init()` cannot dlopen the unversioned
+    `libcudart.so`, which a wheel-based env lacks.
+  - **FIXED:** put a dir holding `libcudart.so` → the env's own `libcudart.so.12` first on `LD_LIBRARY_PATH`
+    (`run_round1c_polaris.pbs`, `arm_env B_shim`). That gave 31.5 GB/s with GDRDMA, and DDP works. Fallbacks:
+    `NCCL_NET_GDR_LEVEL=LOC` (17.2 GB/s), or prepending `cuda-12.9.1/lib64` (32.6 GB/s, but two CUDA runtimes).
+  - Don't use the bare env block for cross-node NCCL from a wheel env.
+  - Source: job 7815096; `SQG/polaris/polaris_sqg_notes.md` Part VIII.
 
 - **(Polaris) `torch_harmonics` version box** — makani 0.2.0 imports the *public*
   `torch_harmonics.quadrature.precompute_latitudes`, which does NOT exist in 0.7.4 or

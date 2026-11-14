@@ -1,0 +1,4 @@
+ERROR NCCL_PROBE_FAILED A_filog reason=no_json rings_gdr=? cxi=8 plugin=8 gdrdma=16 net_nogdr=0 p2p=24 shm=0 cxil_map=30 regfail=12 dlopen_cudart_fail=8 hmem_cuda_ok=0 failed_to_find_sym=0 rank_failed=4
+NCCL_PROBE_OK B_shim busbw_min=31.544 GB/s nccl=2.20.5 rings_gdr=? cxi=8 plugin=8 gdrdma=24 net_nogdr=0 p2p=56 shm=0 cxil_map=0 regfail=0 dlopen_cudart_fail=0 hmem_cuda_ok=8 failed_to_find_sym=0 rank_failed=0
+NCCL_PROBE_OK C_loc busbw_min=17.242 GB/s nccl=2.20.5 rings_gdr=? cxi=8 plugin=8 gdrdma=0 net_nogdr=24 p2p=56 shm=0 cxil_map=0 regfail=0 dlopen_cudart_fail=0 hmem_cuda_ok=0 failed_to_find_sym=0 rank_failed=0
+NCCL_PROBE_OK D_cuda129 busbw_min=32.575 GB/s nccl=2.20.5 rings_gdr=? cxi=8 plugin=8 gdrdma=24 net_nogdr=0 p2p=56 shm=0 cxil_map=0 regfail=0 dlopen_cudart_fail=0 hmem_cuda_ok=8 failed_to_find_sym=0 rank_failed=0

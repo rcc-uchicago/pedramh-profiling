@@ -1,0 +1,61 @@
+#!/bin/bash -l
+#PBS -N sqg_warp
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -j oe
+# run_warp_probe_polaris.pbs -- can NVIDIA Warp carry the SQG solver's custom FFT? One A100 (GPU 0).
+# Predictions + decision rule: SQG/analysis/opt/warp/PREDICTIONS_warp.md (written first).
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ \
+#        SQG/analysis/opt/warp/run_warp_probe_polaris.pbs                       (from the repo root)
+# Needs warp-lang 1.17.0 (the last release with the legacy XLA custom call that jax 0.4.28 can use) in its own dir:
+#   $PY -m pip install --no-deps --target $MEMBER_ROOT/pylibs/warp-1.17.0 warp-lang==1.17.0   (login node)
+# 1. warp_fft_probe.py: WARP_ENV_OK, WARP_BRIDGE_OK|FAIL, WARP_VERDICT, WARP_PROBE_DONE failures=N.
+# End token: WARP_JOB_DONE failures=N. Results -> SQG/analysis/results/polaris_warp_<jobid>/.
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+export PYTHONUNBUFFERED=1
+WARP_PATH="${WARP_PATH:-${MEMBER_ROOT}/pylibs/warp-1.17.0}"
+export WARP_CACHE_PATH="${MEMBER_ROOT}/tmp/warp_cache_${JOB}"     # Warp's kernel cache: per job, on eagle
+T0=$(date +%s)
+DEADLINE=$(( T0 + 44 * 60 ))
+OUT="${MEMBER_ROOT}/sqg_profile/warp_${JOB}"
+RES="SQG/analysis/results/polaris_warp_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$WARP_CACHE_PATH"
+FAILURES=0
+fail() { echo "ERROR $*"; FAILURES=$((FAILURES + 1)); }
+HERE=SQG/analysis/opt/warp
+echo "=== run_warp_probe on $(hostname) job $JOB: $(date '+%F %T') warp=$WARP_PATH ==="
+nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee "$OUT/gpu.csv"
+[ -f "$WARP_PATH/warp/__init__.py" ] || { echo "ERROR WARP_NOT_INSTALLED $WARP_PATH"; echo "WARP_JOB_DONE failures=1"; exit 5; }
+sha256sum "$HERE"/*.py "$HERE"/PREDICTIONS_warp.md | tee "$OUT/sha256.txt"
+
+"$PY" "$HERE/warp_fft_probe.py" --out "$OUT/warp_probe.json" --warp-path "$WARP_PATH" --deadline "$DEADLINE" \
+    2>&1 | tee "$OUT/warp_probe.log" || fail WARP_PROBE_RC
+grep -q "WARP_PROBE_DONE failures=0" "$OUT/warp_probe.log" || fail WARP_PROBE_NOT_CLEAN
+grep -E "^(WARP_ENV_OK|WARP_BRIDGE|WARP_VERDICT|WARP_PROBE_DONE|projection|ERROR)" "$OUT/warp_probe.log" || true
+
+for f in "$OUT"/warp_probe.json "$OUT"/*.log "$OUT"/gpu.csv "$OUT"/sha256.txt; do
+    [ -e "$f" ] && cp "$f" "$RES"/
+done
+echo "=== end $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+echo "WARP_JOB_DONE failures=$FAILURES"

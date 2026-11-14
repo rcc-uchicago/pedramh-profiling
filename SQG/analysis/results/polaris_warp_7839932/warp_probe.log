@@ -1,0 +1,218 @@
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A100-SXM4-40GB" (39 GiB, sm_80, mempool enabled)
+   Kernel cache:
+     /lus/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/warp_cache_7839932/1.17.0
+Module double_k_bca27248 bca2724 load on device 'cuda:0' took 1895.08 ms  (compiled)
+env {"torch": "2.3.1+cu121", "jax": "0.4.28", "warp": "1.17.0", "warp_file": "/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/__init__.py", "mathdx": 1, "toolkit": [12, 9], "driver": [13, 0], "gpu": "NVIDIA A100-SXM4-40GB", "jax_devices": ["cuda:0"], "xla_flags": "", "jaxlib": "0.4.28"}
+WARP_ENV_OK
+copy c64 197.2 us = 1361 GB/s; c128 389.3 us = 1379 GB/s
+cufft torch_row_c64: 206.2 us (1302 GB/s, all passes)
+cufft torch_col_c64: 345.4 us (777 GB/s, all passes)
+cufft torch_fft2_c64: 590.2 us (910 GB/s, all passes)
+cufft torch_row_c128: 403.5 us (1331 GB/s, all passes)
+cufft torch_col_c128: 674.9 us (796 GB/s, all passes)
+cufft torch_fft2_c128: 1194.1 us (899 GB/s, all passes)
+cufft jax_fft2_c64: 525.8 us
+cufft jax_irfft2_c64: 505.6 us
+cufft jax_rfft2_c64: 309.7 us
+Module row__locals__row_fft_dd923153 dd92315 load on device 'cuda:0' took 4133.01 ms  (compiled)
+row_f32_R1_B256: 230.9 us, 1163 GB/s (85% of copy), smem 16384, compile 4.13 s
+Module row__locals__row_fft_dd923153 bf5c4a5 load on device 'cuda:0' took 3589.38 ms  (compiled)
+row_f32_R1_B128: 301.2 us, 891 GB/s (65% of copy), smem 32768, compile 3.59 s
+Module row__locals__row_fft_dd923153 e94a476 load on device 'cuda:0' took 3422.69 ms  (compiled)
+row_f32_R1_B512: 263.3 us, 1019 GB/s (75% of copy), smem 16384, compile 3.42 s
+Module row__locals__row_fft_7457a627 7457a62 load on device 'cuda:0' took 1344.10 ms  (compiled)
+row_f32_R2_B256: 699.9 us, 384 GB/s (28% of copy), smem 16384, compile 1.35 s
+Module row__locals__row_ifft_9fb2ba5d 9fb2ba5 load on device 'cuda:0' took 2542.00 ms  (compiled)
+irow_f32_R1_B256: 233.0 us, 1152 GB/s (85% of copy), smem 16384, compile 2.54 s
+Module row__locals__row_fft_e6358db4 e6358db load on device 'cuda:0' took 2247.98 ms  (compiled)
+row_f64_R1_B256: 566.4 us, 948 GB/s (69% of copy), smem 65536, compile 2.25 s
+Module row__locals__row_fft_e6358db4 4ef974a load on device 'cuda:0' took 2178.41 ms  (compiled)
+row_f64_R1_B512: 572.5 us, 938 GB/s (68% of copy), smem 32768, compile 2.18 s
+Module row_fallback__locals__row_fft_scalar_fallback_1a96a218 1a96a21 load on device 'cuda:0' took 299.66 ms  (compiled)
+fallback_row_f32_R1_B256: 1057.6 us, 254 GB/s (19% of copy), smem 32768, compile 0.0 s
+Warp NVRTC compilation error 6: NVRTC_ERROR_COMPILATION (/builds/omniverse/warp/warp/native/warp.cu:4837)
+Warning #630-D: the initial sequence of preprocessing directives is not compatible with those of precompiled header file "/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/wp_pch_assoh6du/wp_row__locals__row_fft_dd923153_bf5c4a5.pch"
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+Warning #629-D: the command line options do not match those used when precompiled header file "/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/wp_pch_assoh6du/wp_double_k_bca27248_bca2724.pch" was created
+
+Warning #630-D: the initial sequence of preprocessing directives is not compatible with those of precompiled header file "/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/wp_pch_assoh6du/wp_row__locals__row_fft_dd923153_e94a476.pch"
+
+"wp_col__locals__col_strided_e376c07e_e376c07.cu": using precompiled header file "/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/wp_pch_assoh6du/wp_row__locals__row_fft_dd923153_dd92315.pch"
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): error: no operator "+" matches these operands
+            operand types are: wp::tile_shared_t<wp::vec_t<2U, float>, wp::tile_layout_strided_t<wp::tile_tuple_t<1, 4096>, wp::tile_tuple_t<4096, 1>>, true>::Storage + int
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/builtin.h(1871): note #3327-D: candidate function template "wp::operator+(const T &, const T &)" failed deduction
+  template <typename T> CUDA_CALLABLE inline T operator+(const T& a, const T& b) { return add(a, b); }
+                                               ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/builtin.h(436): note #3326-D: function "wp::operator+(wp::half, wp::half)" does not match because argument #1 does not match parameter
+  inline CUDA_CALLABLE half operator+(half a, half b) { return float_to_half(half_to_float(a) + half_to_float(b)); }
+                            ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): note #3328-D: built-in operator+(<promoted arithmetic>, <promoted arithmetic>) does not match because argument #1 does not match parameter
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): note #3328-D: built-in operator+(<pointer to object>, <ptrdiff_t>) does not match because argument #1 does not match parameter
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): note #3328-D: built-in operator+(<ptrdiff_t>, <pointer to object>) does not match because argument #1 does not match parameter
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+          detected during instantiation of "void wp::tile_fft_entry<DirectionSign,Complex,Ept,Fwd,Tile>(Fwd, int, int, Tile &) [with DirectionSign=-1, Complex=wp::vec2f, Ept=16, Fwd=void (*)(wp::vec2f *, char *), Tile=wp::tile_shared_t<wp::vec_t<2U, float>, wp::tile_layout_strided_t<wp::tile_tuple_t<1, 4096>, wp::tile_tuple_t<4096, 1>>, true>]" at line 130 of wp_col__locals__col_strided_e376c07e_e376c07.cu
+
+1 error detected in the compilation of "wp_col__locals__col_strided_e376c07e_e376c07.cu".
+Module col__locals__col_strided_e376c07e e376c07 load on device 'cuda:0' took 119.10 ms  (error)
+col_f32_strided_K1_B256: FAILED Exception: CUDA kernel build failed with error code 6
+Warp NVRTC compilation error 6: NVRTC_ERROR_COMPILATION (/builds/omniverse/warp/warp/native/warp.cu:4837)
+Warning #630-D: the initial sequence of preprocessing directives is not compatible with those of precompiled header file "/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/wp_pch_assoh6du/wp_row__locals__row_fft_dd923153_bf5c4a5.pch"
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+Warning #629-D: the command line options do not match those used when precompiled header file "/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/wp_pch_assoh6du/wp_double_k_bca27248_bca2724.pch" was created
+
+Warning #630-D: the initial sequence of preprocessing directives is not compatible with those of precompiled header file "/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/wp_pch_assoh6du/wp_row__locals__row_fft_dd923153_e94a476.pch"
+
+"wp_col__locals__col_strided_1d1da665_1d1da66.cu": using precompiled header file "/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/wp_pch_assoh6du/wp_row__locals__row_fft_dd923153_dd92315.pch"
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): error: no operator "+" matches these operands
+            operand types are: wp::tile_shared_t<wp::vec_t<2U, float>, wp::tile_layout_strided_t<wp::tile_tuple_t<2, 4096>, wp::tile_tuple_t<4096, 1>>, true>::Storage + int
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/builtin.h(1871): note #3327-D: candidate function template "wp::operator+(const T &, const T &)" failed deduction
+  template <typename T> CUDA_CALLABLE inline T operator+(const T& a, const T& b) { return add(a, b); }
+                                               ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/builtin.h(436): note #3326-D: function "wp::operator+(wp::half, wp::half)" does not match because argument #1 does not match parameter
+  inline CUDA_CALLABLE half operator+(half a, half b) { return float_to_half(half_to_float(a) + half_to_float(b)); }
+                            ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): note #3328-D: built-in operator+(<promoted arithmetic>, <promoted arithmetic>) does not match because argument #1 does not match parameter
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): note #3328-D: built-in operator+(<pointer to object>, <ptrdiff_t>) does not match because argument #1 does not match parameter
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): note #3328-D: built-in operator+(<ptrdiff_t>, <pointer to object>) does not match because argument #1 does not match parameter
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+          detected during instantiation of "void wp::tile_fft_entry<DirectionSign,Complex,Ept,Fwd,Tile>(Fwd, int, int, Tile &) [with DirectionSign=-1, Complex=wp::vec2f, Ept=16, Fwd=void (*)(wp::vec2f *, char *), Tile=wp::tile_shared_t<wp::vec_t<2U, float>, wp::tile_layout_strided_t<wp::tile_tuple_t<2, 4096>, wp::tile_tuple_t<4096, 1>>, true>]" at line 130 of wp_col__locals__col_strided_1d1da665_1d1da66.cu
+
+1 error detected in the compilation of "wp_col__locals__col_strided_1d1da665_1d1da66.cu".
+Module col__locals__col_strided_1d1da665 1d1da66 load on device 'cuda:0' took 119.45 ms  (error)
+col_f32_strided_K2_B256: FAILED Exception: CUDA kernel build failed with error code 6
+Warp NVRTC compilation error 6: NVRTC_ERROR_COMPILATION (/builds/omniverse/warp/warp/native/warp.cu:4837)
+Warning #630-D: the initial sequence of preprocessing directives is not compatible with those of precompiled header file "/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/wp_pch_assoh6du/wp_row__locals__row_fft_dd923153_bf5c4a5.pch"
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+Warning #629-D: the command line options do not match those used when precompiled header file "/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/wp_pch_assoh6du/wp_double_k_bca27248_bca2724.pch" was created
+
+"wp_col__locals__col_strided_3de7069e_dcc0f4b.cu": using precompiled header file "/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/wp_pch_assoh6du/wp_row__locals__row_fft_dd923153_e94a476.pch"
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): error: no operator "+" matches these operands
+            operand types are: wp::tile_shared_t<wp::vec_t<2U, float>, wp::tile_layout_strided_t<wp::tile_tuple_t<4, 4096>, wp::tile_tuple_t<4096, 1>>, true>::Storage + int
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/builtin.h(1871): note #3327-D: candidate function template "wp::operator+(const T &, const T &)" failed deduction
+  template <typename T> CUDA_CALLABLE inline T operator+(const T& a, const T& b) { return add(a, b); }
+                                               ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/builtin.h(436): note #3326-D: function "wp::operator+(wp::half, wp::half)" does not match because argument #1 does not match parameter
+  inline CUDA_CALLABLE half operator+(half a, half b) { return float_to_half(half_to_float(a) + half_to_float(b)); }
+                            ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): note #3328-D: built-in operator+(<promoted arithmetic>, <promoted arithmetic>) does not match because argument #1 does not match parameter
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): note #3328-D: built-in operator+(<pointer to object>, <ptrdiff_t>) does not match because argument #1 does not match parameter
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): note #3328-D: built-in operator+(<ptrdiff_t>, <pointer to object>) does not match because argument #1 does not match parameter
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+          detected during instantiation of "void wp::tile_fft_entry<DirectionSign,Complex,Ept,Fwd,Tile>(Fwd, int, int, Tile &) [with DirectionSign=-1, Complex=wp::vec2f, Ept=8, Fwd=void (*)(wp::vec2f *, char *), Tile=wp::tile_shared_t<wp::vec_t<2U, float>, wp::tile_layout_strided_t<wp::tile_tuple_t<4, 4096>, wp::tile_tuple_t<4096, 1>>, true>]" at line 130 of wp_col__locals__col_strided_3de7069e_dcc0f4b.cu
+
+1 error detected in the compilation of "wp_col__locals__col_strided_3de7069e_dcc0f4b.cu".
+Module col__locals__col_strided_3de7069e dcc0f4b load on device 'cuda:0' took 118.96 ms  (error)
+col_f32_strided_K4_B512: FAILED Exception: CUDA kernel build failed with error code 6
+Module col__locals__col_tstore_765d8227 765d822 load on device 'cuda:0' took 1191.34 ms  (compiled)
+col_f32_tstore_K1_B256: 696.6 us, 385 GB/s (28% of copy), smem 49152, compile 1.19 s
+Module col__locals__col_tstore_8aad817b 8aad817 load on device 'cuda:0' took 1353.60 ms  (compiled)
+col_f32_tstore_K2_B256: 734.9 us, 365 GB/s (27% of copy), smem 81920, compile 1.35 s
+Module col__locals__col_tstore_ed1b48d7 c956a68 load on device 'cuda:0' took 1354.53 ms  (compiled)
+col_f32_tstore_K4_B512: 828.2 us, 324 GB/s (24% of copy), smem 147456, compile 1.36 s
+Module col__locals__col_tview_54feb507 520ffe4 load on device 'cuda:0' took 1250.49 ms  (compiled)
+Warp CUDA error 701: too many resources requested for launch (in function wp_cuda_launch_kernel, /builds/omniverse/warp/warp/native/warp.cu:5685)
+col_f32_tview_K4_B512: FAILED RuntimeError: Error launching kernel: col__locals__col_tview on device cuda:0: Warp CUDA error 701: too many resources requested for launch (in function wp_cuda_launch_kernel, /builds/omniverse/warp/warp/native/warp.cu:5685)
+Module col__locals__col_tview_0097ab7e 8689f35 load on device 'cuda:0' took 3653.12 ms  (compiled)
+Warp CUDA error 701: too many resources requested for launch (in function wp_cuda_launch_kernel, /builds/omniverse/warp/warp/native/warp.cu:5685)
+col_f32_tview_K8_B1024: FAILED RuntimeError: Error launching kernel: col__locals__col_tview on device cuda:0: Warp CUDA error 701: too many resources requested for launch (in function wp_cuda_launch_kernel, /builds/omniverse/warp/warp/native/warp.cu:5685)
+Warp NVRTC compilation error 6: NVRTC_ERROR_COMPILATION (/builds/omniverse/warp/warp/native/warp.cu:4837)
+Warning #630-D: the initial sequence of preprocessing directives is not compatible with those of precompiled header file "/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/wp_pch_assoh6du/wp_row__locals__row_fft_dd923153_bf5c4a5.pch"
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+Warning #629-D: the command line options do not match those used when precompiled header file "/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/wp_pch_assoh6du/wp_double_k_bca27248_bca2724.pch" was created
+
+Warning #630-D: the initial sequence of preprocessing directives is not compatible with those of precompiled header file "/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/wp_pch_assoh6du/wp_row__locals__row_fft_dd923153_e94a476.pch"
+
+"wp_col__locals__col_strided_7968043d_7968043.cu": using precompiled header file "/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/wp_pch_assoh6du/wp_row__locals__row_fft_dd923153_dd92315.pch"
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): error: no operator "+" matches these operands
+            operand types are: wp::tile_shared_t<wp::vec_t<2U, double>, wp::tile_layout_strided_t<wp::tile_tuple_t<1, 4096>, wp::tile_tuple_t<4096, 1>>, true>::Storage + int
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/builtin.h(1871): note #3327-D: candidate function template "wp::operator+(const T &, const T &)" failed deduction
+  template <typename T> CUDA_CALLABLE inline T operator+(const T& a, const T& b) { return add(a, b); }
+                                               ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/builtin.h(436): note #3326-D: function "wp::operator+(wp::half, wp::half)" does not match because argument #1 does not match parameter
+  inline CUDA_CALLABLE half operator+(half a, half b) { return float_to_half(half_to_float(a) + half_to_float(b)); }
+                            ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): note #3328-D: built-in operator+(<promoted arithmetic>, <promoted arithmetic>) does not match because argument #1 does not match parameter
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): note #3328-D: built-in operator+(<pointer to object>, <ptrdiff_t>) does not match because argument #1 does not match parameter
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/native/tile_fft.h(331): note #3328-D: built-in operator+(<ptrdiff_t>, <pointer to object>) does not match because argument #1 does not match parameter
+              Complex* inout = Xinout.data + b * Ept;
+                                           ^
+          detected during instantiation of "void wp::tile_fft_entry<DirectionSign,Complex,Ept,Fwd,Tile>(Fwd, int, int, Tile &) [with DirectionSign=-1, Complex=wp::vec2d, Ept=16, Fwd=void (*)(wp::vec2d *, char *), Tile=wp::tile_shared_t<wp::vec_t<2U, double>, wp::tile_layout_strided_t<wp::tile_tuple_t<1, 4096>, wp::tile_tuple_t<4096, 1>>, true>]" at line 130 of wp_col__locals__col_strided_7968043d_7968043.cu
+
+1 error detected in the compilation of "wp_col__locals__col_strided_7968043d_7968043.cu".
+Module col__locals__col_strided_7968043d 7968043 load on device 'cuda:0' took 123.84 ms  (error)
+col_f64_strided_K1_B256: FAILED Exception: CUDA kernel build failed with error code 6
+Module col__locals__col_tstore_03d26e27 03d26e2 load on device 'cuda:0' took 1187.24 ms  (compiled)
+col_f64_tstore_K1_B256: 923.8 us, 581 GB/s (42% of copy), smem 131072, compile 1.19 s
+Module col__locals__col_tview_a097d52b 3264913 load on device 'cuda:0' took 1262.41 ms  (compiled)
+Warp CUDA error 701: too many resources requested for launch (in function wp_cuda_launch_kernel, /builds/omniverse/warp/warp/native/warp.cu:5685)
+col_f64_tview_K4_B512: FAILED RuntimeError: Error launching kernel: col__locals__col_tview on device cuda:0: Warp CUDA error 701: too many resources requested for launch (in function wp_cuda_launch_kernel, /builds/omniverse/warp/warp/native/warp.cu:5685)
+Module transpose__locals__tiled_transpose_6fc150d7 6fc150d load on device 'cuda:0' took 258.06 ms  (compiled)
+transpose_f32_T16: 404.9 us, 663 GB/s (49% of copy), smem 2048, compile 0.26 s
+Module transpose__locals__tiled_transpose_9bec583c 9bec583 load on device 'cuda:0' took 254.14 ms  (compiled)
+transpose_f32_T32: 238.0 us, 1128 GB/s (83% of copy), smem 8192, compile 0.25 s
+Module transpose__locals__tiled_transpose_c96a7b69 c96a7b6 load on device 'cuda:0' took 251.44 ms  (compiled)
+transpose_f64_T16: 474.6 us, 1131 GB/s (82% of copy), smem 4096, compile 0.25 s
+Module fused3__locals__fused_rows_e82fa068 e82fa06 load on device 'cuda:0' took 7.21 ms  (error)
+fused3_f32_B256: FAILED TypeError: Error while parsing function "fused_rows" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/warp/warp_kernels.py:124:
+    wp.tile_fft(tz)
+;tile_fft() argument must be a tile of vec2f or vec2d (interpreted a
+Module fused3__locals__fused_rows_e82fa068 47b21f7 load on device 'cuda:0' took 1367.18 ms  (error)
+fused3_f32_B512: FAILED TypeError: Error while parsing function "fused_rows" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/warp/warp_kernels.py:124:
+    wp.tile_fft(tz)
+;tile_fft() argument must be a tile of vec2f or vec2d (interpreted a
+Module fused3__locals__fused_rows_79adde51 79adde5 load on device 'cuda:0' took 1087.08 ms  (error)
+fused3_f64_B256: FAILED TypeError: Error while parsing function "fused_rows" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/warp/warp_kernels.py:124:
+    wp.tile_fft(tz)
+;tile_fft() argument must be a tile of vec2f or vec2d (interpreted a
+accuracy {"torch_row_c64": "2.75e-07", "torch_col_c64": "2.75e-07", "torch_row_c128": "5.31e-16", "torch_col_c128": "3.49e-16", "row_f32_R1_B256": "1.86e-07", "row_f32_R1_B128": "2.37e-07", "row_f32_R1_B512": "2.05e-07", "row_f32_R2_B256": "1.86e-07", "irow_f32_R1_B256": "1.86e-07", "row_f64_R1_B256": "3.71e-16", "row_f64_R1_B512": "3.49e-16", "col_f32_tstore_K1_B256": "1.85e-07", "col_f32_tstore_K2_B256": "1.85e-07", "col_f32_tstore_K4_B512": "2.06e-07", "col_f64_tstore_K1_B256": "3.72e-16", "torch_fft2_c64": "4.02e-07", "jax_fft2_c64": "4.02e-07", "warp_2d_nvidia_3pass_c64": "2.77e-07"}
+ERROR WARP_BRIDGE: TypeError: register_custom_call_target(): incompatible function arguments. The following argument types are supported:
+    1. register_custom_call_target(c_api: capsule, fn_name: str, fn: capsule, xla_platform_name: str, api_version: int = 0) -> None
+
+Invoked with types: PyCapsule, bytes, PyCapsule, str, int
+bridge {"BRIDGE_OK": false}
+WARP_BRIDGE_FAIL TypeError: register_custom_call_target(): incompatible function arguments. The following argument types are supported:
+    1. register_custom_call_target(c_api: capsule, fn_name: str, fn: capsule, xla_platform_name: str, api_version: int = 0) -> None
+
+Invoked with types: PyCapsule, bytes, PyCapsule,
+projection f32 n/a ms (716.1 MB; col col_f32_tstore_K1_B256 385.364 GB/s, fused None n/a GB/s); f64 1.961 ms (1312.9 MB; col col_f64_tstore_K1_B256 581.154, row row_f64_R1_B256 947.822)
+WARP_VERDICT f32=NO_GO f64=NO_GO
+WARP_PROBE_DONE failures=0

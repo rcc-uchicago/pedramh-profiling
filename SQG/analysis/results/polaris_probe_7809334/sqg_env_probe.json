@@ -1,0 +1,51 @@
+{
+ "versions": {
+  "jax": "0.4.28",
+  "pyqg_jax": "0.8.1",
+  "torch": "2.3.1+cu121",
+  "torch_cuda": "12.1",
+  "cudnn": 8902,
+  "timm": "0.9.12",
+  "netCDF4": "1.7.1.post2",
+  "h5py": "3.14.0",
+  "numpy": "1.26.4"
+ },
+ "jax_backend": "gpu",
+ "jax_devices": [
+  "cuda:0"
+ ],
+ "torch_device": "NVIDIA A100-SXM4-40GB",
+ "fft2_4096_c128": {
+  "dtype": "complex128",
+  "first_call_s": 2.822,
+  "max_rel_err_vs_numpy": 8.941513613597135e-16
+ },
+ "loaded_cuda_libs": [
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cublas/lib/libcublas.so.12",
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cublas/lib/libcublasLt.so.12",
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cuda_cupti/lib/libcupti.so.12",
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cuda_runtime/lib/libcudart.so.12",
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cudnn/lib/libcudnn.so.8",
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cudnn/lib/libcudnn_ops_infer.so.8",
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cufft/lib/libcufft.so.11",
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/nvtx/lib/libnvToolsExt.so.1",
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/torchvision.libs/libcudart.7ec1eba6.so.12"
+ ],
+ "import": {
+  "import_s": 3.32,
+  "asqg_py": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py",
+  "training_root": "/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_stage/AllTrainData",
+  "run_dir_exists": true,
+  "solver_sha256": "8d243313bd11a9ff0dc4caea70c17d3d09fc5307acb3b6feec83b2e4bfa19ddb",
+  "disk_sha256": "8d243313bd11a9ff0dc4caea70c17d3d09fc5307acb3b6feec83b2e4bfa19ddb",
+  "ablevel_after_advance_2": 2,
+  "qh_finite": true,
+  "checks": {
+   "training_root": true,
+   "self_hash": true,
+   "ablevel_2": true,
+   "run_dir": true,
+   "finite": true
+  }
+ }
+}

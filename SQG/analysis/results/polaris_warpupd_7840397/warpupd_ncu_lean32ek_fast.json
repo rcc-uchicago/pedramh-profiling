@@ -1,0 +1,15 @@
+{
+ "errors": [],
+ "env": {
+  "jax": "0.4.28",
+  "warp": "1.17.0",
+  "gpu": "NVIDIA A100-SXM4-40GB"
+ },
+ "state": {
+  "member": 1,
+  "path": "/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_stage/AllTrainData/trainingdata_m01_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02/checkpoint/ckpt_t0100.00.npz",
+  "t": 100.0
+ },
+ "ncu_arm": "lean32ek_fast",
+ "finite": true
+}

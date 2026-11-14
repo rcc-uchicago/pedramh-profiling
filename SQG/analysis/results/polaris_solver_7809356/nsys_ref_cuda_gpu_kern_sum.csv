@@ -1,0 +1,20 @@
+Time (%),Total Time (ns),Instances,Avg (ns),Med (ns),Min (ns),Max (ns),StdDev (ns),Name
+39.6,7873263655,2400,3280526.5,3280379.5,3268170,3310378,4785.5,loop_add_multiply_fusion_1
+24.4,4849149636,24120,201042.7,200960.0,196353,207969,1723.4,"void regular_fft_factor<(unsigned int)64, EPT<(unsigned int)8>, (unsigned int)32, (unsigned int)4, (padding_t)1, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)1, unsigned int, double>(kernel_arguments_t<T9>)"
+7.7,1539931941,2400,641638.3,641218.0,632322,693058,5270.2,loop_multiply_fusion_9
+7.6,1513821623,7260,208515.4,208289.0,205984,230016,2040.2,"void vector_fft_c2r<(unsigned int)4096, EPT<(unsigned int)32>, (unsigned int)1, (unsigned int)3, (padding_t)8, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)0, unsigned int, double>(kernel_arguments_t<T9>)"
+7.4,1479168512,4800,308160.1,308001.0,302817,319426,1909.2,wrapped_multiply_1
+7.2,1428046977,7260,196700.7,196673.0,194945,198880,509.8,"void scal_kernel_val<double, double>(cublasScalParamsVal<T1, T2>)"
+5.0,988300784,4800,205896.0,205728.0,203041,228896,2179.1,"void vector_fft_r2c<(unsigned int)4096, EPT<(unsigned int)32>, (unsigned int)1, (unsigned int)3, (padding_t)8, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)0, unsigned int, double>(kernel_arguments_t<T9>)"
+0.9,169117290,2400,70465.5,70272.0,69313,91137,1893.7,loop_select_fusion_1
+0.0,6791757,2400,2829.9,2816.0,2720,3744,94.1,loop_clamp_fusion
+0.0,4961902,2400,2067.5,2048.0,1920,2720,81.4,loop_multiply_fusion_11
+0.0,4904590,2400,2043.6,2016.0,1888,2624,80.1,loop_multiply_fusion_6
+0.0,4816369,2400,2006.8,1984.0,1888,2720,75.6,loop_negate_fusion_1
+0.0,4227410,2400,1761.4,1792.0,1664,2400,79.9,loop_add_fusion_3
+0.0,4165584,2400,1735.7,1728.0,1664,2208,56.8,loop_add_fusion_4
+0.0,4137037,2400,1723.8,1728.0,1664,2336,53.8,loop_add_fusion_5
+0.0,3989002,2400,1662.1,1664.0,1632,2144,45.4,loop_multiply_fusion_10
+0.0,3592840,2400,1497.0,1504.0,1280,1920,78.1,loop_multiply_fusion_8
+0.0,3132401,2400,1305.2,1312.0,1280,1696,38.2,loop_multiply_fusion_7
+0.0,508034,60,8467.2,8416.0,7936,9888,341.6,loop_convert_fusion

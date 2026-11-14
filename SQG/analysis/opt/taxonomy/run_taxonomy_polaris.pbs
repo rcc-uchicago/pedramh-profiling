@@ -1,0 +1,105 @@
+#!/bin/bash -l
+#PBS -N sqg_taxonomy
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:59:00
+#PBS -j oe
+# run_taxonomy_polaris.pbs -- item 3 of the 2026-11-06 team plan: noise vs bias of each faster solver's error in
+# o1.2's 0.02 delta, on archived states, with positive controls. One Polaris node, 4 A100s (one worker each).
+# Predictions + gates: SQG/analysis/opt/taxonomy/PREDICTIONS_taxonomy.md (written first).
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ \
+#        SQG/analysis/opt/taxonomy/run_taxonomy_polaris.pbs                      (from the repo root; archive run)
+#   qsub -v SMOKE=1 ... same ...                                                (harness smoke, synthetic state)
+# 1. test_dt_ladder.py (DT_LADDER_TEST_OK), test_analyze_taxonomy.py (TAXO_ANALYSIS_TEST_OK).
+# 2. 4 x taxonomy.py, GPU w: 4 archived states (member ((w + i) mod 4) + 1 at t = TIMES[i]) x 4 pairs; SMOKE=1: the
+#    7819310 spin-up state advanced by 250 w lean_u1 calls, 2 pairs. TAXO_WORKER_DONE per worker.
+# 3. analyze_taxonomy.py: controls, MDE, e_delta, bias tables; candidates sealed (TAXO_SEALED sha256=...);
+#    TAXO_ANALYSIS_DONE.
+# End token: TAXO_JOB_DONE failures=N. Summaries -> SQG/analysis/results/polaris_taxonomy[_smoke]_<jobid>/; raw npz
+# (~1.3 GB) and the sealed file stay in $MEMBER_ROOT/sqg_profile/taxonomy[_smoke]_<jobid>/.
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+TAG=taxonomy; [ "${SMOKE:-0}" = "1" ] && TAG=taxonomy_smoke
+OUT="${MEMBER_ROOT}/sqg_profile/${TAG}_${JOB}"
+RES="SQG/analysis/results/polaris_${TAG}_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+T0=$(date +%s)
+FAILURES=0
+fail() { echo "ERROR $*"; FAILURES=$((FAILURES + 1)); }
+HERE=SQG/analysis/opt/taxonomy
+echo "=== run_taxonomy on $(hostname) job $JOB: $(date '+%F %T') smoke=${SMOKE:-0} ==="
+echo "host=$(hostname) job=$JOB py=$PY out=$OUT root=$SQG_TRAINING_ROOT"
+nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee "$OUT/gpu.csv"
+
+"$PY" "$HERE/test_dt_ladder.py" 2>&1 | tee "$OUT/test_dt_ladder.log" || fail DT_LADDER_TEST
+grep -q "DT_LADDER_TEST_OK" "$OUT/test_dt_ladder.log" || fail DT_LADDER_TEST_NO_TOKEN
+"$PY" "$HERE/test_analyze_taxonomy.py" 2>&1 | tee "$OUT/test_analyze_taxonomy.log" || fail TAXO_ANALYSIS_TEST
+grep -q "TAXO_ANALYSIS_TEST_OK" "$OUT/test_analyze_taxonomy.log" || fail TAXO_ANALYSIS_TEST_NO_TOKEN
+
+# ---- the states ---------------------------------------------------------------------------------------------------
+LABEL_TAIL="_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02"
+TIMES=(0100.00 0200.00 0300.00 0400.00)
+STATE_NPZ="${STATE_NPZ:-${MEMBER_ROOT}/sqg_profile/delta_7819310/spinup_state_7819310.npz}"
+declare -a WARGS
+for w in 0 1 2 3; do
+    a=""
+    if [ "${SMOKE:-0}" = "1" ]; then
+        a="--ckpt 0:${STATE_NPZ}@$((250 * w)) --pairs 2 --dt-states 1"
+    else
+        for i in 0 1 2 3; do
+            m=$(( (w + i) % 4 + 1 ))
+            f="${SQG_TRAINING_ROOT}/trainingdata_m0${m}${LABEL_TAIL}/checkpoint/ckpt_t${TIMES[$i]}.npz"
+            [ -s "$f" ] || { echo "ERROR TAXO_CKPTS_NOT_STAGED $f"; echo "TAXO_JOB_DONE failures=1"; exit 5; }
+            a="$a --ckpt ${m}:${f}"
+        done
+    fi
+    WARGS[$w]="$a"
+done
+
+# ---- 4 workers, one per GPU ---------------------------------------------------------------------------------------
+pids=()
+for w in 0 1 2 3; do
+    # shellcheck disable=SC2086
+    CUDA_VISIBLE_DEVICES=$w "$PY" "$HERE/taxonomy.py" --out "$OUT" --worker $w ${WARGS[$w]} \
+        > "$OUT/worker_${w}.log" 2>&1 &
+    pids+=($!)
+done
+for w in 0 1 2 3; do
+    wait "${pids[$w]}" || fail "TAXO_WORKER_RC w=$w"
+    grep -q "TAXO_WORKER_DONE w=$w" "$OUT/worker_${w}.log" || fail "TAXO_WORKER_NO_TOKEN w=$w"
+    grep -E "^(ERROR|TAXO_STATE|TAXO_INJECT|TAXO_BITWISE|TAXO_BENCH|TAXO_WORKER_DONE)" "$OUT/worker_${w}.log" || true
+done
+echo "=== workers done $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+
+# ---- analysis -----------------------------------------------------------------------------------------------------
+"$PY" "$HERE/analyze_taxonomy.py" --in "$OUT" --out "$RES" --sealed-dir "$OUT/sealed" 2>&1 \
+    | tee "$OUT/analyze_taxonomy.log" || fail TAXO_ANALYSIS_RC
+grep -q "TAXO_ANALYSIS_DONE" "$OUT/analyze_taxonomy.log" || fail TAXO_ANALYSIS_NO_TOKEN
+
+for f in "$OUT"/worker_*.json "$OUT"/*.log "$OUT"/gpu.csv; do
+    [ -e "$f" ] && cp "$f" "$RES"/
+done
+echo "=== end $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+echo "TAXO_JOB_DONE failures=$FAILURES"

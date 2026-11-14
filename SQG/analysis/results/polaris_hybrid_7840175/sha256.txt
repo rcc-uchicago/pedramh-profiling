@@ -1,0 +1,5 @@
+760735018e718df8920c50f8b68ee35f15064824670ce2436b9c0dec721dda40  SQG/analysis/opt/hybrid/hybrid_callbacks.py
+77fd6a3c5d1fcd1c40c9ee2f1634ef8a47dbcddfa5166b4484eb037453bb212a  SQG/analysis/opt/hybrid/hybrid_probe.py
+80ce956153a00ecb22e4518fd8a29d75e5d333fd1dbec03c2881676a859466a1  SQG/analysis/opt/hybrid/hybrid_step.py
+a1930dda6db070aef1b55a4d8493604a88e5bcaae33031fa58486f261406fe54  SQG/analysis/opt/hybrid/test_hybrid_math.py
+4cd7d1172d0c44eb1f972238a68f3253640ce62dbdb781b43e81ac03434f3fdb  SQG/analysis/opt/hybrid/PREDICTIONS_hybrid.md

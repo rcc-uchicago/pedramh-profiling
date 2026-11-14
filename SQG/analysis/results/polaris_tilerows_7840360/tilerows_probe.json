@@ -1,0 +1,55 @@
+{
+ "errors": [
+  {
+   "where": "GATES_n1",
+   "error": "TypeError: Error while parsing function \"build_w\" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py:73:\n        mi = S * wp.float32(ky)\n;Invalid external reference type: <class 'numpy.float32'>",
+   "tb": "/members/mehta5/pylibs/warp-1.17.0/warp/_src/context.py\", line 3240, in build_kernel\n    kernel.adj.build(self)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/codegen.py\", line 1732, in locked_call\n    return func(*args, **kwargs)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/codegen.py\", line 2200, in build\n    raise type(original_exc)(*new_args).with_traceback(original_exc.__traceback__) from None\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/codegen.py\", line 2181, in build\n    adj.eval(adj.tree.body[0])\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/codegen.py\", line 6075, in eval\n    return emit_node(adj, node)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/codegen.py\", line 3354, in emit_FunctionDef\n    adj.eval(f)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/codegen.py\", line 6075, in eval\n    return emit_node(adj, node)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/codegen.py\", line 3402, in emit_If\n    adj.eval(stmt)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/codegen.py\", line 6075, in eval\n    return emit_node(adj, node)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/codegen.py\", line 5123, in emit_Assign\n    rhs = adj.eval(node.value)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/codegen.py\", line 6075, in eval\n    return emit_node(adj, node)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/codegen.py\", line 3762, in emit_BinOp\n    left = adj.eval(node.left)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/codegen.py\", line 6075, in eval\n    return emit_node(adj, node)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/codegen.py\", line 3565, in emit_Name\n    raise TypeError(f\"Invalid external reference type: {type(obj)}\")\nTypeError: Error while parsing function \"build_w\" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py:73:\n        mi = S * wp.float32(ky)\n;Invalid external reference type: <class 'numpy.float32'>\n"
+  },
+  {
+   "where": "GATES_n40",
+   "error": "TypeError: Error while parsing function \"build_w\" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py:73:\n        mi = S * wp.float32(ky)\n;Invalid external reference type: <class 'numpy.float32'>",
+   "tb": "Traceback (most recent call last):\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_probe.py\", line 187, in main\n    H = {name: run_tr(name, n) for name in tr}\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_probe.py\", line 187, in <dictcomp>\n    H = {name: run_tr(name, n) for name in tr}\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_probe.py\", line 151, in run_tr\n    h.run(n)\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py\", line 266, in run\n    op()\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py\", line 238, in <lambda>\n    (\"build_w\", lambda: wp.launch(K[\"build_w\"], dim=(N, CK), inputs=[self.w_hi, self.w_kinv, self.w_W],\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/context.py\", line 11292, in launch\n    module_exec = kernel.module.load(device, block_dim)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/context.py\", line 4681, in load\n    _raise_recorded_build_error(build_error)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/context.py\", line 3773, in _raise_recorded_build_error\n    raise replay from None\nTypeError: Error while parsing function \"build_w\" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py:73:\n        mi = S * wp.float32(ky)\n;Invalid external reference type: <class 'numpy.float32'>\n"
+  },
+  {
+   "where": "GATES_n4000",
+   "error": "TypeError: Error while parsing function \"build_w\" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py:73:\n        mi = S * wp.float32(ky)\n;Invalid external reference type: <class 'numpy.float32'>",
+   "tb": "Traceback (most recent call last):\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_probe.py\", line 187, in main\n    H = {name: run_tr(name, n) for name in tr}\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_probe.py\", line 187, in <dictcomp>\n    H = {name: run_tr(name, n) for name in tr}\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_probe.py\", line 151, in run_tr\n    h.run(n)\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py\", line 266, in run\n    op()\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py\", line 238, in <lambda>\n    (\"build_w\", lambda: wp.launch(K[\"build_w\"], dim=(N, CK), inputs=[self.w_hi, self.w_kinv, self.w_W],\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/context.py\", line 11292, in launch\n    module_exec = kernel.module.load(device, block_dim)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/context.py\", line 4681, in load\n    _raise_recorded_build_error(build_error)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/context.py\", line 3773, in _raise_recorded_build_error\n    raise replay from None\nTypeError: Error while parsing function \"build_w\" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py:73:\n        mi = S * wp.float32(ky)\n;Invalid external reference type: <class 'numpy.float32'>\n"
+  },
+  {
+   "where": "BENCH",
+   "error": "TypeError: Error while parsing function \"build_w\" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py:73:\n        mi = S * wp.float32(ky)\n;Invalid external reference type: <class 'numpy.float32'>",
+   "tb": "Traceback (most recent call last):\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_probe.py\", line 243, in main\n    bench[f\"{name}_eager\"] = ev_time(h.stream, lambda h=h: h.run(40), 10) / 40\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_probe.py\", line 226, in ev_time\n    fn()\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_probe.py\", line 243, in <lambda>\n    bench[f\"{name}_eager\"] = ev_time(h.stream, lambda h=h: h.run(40), 10) / 40\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py\", line 266, in run\n    op()\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py\", line 238, in <lambda>\n    (\"build_w\", lambda: wp.launch(K[\"build_w\"], dim=(N, CK), inputs=[self.w_hi, self.w_kinv, self.w_W],\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/context.py\", line 11292, in launch\n    module_exec = kernel.module.load(device, block_dim)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/context.py\", line 4681, in load\n    _raise_recorded_build_error(build_error)\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/_src/context.py\", line 3773, in _raise_recorded_build_error\n    raise replay from None\nTypeError: Error while parsing function \"build_w\" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/tilerows/tilerows_step.py:73:\n        mi = S * wp.float32(ky)\n;Invalid external reference type: <class 'numpy.float32'>\n"
+  }
+ ],
+ "env": {
+  "torch": "2.3.1+cu121",
+  "jax": "0.4.28",
+  "warp": "1.17.0",
+  "cufft_version": 11401,
+  "gpu": "NVIDIA A100-SXM4-40GB",
+  "ld_preload": "/soft/compilers/cudatoolkit/cuda-12.9.1/lib64/libnvJitLink.so.12:/soft/compilers/cudatoolkit/cuda-12.9.1/lib64/libcufft.so.11"
+ },
+ "state": {
+  "member": 1,
+  "path": "/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_stage/AllTrainData/trainingdata_m01_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02/checkpoint/ckpt_t0100.00.npz",
+  "t": 100.0
+ },
+ "gates": {
+  "1": {},
+  "40": {},
+  "4000": {}
+ },
+ "verdict": {
+  "G32": [
+   null,
+   null
+  ],
+  "GIF": [
+   null,
+   null
+  ]
+ },
+ "bench_ms_per_step": {},
+ "failures": 4,
+ "wall_s": 144.2
+}

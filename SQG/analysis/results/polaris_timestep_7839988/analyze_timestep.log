@@ -1,0 +1,26 @@
+TS_VALID True
+TS_ORDER          prod80/prod40 sub: 0.493 .. 0.513
+TS_ORDER          prod80/prod40  af: 0.5 .. 0.502
+TS_ORDER              if80/if40 sub: 0.111 .. 0.115
+TS_ORDER              if80/if40  af: 0.111 .. 0.645
+TS_ORDER            if40/prod40 sub: 0.00788 .. 0.1
+TS_ORDER            if40/prod40  af: 4.74e-06 .. 0.0454
+TS_ORDER            if28/prod40 sub: 0.0232 .. 0.293
+TS_ORDER            if28/prod40  af: 9.75e-06 .. 0.133
+TS_ORDER            if25/prod40 sub: 0.0327 .. 0.41
+TS_ORDER            if25/prod40  af: 1.41e-05 .. 0.188
+TS_ORDER            if20/prod40 sub: 0.0639 .. 0.789
+TS_ORDER            if20/prod40  af: 2.77e-05 .. 0.366
+TS_ORDER  change_if40/prod40err sub: 0.984 .. 1.03
+TS_ORDER  change_if40/prod40err  af: 0.999 .. 1.01
+TS_CFL max at DT 0.3794 over 22 samples; at n: 40:0.379 32:0.474 28:0.542 25:0.607 20:0.759
+TS_ACC n=32 acc_ok=True cfl_ok=True
+TS_ACC n=28 acc_ok=True cfl_ok=True
+TS_ACC n=25 acc_ok=True cfl_ok=True
+TS_ACC n=20 acc_ok=True cfl_ok=False
+TS_PROJECTION n=25: lean32ek_fast 1.402x, lean_u1 1.497x per optimizer step
+TS_COST lean_u1=6.3991 prod_rt=6.4390 if_rt=6.9219 lean32ek_fast=2.7027 if32=2.7519 | if_rt/prod_rt 1.0750 | if32/lean32ek_fast 1.0182
+TS_F32_RATIO sub: 0.993 1.01 1.01 1 1 0.999 1 1
+TS_F32_RATIO af: 0.991 1 1 1 1 1 1 1
+TS_VERDICT n_adm=25 valid=True
+TS_ANALYSIS_DONE

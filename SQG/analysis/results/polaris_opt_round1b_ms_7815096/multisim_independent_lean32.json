@@ -1,0 +1,128 @@
+{
+ "mode": "independent",
+ "solver": "lean32",
+ "world_size": 8,
+ "hosts": [
+  "x3001c0s1b0n0",
+  "x3001c0s1b1n0"
+ ],
+ "ref_ms_1gpu": 3.2048,
+ "ranks": [
+  {
+   "rank": 0,
+   "host": "x3001c0s1b0n0",
+   "local_rank": 0,
+   "cuda_visible_devices": "0",
+   "role": "simulator",
+   "ms_per_step": 3.1953,
+   "ms_per_step_all": [
+    3.1957,
+    3.1952,
+    3.1953
+   ]
+  },
+  {
+   "rank": 1,
+   "host": "x3001c0s1b0n0",
+   "local_rank": 1,
+   "cuda_visible_devices": "1",
+   "role": "simulator",
+   "ms_per_step": 3.1993,
+   "ms_per_step_all": [
+    3.1993,
+    3.1995,
+    3.1992
+   ]
+  },
+  {
+   "rank": 2,
+   "host": "x3001c0s1b0n0",
+   "local_rank": 2,
+   "cuda_visible_devices": "2",
+   "role": "simulator",
+   "ms_per_step": 3.1967,
+   "ms_per_step_all": [
+    3.1966,
+    3.1967,
+    3.1967
+   ]
+  },
+  {
+   "rank": 3,
+   "host": "x3001c0s1b0n0",
+   "local_rank": 3,
+   "cuda_visible_devices": "3",
+   "role": "simulator",
+   "ms_per_step": 3.2003,
+   "ms_per_step_all": [
+    3.2003,
+    3.2004,
+    3.2001
+   ]
+  },
+  {
+   "rank": 4,
+   "host": "x3001c0s1b1n0",
+   "local_rank": 0,
+   "cuda_visible_devices": "0",
+   "role": "simulator",
+   "ms_per_step": 3.1958,
+   "ms_per_step_all": [
+    3.1957,
+    3.1958,
+    3.1958
+   ]
+  },
+  {
+   "rank": 5,
+   "host": "x3001c0s1b1n0",
+   "local_rank": 1,
+   "cuda_visible_devices": "1",
+   "role": "simulator",
+   "ms_per_step": 3.1949,
+   "ms_per_step_all": [
+    3.1948,
+    3.1949,
+    3.195
+   ]
+  },
+  {
+   "rank": 6,
+   "host": "x3001c0s1b1n0",
+   "local_rank": 2,
+   "cuda_visible_devices": "2",
+   "role": "simulator",
+   "ms_per_step": 3.196,
+   "ms_per_step_all": [
+    3.1975,
+    3.196,
+    3.1955
+   ]
+  },
+  {
+   "rank": 7,
+   "host": "x3001c0s1b1n0",
+   "local_rank": 3,
+   "cuda_visible_devices": "3",
+   "role": "simulator",
+   "ms_per_step": 3.1978,
+   "ms_per_step_all": [
+    3.1982,
+    3.1978,
+    3.1978
+   ]
+  }
+ ],
+ "errors": [],
+ "aggregate_steps_per_s": 2502.34,
+ "scaling_efficiency_vs_1gpu": 1.0024,
+ "ms_per_step_by_host": {
+  "x3001c0s1b0n0": 3.1979,
+  "x3001c0s1b1n0": 3.1961
+ },
+ "ms_per_step_min_max": [
+  3.1949,
+  3.2003
+ ],
+ "simulated_time_units_per_hour": 45.042
+}

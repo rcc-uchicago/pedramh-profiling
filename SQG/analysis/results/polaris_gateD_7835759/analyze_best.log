@@ -1,0 +1,17 @@
+DOSE_CLIM frames=12 E_low=7.1374e-01 bands=2.265e-02 6.911e-01 3.787e-01 6.473e-02 2.784e-02 1.420e-02 7.984e-03 1.174e-03
+DOSE_OVERFIT a0_sA dose=0: val_clean min 0.07710 at step 100, final 0.09808 (x1.272), train final 0.01475, val/train 6.65 -> OVERFIT
+DOSE_OVERFIT a0_sB dose=0: val_clean min 0.07230 at step 100, final 0.10719 (x1.483), train final 0.01707, val/train 6.28 -> OVERFIT
+DOSE_OVERFIT a1000_sA dose=1000: val_clean min 0.07582 at step 100, final 0.09982 (x1.317), train final 0.01507, val/train 6.62 -> OVERFIT
+DOSE_OVERFIT a10000_sA dose=10000: val_clean min 0.07545 at step 100, final 0.09641 (x1.278), train final 0.01489, val/train 6.47 -> OVERFIT
+DOSE_ABSORB kappa: a0_sB(noise ref)={"per_dose_1000": -101.3183, "per_dose_10000": -10.1318} a1000_sA=3.118 a10000_sA=8.578
+DOSE_STABILITY usable_steps=428 windows=1 (of 2) a0_sA: blown 0/4 first -1 a0_sB: blown 4/4 first 415 a1000_sA: blown 0/4 first -1 a10000_sA: blown 0/4 first -1
+DOSE_DRIFT E_low: 0-5TU ref +8.419 noise 1.839 d1e3 -0.2138 d1e4 -7.5635 real 2.1e-04
+DOSE_DRIFT k1-2: 0-5TU ref +22.812 noise 13.407 d1e3 +28.3621 d1e4 -0.0218 real 2.8e-02
+DOSE_DRIFT k2-4: 0-5TU ref +7.947 noise 2.339 d1e3 -1.1503 d1e4 -7.8106 real 1.2e-03
+DOSE_DRIFT k4-8: 0-5TU ref +34.087 noise 9.209 d1e3 +10.1944 d1e4 -28.2994 real 1.0e-02
+DOSE_DRIFT k8-16: 0-5TU ref +42.568 noise 41.994 d1e3 -4.1459 d1e4 -36.7209 real 4.1e-03
+DOSE_DRIFT k16-32: 0-5TU ref +8.256 noise 5.131 d1e3 +1.8415 d1e4 -7.0448 real 1.8e-03
+DOSE_DRIFT k32-64: 0-5TU ref +0.585 noise 0.264 d1e3 +0.1862 d1e4 -1.2836 real 1.9e-04
+DOSE_DRIFT k64-128: 0-5TU ref -0.308 noise 0.048 d1e3 -0.0034 d1e4 -0.6205 real 3.4e-06
+DOSE_DRIFT k128-182: 0-5TU ref +2.790 noise 0.163 d1e3 -0.1204 d1e4 -3.5871 real 1.2e-04
+DOSE_ANALYSIS_DONE verdict=PASS_D power_absorb=True power_drift=True windows=1

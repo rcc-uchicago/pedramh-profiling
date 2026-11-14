@@ -1,0 +1,22 @@
+{
+ "alpha": 1000.0,
+ "seed": 1,
+ "steps": 300,
+ "batch": 16,
+ "train_segments": [
+  "m01_t0100.00",
+  "m02_t0100.00",
+  "m03_t0100.00"
+ ],
+ "val_segments": [
+  "m04_t0100.00"
+ ],
+ "n_train_pairs": 453,
+ "n_val": 128,
+ "persistence_val": 0.06548503041267395,
+ "fp32_check": {
+  "conv": 2.1572044648709485e-06,
+  "matmul": 4.069747790803995e-07
+ },
+ "params_M": 40.812981
+}

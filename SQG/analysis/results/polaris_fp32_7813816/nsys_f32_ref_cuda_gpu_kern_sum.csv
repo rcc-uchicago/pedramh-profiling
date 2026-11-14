@@ -1,0 +1,16 @@
+Time (%),Total Time (ns),Instances,Avg (ns),Med (ns),Min (ns),Max (ns),StdDev (ns),Name
+31.8,2359934434,12060,195682.8,195360.0,187936,239329,5806.4,"void regular_fft_factor<(unsigned int)4096, EPT<(unsigned int)16>, (unsigned int)4, (unsigned int)1, (padding_t)0, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)1, unsigned int, float>(kernel_arguments_t<T9>)"
+21.0,1559563267,2400,649818.0,649040.5,635073,698561,7154.7,loop_add_multiply_fusion_1
+10.2,754987742,7260,103992.8,103841.0,102304,112512,1163.0,"void scal_kernel_val<float, float>(cublasScalParamsVal<T1, T2>)"
+10.0,743527392,4800,154901.5,154912.0,151297,159009,878.7,wrapped_multiply_1
+9.9,732509330,7260,100896.6,100768.0,98432,108896,1099.5,"void vector_fft_symm_c2r<(unsigned int)4096, EPT<(unsigned int)16>, (unsigned int)1, (unsigned int)10, (padding_t)8, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)0, unsigned int, float>(kernel_arguments_t<T9>)"
+9.4,695447428,2400,289769.8,288448.0,282208,362112,9515.6,loop_multiply_fusion
+7.2,534437776,4800,111341.2,111264.0,106464,118080,1703.4,"void vector_fft_symm_r2c<(unsigned int)4096, EPT<(unsigned int)16>, (unsigned int)1, (unsigned int)10, (padding_t)8, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)0, unsigned int, float>(kernel_arguments_t<T9>)"
+0.1,6753674,2400,2814.0,2784.0,2720,3584,111.3,loop_clamp_fusion
+0.1,6679650,2400,2783.2,2752.0,2592,3552,117.0,loop_multiply_fusion_1
+0.1,4644676,2400,1935.3,1920.0,1696,2496,73.0,loop_add_fusion_3
+0.1,4560105,2400,1900.0,1856.0,1824,2496,86.0,loop_multiply_fusion_5
+0.1,4236932,2400,1765.4,1760.0,1696,2400,71.4,loop_add_fusion_5
+0.1,4230404,2400,1762.7,1760.0,1696,2400,75.9,loop_add_fusion_4
+0.1,4086333,2400,1702.6,1696.0,1664,2176,67.3,loop_multiply_fusion_4
+0.0,395584,60,6593.1,6592.0,6304,6976,177.0,loop_gather_fusion

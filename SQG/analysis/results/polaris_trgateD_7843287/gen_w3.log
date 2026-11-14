@@ -1,0 +1,2 @@
+GEN_SEGMENT m04_t0100.00 frames=251 seconds=68.0 bitwise=PASS checked=[0, 100, 200]
+GEN_WORKER_DONE w=3 failures=0

@@ -1,0 +1,95 @@
+#!/bin/bash -l
+#PBS -N sqg_energy
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:59:00
+#PBS -j oe
+# run_energy_polaris.pbs -- the MD-style energy-budget test (team_2026-11-06/ANALOGUES.md §2.6): does lean32ek_fast
+# close the SPE and VIE budgets as float64 does? One Polaris node, 4 A100s (one archived state each).
+# Predictions + decision rule: SQG/analysis/opt/energy/PREDICTIONS_energy.md (written first).
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ \
+#        SQG/analysis/opt/energy/run_energy_polaris.pbs                          (from the repo root)
+# 0. test_analyze_energy.py (ENERGY_ANALYSIS_TEST_OK).
+# 1. 4 x energy_budget.py, GPU w: member w + 1 at t = 100 (w + 1), arms lean_u1, lean32ek_fast, f64ic32, dquant,
+#    lean32, TAU (0.5) time units each; lean_u1's frames checked against gate D's stored production frames (read only).
+#    A deadline (job start + 52 min) stops a late arm so stage 2 still runs. ENERGY_WORKER_DONE per worker.
+# 2. analyze_energy.py: ENERGY_VERDICT, ENERGY_ANALYSIS_DONE.
+# End token: ENERGY_JOB_DONE failures=N. Summaries -> SQG/analysis/results/polaris_energy_<jobid>/; the per-call
+# budget npz (~0.3 MB per arm) stay in $MEMBER_ROOT/sqg_profile/energy_<jobid>/.
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+export PYTHONUNBUFFERED=1
+T0=$(date +%s)
+DEADLINE=$(( T0 + 52 * 60 ))
+TAU="${TAU:-0.5}"
+OUT="${MEMBER_ROOT}/sqg_profile/energy_${JOB}"
+RES="SQG/analysis/results/polaris_energy_${JOB}"
+FRAMES="${FRAMES:-${MEMBER_ROOT}/sqg_profile/gateD_frames}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+FAILURES=0
+fail() { echo "ERROR $*"; FAILURES=$((FAILURES + 1)); }
+HERE=SQG/analysis/opt/energy
+echo "=== run_energy on $(hostname) job $JOB: $(date '+%F %T') tau=$TAU ==="
+echo "host=$(hostname) job=$JOB py=$PY out=$OUT root=$SQG_TRAINING_ROOT frames=$FRAMES deadline=$(date -d @"$DEADLINE" '+%T')"
+nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee "$OUT/gpu.csv"
+
+"$PY" "$HERE/test_analyze_energy.py" 2>&1 | tee "$OUT/test_analyze_energy.log" || fail ENERGY_ANALYSIS_TEST
+grep -q "ENERGY_ANALYSIS_TEST_OK" "$OUT/test_analyze_energy.log" || fail ENERGY_ANALYSIS_TEST_NO_TOKEN
+
+# ---- the states: member w + 1 at t = 100 (w + 1), each with gate D's stored frames --------------------------------
+LABEL_TAIL="_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02"
+TIMES=(0100.00 0200.00 0300.00 0400.00)
+declare -a CKPT
+for w in 0 1 2 3; do
+    m=$(( w + 1 ))
+    f="${SQG_TRAINING_ROOT}/trainingdata_m0${m}${LABEL_TAIL}/checkpoint/ckpt_t${TIMES[$w]}.npz"
+    [ -s "$f" ] || { echo "ERROR ENERGY_CKPT_NOT_STAGED $f"; echo "ENERGY_JOB_DONE failures=1"; exit 5; }
+    CKPT[$w]="${m}:${f}"
+done
+
+# ---- 4 workers, one per GPU ---------------------------------------------------------------------------------------
+pids=()
+for w in 0 1 2 3; do
+    CUDA_VISIBLE_DEVICES=$w "$PY" "$HERE/energy_budget.py" --out "$OUT" --worker $w --ckpt "${CKPT[$w]}" \
+        --tau "$TAU" --frames-dir "$FRAMES" --deadline "$DEADLINE" > "$OUT/worker_${w}.log" 2>&1 &
+    pids+=($!)
+done
+for w in 0 1 2 3; do
+    wait "${pids[$w]}" || fail "ENERGY_WORKER_RC w=$w"
+    grep -q "ENERGY_WORKER_DONE w=$w" "$OUT/worker_${w}.log" || fail "ENERGY_WORKER_NO_TOKEN w=$w"
+    grep -E "^(ERROR|ENERGY_IC|ENERGY_STATIC|ENERGY_ARM|ENERGY_DEADLINE|ENERGY_BITWISE|ENERGY_WORKER_DONE)" \
+        "$OUT/worker_${w}.log" || true
+done
+echo "=== workers done $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+
+# ---- analysis -----------------------------------------------------------------------------------------------------
+"$PY" "$HERE/analyze_energy.py" --in "$OUT" --out "$RES" 2>&1 | tee "$OUT/analyze_energy.log" || fail ENERGY_ANALYSIS_RC
+grep -q "ENERGY_ANALYSIS_DONE" "$OUT/analyze_energy.log" || fail ENERGY_ANALYSIS_NO_TOKEN
+
+for f in "$OUT"/worker_*.json "$OUT"/*.log "$OUT"/gpu.csv; do
+    [ -e "$f" ] && cp "$f" "$RES"/
+done
+echo "=== end $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+echo "ENERGY_JOB_DONE failures=$FAILURES"

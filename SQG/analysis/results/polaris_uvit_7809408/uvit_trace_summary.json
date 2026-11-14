@@ -1,0 +1,166 @@
+{
+ "trace": "/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/profile_uvit_7809408/uvit_trace.json",
+ "profiled_steps": 10,
+ "gpu_ms_per_step": 426.76,
+ "kernel_ms_per_step": 410.74,
+ "busy_ms_per_step": 426.76,
+ "span_ms_per_step": 433.87,
+ "gpu_busy_fraction": 0.9836,
+ "kernels_per_step": 3561.7,
+ "distinct_kernels": 111,
+ "families_pct_of_gpu_time": {
+  "gemm": 26.37,
+  "elementwise": 19.81,
+  "depthwise_conv_native": 19.24,
+  "layer_norm": 15.3,
+  "copy": 5.16,
+  "cudnn_conv": 4.47,
+  "memcpy_memset": 3.75,
+  "reduce": 3.12,
+  "other": 1.88,
+  "optimizer": 0.9
+ },
+ "max_single_kernel_pct": 8.3,
+ "top_kernels": [
+  {
+   "name": "void at::native::(anonymous namespace)::GammaBetaBackwardCUDAKernel_32x32<float, float>(long, long, float const*, float ",
+   "family": "layer_norm",
+   "pct_of_gpu_time": 8.3,
+   "calls_per_step": 49.2,
+   "avg_us": 720.2
+  },
+  {
+   "name": "void at::native::(anonymous namespace)::conv_depthwise2d_grad_weight_kernel<float, unsigned int>(at::GenericPackedTensor",
+   "family": "depthwise_conv_native",
+   "pct_of_gpu_time": 7.87,
+   "calls_per_step": 41.2,
+   "avg_us": 814.9
+  },
+  {
+   "name": "void at::native::(anonymous namespace)::conv_depthwise2d_backward_kernel<0, 1, float, int>(at::GenericPackedTensorAccess",
+   "family": "depthwise_conv_native",
+   "pct_of_gpu_time": 6.69,
+   "calls_per_step": 41.2,
+   "avg_us": 692.5
+  },
+  {
+   "name": "ampere_sgemm_128x64_tn",
+   "family": "gemm",
+   "pct_of_gpu_time": 6.48,
+   "calls_per_step": 28.0,
+   "avg_us": 987.5
+  },
+  {
+   "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::T",
+   "family": "copy",
+   "pct_of_gpu_time": 5.02,
+   "calls_per_step": 1012.3,
+   "avg_us": 21.2
+  },
+  {
+   "name": "ampere_sgemm_32x128_tn",
+   "family": "gemm",
+   "pct_of_gpu_time": 4.7,
+   "calls_per_step": 31.0,
+   "avg_us": 646.7
+  },
+  {
+   "name": "void at::native::(anonymous namespace)::conv_depthwise2d_forward_kernel<0, float, int>(at::GenericPackedTensorAccessor<f",
+   "family": "depthwise_conv_native",
+   "pct_of_gpu_time": 4.68,
+   "calls_per_step": 40.0,
+   "avg_us": 499.8
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, at::detail::Array<char*, 3> >(int,",
+   "family": "elementwise",
+   "pct_of_gpu_time": 3.84,
+   "calls_per_step": 250.0,
+   "avg_us": 65.5
+  },
+  {
+   "name": "void at::native::(anonymous namespace)::vectorized_layer_norm_kernel<float, float>(int, float, float const*, float const",
+   "family": "layer_norm",
+   "pct_of_gpu_time": 3.51,
+   "calls_per_step": 48.0,
+   "avg_us": 312.4
+  },
+  {
+   "name": "ampere_sgemm_64x32_sliced1x4_nt",
+   "family": "gemm",
+   "pct_of_gpu_time": 3.12,
+   "calls_per_step": 43.0,
+   "avg_us": 309.3
+  },
+  {
+   "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, f",
+   "family": "elementwise",
+   "pct_of_gpu_time": 2.95,
+   "calls_per_step": 312.6,
+   "avg_us": 40.2
+  },
+  {
+   "name": "ampere_sgemm_128x64_nn",
+   "family": "gemm",
+   "pct_of_gpu_time": 2.85,
+   "calls_per_step": 45.1,
+   "avg_us": 269.4
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::GeluBackwardCUDAKernelImpl(at::TensorIteratorBase&, at::na",
+   "family": "elementwise",
+   "pct_of_gpu_time": 2.65,
+   "calls_per_step": 47.2,
+   "avg_us": 239.7
+  },
+  {
+   "name": "void at::native::(anonymous namespace)::layer_norm_grad_input_kernel_vectorized<float, float>(float const*, float const*",
+   "family": "layer_norm",
+   "pct_of_gpu_time": 2.43,
+   "calls_per_step": 49.2,
+   "avg_us": 210.6
+  },
+  {
+   "name": "void at::native::reduce_kernel<128, 4, at::native::ReduceOp<float, at::native::func_wrapper_t<float, at::native::sum_fun",
+   "family": "reduce",
+   "pct_of_gpu_time": 2.43,
+   "calls_per_step": 141.7,
+   "avg_us": 73.1
+  },
+  {
+   "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::(anonymous namespace)::where_",
+   "family": "elementwise",
+   "pct_of_gpu_time": 2.35,
+   "calls_per_step": 42.2,
+   "avg_us": 237.8
+  },
+  {
+   "name": "void at::native::(anonymous namespace)::RowwiseMomentsCUDAKernel<float, float>(long, float, float const*, float*, float*",
+   "family": "other",
+   "pct_of_gpu_time": 1.73,
+   "calls_per_step": 1.0,
+   "avg_us": 7381.0
+  },
+  {
+   "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, f",
+   "family": "elementwise",
+   "pct_of_gpu_time": 1.73,
+   "calls_per_step": 41.0,
+   "avg_us": 179.8
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::GeluCUDAKernelImpl(at::TensorIteratorBase&, at::native::Ge",
+   "family": "elementwise",
+   "pct_of_gpu_time": 1.65,
+   "calls_per_step": 46.0,
+   "avg_us": 153.2
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<float>, at::detail::Array<char*, 1> >(int, at:",
+   "family": "elementwise",
+   "pct_of_gpu_time": 1.65,
+   "calls_per_step": 493.3,
+   "avg_us": 14.3
+  }
+ ]
+}

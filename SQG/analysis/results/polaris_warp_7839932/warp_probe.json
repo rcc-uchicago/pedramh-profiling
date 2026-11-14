@@ -1,0 +1,459 @@
+{
+ "phases": {
+  "env": {
+   "torch": "2.3.1+cu121",
+   "jax": "0.4.28",
+   "warp": "1.17.0",
+   "warp_file": "/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/__init__.py",
+   "mathdx": 1,
+   "toolkit": [
+    12,
+    9
+   ],
+   "driver": [
+    13,
+    0
+   ],
+   "gpu": "NVIDIA A100-SXM4-40GB",
+   "jax_devices": [
+    "cuda:0"
+   ],
+   "xla_flags": "",
+   "jaxlib": "0.4.28"
+  },
+  "copy": {
+   "c64": {
+    "med_us": 197.2223997116089,
+    "min_us": 197.11999893188477,
+    "max_us": 197.27360010147095,
+    "GBs": 1361.0799604533936
+   },
+   "c128": {
+    "med_us": 389.2735958099365,
+    "min_us": 388.96639347076416,
+    "max_us": 389.42720890045166,
+    "GBs": 1379.1608724012408
+   }
+  },
+  "cufft": {
+   "torch_row_c64": {
+    "med_us": 206.1824083328247,
+    "min_us": 205.82399368286133,
+    "max_us": 206.33599758148193,
+    "GBs": 1301.9319066575501
+   },
+   "torch_col_c64": {
+    "med_us": 345.39520740509033,
+    "min_us": 343.6543941497803,
+    "max_us": 346.2143898010254,
+    "GBs": 777.1834994953202
+   },
+   "torch_fft2_c64": {
+    "med_us": 590.2336120605469,
+    "min_us": 589.0560150146484,
+    "max_us": 590.4384136199951,
+    "GBs": 909.5905435235144
+   },
+   "torch_row_c128": {
+    "med_us": 403.4560203552246,
+    "min_us": 403.20000648498535,
+    "max_us": 403.8144111633301,
+    "GBs": 1330.6801359100052
+   },
+   "torch_col_c128": {
+    "med_us": 674.8672008514404,
+    "min_us": 673.1264114379883,
+    "max_us": 675.4303932189941,
+    "GBs": 795.520824426882
+   },
+   "torch_fft2_c128": {
+    "med_us": 1194.0863609313965,
+    "min_us": 1193.113613128662,
+    "max_us": 1194.700813293457,
+    "GBs": 899.2162201421288
+   },
+   "jax_fft2_c64": {
+    "med_us": 525.7999495370314,
+    "min_us": 524.9904497759417,
+    "max_us": 649.4569999631494
+   },
+   "jax_irfft2_c64": {
+    "med_us": 505.62469987198705,
+    "min_us": 505.07214909885073,
+    "max_us": 506.31600024644285
+   },
+   "jax_rfft2_c64": {
+    "med_us": 309.6522996202111,
+    "min_us": 308.539648540318,
+    "max_us": 310.44629868119955
+   }
+  },
+  "rows": {
+   "row_f32_R1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 4.13,
+    "smem_bytes": 16384,
+    "med_us": 230.91199398040771,
+    "min_us": 230.8095932006836,
+    "max_us": 231.06560707092285,
+    "GBs": 1162.5011389524273,
+    "frac_copy": 0.8541020165818788
+   },
+   "row_f32_R1_B128": {
+    "block_dim": 128,
+    "dims": [
+     4096
+    ],
+    "compile_s": 3.59,
+    "smem_bytes": 32768,
+    "med_us": 301.20959281921387,
+    "min_us": 301.10719203948975,
+    "max_us": 301.56800746917725,
+    "GBs": 891.1915901732755,
+    "frac_copy": 0.6547679901748078
+   },
+   "row_f32_R1_B512": {
+    "block_dim": 512,
+    "dims": [
+     4096
+    ],
+    "compile_s": 3.42,
+    "smem_bytes": 16384,
+    "med_us": 263.321590423584,
+    "min_us": 263.0143880844116,
+    "max_us": 267.7248001098633,
+    "GBs": 1019.4206087248289,
+    "frac_copy": 0.7489792211658501
+   },
+   "row_f32_R2_B256": {
+    "block_dim": 256,
+    "dims": [
+     2048
+    ],
+    "compile_s": 1.35,
+    "smem_bytes": 16384,
+    "med_us": 699.8528003692627,
+    "min_us": 699.1360187530518,
+    "max_us": 700.3647804260254,
+    "GBs": 383.559879818107,
+    "frac_copy": 0.28180554483392595
+   },
+   "irow_f32_R1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 2.54,
+    "smem_bytes": 16384,
+    "med_us": 232.96000957489014,
+    "min_us": 232.806396484375,
+    "max_us": 233.3184003829956,
+    "GBs": 1152.2812713214005,
+    "frac_copy": 0.8465933705596257
+   },
+   "row_f64_R1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 2.25,
+    "smem_bytes": 65536,
+    "med_us": 566.425609588623,
+    "min_us": 566.1183834075928,
+    "max_us": 567.2959804534912,
+    "GBs": 947.8224552557084,
+    "frac_copy": 0.6872457551710163
+   },
+   "row_f64_R1_B512": {
+    "block_dim": 512,
+    "dims": [
+     4096
+    ],
+    "compile_s": 2.18,
+    "smem_bytes": 32768,
+    "med_us": 572.4671840667725,
+    "min_us": 571.8016147613525,
+    "max_us": 573.0303764343262,
+    "GBs": 937.8195413510017,
+    "frac_copy": 0.6799928566115533
+   },
+   "fallback_row_f32_R1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 0.0,
+    "smem_bytes": 32768,
+    "med_us": 1057.5872421264648,
+    "min_us": 1057.3311805725098,
+    "max_us": 1057.6895713806152,
+    "GBs": 253.81873504852743,
+    "frac_copy": 0.1864833385424153
+   },
+   "fallback_rel_l2_vs_torch": 3.8351953435267205e-07
+  },
+  "cols": {
+   "col_f32_strided_K1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "error": "Exception: CUDA kernel build failed with error code 6"
+   },
+   "col_f32_strided_K2_B256": {
+    "block_dim": 256,
+    "dims": [
+     2048
+    ],
+    "error": "Exception: CUDA kernel build failed with error code 6"
+   },
+   "col_f32_strided_K4_B512": {
+    "block_dim": 512,
+    "dims": [
+     1024
+    ],
+    "error": "Exception: CUDA kernel build failed with error code 6"
+   },
+   "col_f32_tstore_K1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 1.19,
+    "smem_bytes": 49152,
+    "med_us": 696.5760231018066,
+    "min_us": 696.2175846099854,
+    "max_us": 697.1392154693604,
+    "GBs": 385.36419155611304,
+    "frac_copy": 0.28313119196005443
+   },
+   "col_f32_tstore_K2_B256": {
+    "block_dim": 256,
+    "dims": [
+     2048
+    ],
+    "compile_s": 1.35,
+    "smem_bytes": 81920,
+    "med_us": 734.9247932434082,
+    "min_us": 733.7471961975098,
+    "max_us": 735.7952117919922,
+    "GBs": 365.25568121783823,
+    "frac_copy": 0.26835725440859975
+   },
+   "col_f32_tstore_K4_B512": {
+    "block_dim": 512,
+    "dims": [
+     1024
+    ],
+    "compile_s": 1.36,
+    "smem_bytes": 147456,
+    "med_us": 828.1599998474121,
+    "min_us": 827.7503967285156,
+    "max_us": 830.8735847473145,
+    "GBs": 324.1347759484388,
+    "frac_copy": 0.23814528563073198
+   },
+   "col_f32_tview_K4_B512": {
+    "block_dim": 512,
+    "dims": [
+     1024
+    ],
+    "error": "RuntimeError: Error launching kernel: col__locals__col_tview on device cuda:0: Warp CUDA error 701: too many resources requested for launch (in function wp_cuda_launch_kernel, /builds/omniverse/warp/warp/native/warp.cu:5685)"
+   },
+   "col_f32_tview_K8_B1024": {
+    "block_dim": 1024,
+    "dims": [
+     512
+    ],
+    "error": "RuntimeError: Error launching kernel: col__locals__col_tview on device cuda:0: Warp CUDA error 701: too many resources requested for launch (in function wp_cuda_launch_kernel, /builds/omniverse/warp/warp/native/warp.cu:5685)"
+   },
+   "col_f64_strided_K1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "error": "Exception: CUDA kernel build failed with error code 6"
+   },
+   "col_f64_tstore_K1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 1.19,
+    "smem_bytes": 131072,
+    "med_us": 923.8016128540039,
+    "min_us": 922.5215911865234,
+    "max_us": 928.1536102294922,
+    "GBs": 581.1539020173221,
+    "frac_copy": 0.42138224310662314
+   },
+   "col_f64_tview_K4_B512": {
+    "block_dim": 512,
+    "dims": [
+     1024
+    ],
+    "error": "RuntimeError: Error launching kernel: col__locals__col_tview on device cuda:0: Warp CUDA error 701: too many resources requested for launch (in function wp_cuda_launch_kernel, /builds/omniverse/warp/warp/native/warp.cu:5685)"
+   },
+   "transpose_f32_T16": {
+    "block_dim": 256,
+    "dims": [
+     256,
+     256
+    ],
+    "compile_s": 0.26,
+    "smem_bytes": 2048,
+    "med_us": 404.8895835876465,
+    "min_us": 404.7872066497803,
+    "max_us": 404.9407958984375,
+    "GBs": 662.9843465505991,
+    "frac_copy": 0.4871016882283318
+   },
+   "transpose_f32_T32": {
+    "block_dim": 256,
+    "dims": [
+     128,
+     128
+    ],
+    "compile_s": 0.25,
+    "smem_bytes": 8192,
+    "med_us": 237.97760009765625,
+    "min_us": 237.82401084899902,
+    "max_us": 238.08000087738037,
+    "GBs": 1127.9862301739538,
+    "frac_copy": 0.8287435440590917
+   },
+   "transpose_f64_T16": {
+    "block_dim": 256,
+    "dims": [
+     256,
+     256
+    ],
+    "compile_s": 0.25,
+    "smem_bytes": 4096,
+    "med_us": 474.62401390075684,
+    "min_us": 474.4703769683838,
+    "max_us": 474.8288154602051,
+    "GBs": 1131.1499129335225,
+    "frac_copy": 0.820172566934915
+   }
+  },
+  "fused": {
+   "fused3_f32_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "error": "TypeError: Error while parsing function \"fused_rows\" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/warp/warp_kernels.py:124:\n    wp.tile_fft(tz)\n;tile_fft() argument must be a tile of vec2f or vec2d (interpreted as complex) entries, got <class 'warp._src.types.vector.<locals>.vec_t'>"
+   },
+   "fused3_f32_B512": {
+    "block_dim": 512,
+    "dims": [
+     4096
+    ],
+    "error": "TypeError: Error while parsing function \"fused_rows\" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/warp/warp_kernels.py:124:\n    wp.tile_fft(tz)\n;tile_fft() argument must be a tile of vec2f or vec2d (interpreted as complex) entries, got <class 'warp._src.types.vector.<locals>.vec_t'>"
+   },
+   "fused3_f64_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "error": "TypeError: Error while parsing function \"fused_rows\" at /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/warp/warp_kernels.py:124:\n    wp.tile_fft(tz)\n;tile_fft() argument must be a tile of vec2f or vec2d (interpreted as complex) entries, got <class 'warp._src.types.vector.<locals>.vec_t'>"
+   }
+  },
+  "accuracy": {
+   "torch_row_c64": 2.7499611460228415e-07,
+   "torch_col_c64": 2.7479309364705666e-07,
+   "torch_row_c128": 5.307382424599648e-16,
+   "torch_col_c128": 3.487592536446505e-16,
+   "row_f32_R1_B256": 1.862913105888862e-07,
+   "row_f32_R1_B128": 2.3705511328006455e-07,
+   "row_f32_R1_B512": 2.0492974702453018e-07,
+   "row_f32_R2_B256": 1.862913105888862e-07,
+   "irow_f32_R1_B256": 1.8588896089020425e-07,
+   "row_f64_R1_B256": 3.7070412723309255e-16,
+   "row_f64_R1_B512": 3.490210300548491e-16,
+   "col_f32_tstore_K1_B256": 1.850652071382307e-07,
+   "col_f32_tstore_K2_B256": 1.850652071382307e-07,
+   "col_f32_tstore_K4_B512": 2.0553580760647605e-07,
+   "col_f64_tstore_K1_B256": 3.71876131986534e-16,
+   "torch_fft2_c64": 4.0204578765135425e-07,
+   "jax_fft2_c64": 4.0204578765135425e-07,
+   "warp_2d_nvidia_3pass_c64": 2.7727011598765777e-07
+  },
+  "bridge": {
+   "traceback": "Traceback (most recent call last):\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/warp/warp_fft_probe.py\", line 380, in main\n    rowcall = WX.warp_call(kernels[\"row_f32_R1_B256\"][0], out_specs=[((N, N, 2), \"float32\")],\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/warp/warp_xla.py\", line 151, in warp_call\n    _create_primitive()\n  File \"/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/warp/warp_xla.py\", line 128, in _create_primitive\n    jax.lib.xla_client.register_custom_call_target(TARGET, capsule, platform=\"gpu\")\n  File \"/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/jaxlib/xla_client.py\", line 601, in register_custom_call_target\n    _custom_callback_handler[xla_platform_name](\nTypeError: register_custom_call_target(): incompatible function arguments. The following argument types are supported:\n    1. register_custom_call_target(c_api: capsule, fn_name: str, fn: capsule, xla_platform_name: str, api_version: int = 0) -> None\n\nInvoked with types: PyCapsule, bytes, PyCapsule, str, int\n",
+   "BRIDGE_OK": false
+  },
+  "projection": {
+   "bytes_MB_f32": [
+    179.017048,
+    223.772672,
+    313.354936,
+    716.1446559999999
+   ],
+   "bytes_MB_f64": [
+    358.034096,
+    447.545344,
+    507.3324,
+    1312.91184
+   ],
+   "BW_col_f32": [
+    385.36419155611304,
+    "col_f32_tstore_K1_B256"
+   ],
+   "BW_fused_row_f32": [
+    null,
+    null
+   ],
+   "BW_col_f64": [
+    581.1539020173221,
+    "col_f64_tstore_K1_B256"
+   ],
+   "BW_row_f64": [
+    947.8224552557084,
+    "row_f64_R1_B256"
+   ],
+   "BW_row_f32": [
+    1162.5011389524273,
+    "row_f32_R1_B256"
+   ],
+   "t_step_ms_f32": null,
+   "t_step_ms_f64": 1.961231434733361,
+   "acc_check_f32": {
+    "col": [
+     "col_f32_tstore_K1_B256",
+     1.850652071382307e-07,
+     2.7479309364705666e-07
+    ],
+    "row": [
+     "row_f32_R1_B256",
+     1.862913105888862e-07,
+     2.7499611460228415e-07
+    ],
+    "ok": true
+   },
+   "verdict": {
+    "f32": "NO_GO",
+    "f64": "NO_GO",
+    "inputs": {
+     "bridge_ok": false,
+     "acc_ok32": true,
+     "t32": null,
+     "t64": 1.961231434733361
+    }
+   }
+  }
+ },
+ "errors": [
+  {
+   "where": "BRIDGE",
+   "error": "TypeError: register_custom_call_target(): incompatible function arguments. The following argument types are supported:\n    1. register_custom_call_target(c_api: capsule, fn_name: str, fn: capsule, xla_platform_name: str, api_version: int = 0) -> None\n\nInvoked with types: PyCapsule, bytes, PyCapsule, str, int"
+  }
+ ],
+ "n": 4096,
+ "elapsed_s": 94.0,
+ "failures": 0
+}

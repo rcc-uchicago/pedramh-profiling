@@ -1,0 +1,24 @@
+TAXO_STATE w=3 s=0 member=4 t=100.00 SPE=23.9838 CFL=0.257
+TAXO_INJECT w=3 drate per band: 1.77e-05 5.73e-06 5.50e-06 6.93e-06 1.46e-05 2.19e-05 2.58e-05 2.52e-05; float32 e changed on 32639 modes
+TAXO_PAIR w=3 s=0 p=0 (339 s) CFL=0.257 arms=lean32ek,inj,dquant,inj64,lean32,f64ic32,lean32sr,prod,lean32ek_fast +dt
+TAXO_PAIR w=3 s=0 p=1 (54 s) CFL=0.266 arms=lean32ek,inj
+TAXO_PAIR w=3 s=0 p=2 (54 s) CFL=0.254 arms=lean32ek,inj
+TAXO_PAIR w=3 s=0 p=3 (54 s) CFL=0.247 arms=lean32ek,inj
+TAXO_STATE w=3 s=1 member=1 t=200.00 SPE=33.8761 CFL=0.208
+TAXO_PAIR w=3 s=1 p=0 (280 s) CFL=0.208 arms=lean32ek,inj,dquant,inj64,lean32,f64ic32,lean32sr +dt
+TAXO_PAIR w=3 s=1 p=1 (54 s) CFL=0.217 arms=lean32ek,inj
+TAXO_PAIR w=3 s=1 p=2 (54 s) CFL=0.221 arms=lean32ek,inj
+TAXO_PAIR w=3 s=1 p=3 (54 s) CFL=0.224 arms=lean32ek,inj
+TAXO_STATE w=3 s=2 member=2 t=300.00 SPE=38.3584 CFL=0.216
+TAXO_PAIR w=3 s=2 p=0 (159 s) CFL=0.216 arms=lean32ek,inj,dquant,inj64,lean32,f64ic32,lean32sr
+TAXO_PAIR w=3 s=2 p=1 (54 s) CFL=0.219 arms=lean32ek,inj
+TAXO_PAIR w=3 s=2 p=2 (54 s) CFL=0.234 arms=lean32ek,inj
+TAXO_PAIR w=3 s=2 p=3 (54 s) CFL=0.219 arms=lean32ek,inj
+TAXO_STATE w=3 s=3 member=3 t=400.00 SPE=34.9527 CFL=0.213
+TAXO_PAIR w=3 s=3 p=0 (159 s) CFL=0.213 arms=lean32ek,inj,dquant,inj64,lean32,f64ic32,lean32sr
+TAXO_PAIR w=3 s=3 p=1 (54 s) CFL=0.194 arms=lean32ek,inj
+TAXO_PAIR w=3 s=3 p=2 (54 s) CFL=0.235 arms=lean32ek,inj
+TAXO_PAIR w=3 s=3 p=3 (54 s) CFL=0.237 arms=lean32ek,inj
+TAXO_BITWISE w=3 prod==lean_u1 True fast==lean32ek {'40': True, '400': True, '4000': True} dt40==lean_u1 [{'state': 0, 'frame': True, 'state_hash': True}, {'state': 1, 'frame': True, 'state_hash': True}]
+TAXO_BENCH w=3 lean_u1=6.5775 lean32ek=3.508 lean32ek_fast=2.8921 lean32sr=3.0214 lean32=3.376
+TAXO_WORKER_DONE w=3 pairs=16 wall=1692s

@@ -1,0 +1,27 @@
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A100-SXM4-40GB" (39 GiB, sm_80, mempool enabled)
+   Kernel cache:
+     /lus/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/warp_cache_7840397/1.17.0
+WU_ENV_OK {"jax": "0.4.28", "warp": "1.17.0", "gpu": "NVIDIA A100-SXM4-40GB"}
+Module kernels__locals__upd_full_2527d21d 2527d21 load on device 'cuda:0' took 1902.10 ms  (compiled)
+Module kernels__locals__upd_compact_9563837b 9563837 load on device 'cuda:0' took 212.86 ms  (compiled)
+Module kernels__locals__upd_compact_93cae372 93cae37 load on device 'cuda:0' took 213.47 ms  (compiled)
+Module kernels__locals__build_w_bbfb9773 bbfb977 load on device 'cuda:0' took 180.57 ms  (compiled)
+Module kernels__locals__zprod_050040ce 050040c load on device 'cuda:0' took 158.26 ms  (compiled)
+Module kernels__locals__upd_split_0c3db8f3 0c3db8f load on device 'cuda:0' took 213.04 ms  (compiled)
+Module kernels__locals__upd_split_adf17d9d adf17d9 load on device 'cuda:0' took 216.48 ms  (compiled)
+WU_REL n=1 fast_vs_u1=2.879e-08 if32_vs_if64=2.879e-08 | xla_compact=2.879e-08(bit) xla_compact_if=2.879e-08(bit) warp_full=2.879e-08(bit) warp_compact=2.879e-08(bit) warp_compact_if=2.879e-08(bit) warp_simt=2.674e-08 warp_simt_if=2.674e-08
+WU_REL n=40 fast_vs_u1=4.011e-07 if32_vs_if64=4.016e-07 | xla_compact=4.011e-07(bit) xla_compact_if=4.016e-07(bit) warp_full=4.011e-07(bit) warp_compact=4.011e-07(bit) warp_compact_if=4.016e-07(bit) warp_simt=3.853e-07 warp_simt_if=3.850e-07
+WU_REL n=400 fast_vs_u1=1.313e-06 if32_vs_if64=1.313e-06 | xla_compact=1.313e-06(bit) xla_compact_if=1.313e-06(bit) warp_full=1.313e-06(bit) warp_compact=1.313e-06(bit) warp_compact_if=1.313e-06(bit) warp_simt=1.274e-06 warp_simt_if=1.274e-06
+WU_GATE xla_compact pass=True ([True, True])
+WU_GATE xla_compact_if pass=True ([True, True])
+WU_GATE warp_full pass=True ([True, True])
+WU_GATE warp_compact pass=True ([True, True])
+WU_GATE warp_compact_if pass=True ([True, True])
+WU_GATE warp_simt pass=True ([True, True])
+WU_GATE warp_simt_if pass=True ([True, True])
+WU_BENCH lean_u1=6.4021 lean32ek_fast=2.6968 if32=2.7480 if64=6.9180 xla_compact=2.5052 xla_compact_if=2.5156 warp_full=2.6394 warp_compact=2.5333 warp_compact_if=2.5335 warp_simt=2.3715 warp_simt_if=2.3717
+WU_PROBE_DONE failures=0

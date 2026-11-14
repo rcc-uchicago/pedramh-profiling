@@ -1,0 +1,114 @@
+{
+ "steps": 2400,
+ "span_ms_per_step": 9.4995,
+ "busy_ms_per_step": 9.4654,
+ "gpu_busy_fraction": 0.9964,
+ "kernels_per_step": 32.12,
+ "dtoh_copies_per_step": 0.0,
+ "dtoh_bytes_per_step": 0.0,
+ "htod_copies_per_step": 0.0,
+ "sync_api_calls_per_step": {
+  "cuEventQuery": 0.037
+ },
+ "memcpy_api_calls_per_step": {
+  "cuMemcpyDtoDAsync_v2": 3.025,
+  "cuGraphExecMemcpyNodeSetParams": 0.25
+ },
+ "launch_api_calls_per_step": {
+  "cuLaunchKernel": 17.1,
+  "cudaLaunchKernel": 3.025,
+  "cuGraphLaunch": 2.025
+ },
+ "top_kernels": [
+  {
+   "name": "loop_add_multiply_fusion_1",
+   "time_pct": 40.2,
+   "instances_per_step": 1.0,
+   "avg_us": 3407.0
+  },
+  {
+   "name": "void regular_fft_factor<(unsigned int)64, EPT<(unsigned int)8>, (unsigned int)32, (unsigne",
+   "time_pct": 24.0,
+   "instances_per_step": 10.05,
+   "avg_us": 202.3
+  },
+  {
+   "name": "loop_multiply_fusion_9",
+   "time_pct": 8.0,
+   "instances_per_step": 1.0,
+   "avg_us": 675.7
+  },
+  {
+   "name": "void vector_fft_c2r<(unsigned int)4096, EPT<(unsigned int)32>, (unsigned int)1, (unsigned ",
+   "time_pct": 7.5,
+   "instances_per_step": 3.02,
+   "avg_us": 209.1
+  },
+  {
+   "name": "wrapped_multiply_1",
+   "time_pct": 7.4,
+   "instances_per_step": 2.0,
+   "avg_us": 312.8
+  },
+  {
+   "name": "void scal_kernel_val<double, double>(cublasScalParamsVal<T1, T2>)",
+   "time_pct": 7.1,
+   "instances_per_step": 3.02,
+   "avg_us": 197.6
+  },
+  {
+   "name": "void vector_fft_r2c<(unsigned int)4096, EPT<(unsigned int)32>, (unsigned int)1, (unsigned ",
+   "time_pct": 4.9,
+   "instances_per_step": 2.0,
+   "avg_us": 206.7
+  },
+  {
+   "name": "loop_select_fusion_1",
+   "time_pct": 0.8,
+   "instances_per_step": 1.0,
+   "avg_us": 69.4
+  },
+  {
+   "name": "loop_multiply_fusion_11",
+   "time_pct": 0.0,
+   "instances_per_step": 1.0,
+   "avg_us": 2.1
+  },
+  {
+   "name": "loop_multiply_fusion_6",
+   "time_pct": 0.0,
+   "instances_per_step": 1.0,
+   "avg_us": 2.0
+  },
+  {
+   "name": "loop_negate_fusion_1",
+   "time_pct": 0.0,
+   "instances_per_step": 1.0,
+   "avg_us": 2.0
+  },
+  {
+   "name": "loop_add_fusion_3",
+   "time_pct": 0.0,
+   "instances_per_step": 1.0,
+   "avg_us": 1.8
+  },
+  {
+   "name": "loop_add_fusion_4",
+   "time_pct": 0.0,
+   "instances_per_step": 1.0,
+   "avg_us": 1.7
+  },
+  {
+   "name": "loop_add_fusion_5",
+   "time_pct": 0.0,
+   "instances_per_step": 1.0,
+   "avg_us": 1.7
+  },
+  {
+   "name": "loop_multiply_fusion_10",
+   "time_pct": 0.0,
+   "instances_per_step": 1.0,
+   "avg_us": 1.7
+  }
+ ]
+}

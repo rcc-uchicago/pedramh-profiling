@@ -1,0 +1,55 @@
+#!/bin/bash -l
+#PBS -N sqg_prof_uvit
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -j oe
+# profile_uvit_polaris.pbs -- Job C on one Polaris A100 (sibling of profile_uvit_midway.sh, which is unchanged):
+# torch.profiler breakdown of the SQG UViT training step, random input, no data.
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ [-v SQG_BATCH=16] \
+#        SQG/analysis/profile_uvit_polaris.pbs                                    (from the repo root)
+# PASS = "UVIT_OK" (+ "UVIT_TRACE_OK", the kernel-only breakdown) in the .o file. Summaries:
+# SQG/analysis/results/polaris_uvit_<jobid>/ (the chrome trace stays in $MEMBER_ROOT/sqg_profile/profile_uvit_<jobid>/).
+# Use the same SQG_BATCH as job B. Batch 32 (the Midway default) OOMs a 40 GB A100 (job 7809340); use 16.
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+export SQG_INIT="${SQG_INIT:-random}"
+JOB="${PBS_JOBID%%.*}"
+OUT="${MEMBER_ROOT}/sqg_profile/profile_uvit_${JOB}"
+RES="SQG/analysis/results/polaris_uvit_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+echo "=== profile_uvit on $(hostname) job $JOB: $(date '+%F %T') ==="
+echo "host=$(hostname) job=$JOB py=$PY init=$SQG_INIT batch=${SQG_BATCH:-32} buf=${SQG_BUF:-8192}"
+echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}"
+echo "modules: $(module -t list 2>&1 | tr '\n' ' ')"
+nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv | tee "$OUT/gpu.csv"
+# ------------------------------------------------------------------------------------------------------------------
+
+"$PY" SQG/analysis/profile_uvit.py --out "$OUT"           # same arguments as profile_uvit_midway.sh
+# Kernel-only shares from the chrome trace (profile_uvit.py's top_ops double-counts; see summarize_uvit_trace.py).
+"$PY" SQG/analysis/summarize_uvit_trace.py "$OUT/uvit_trace.json" --out "$OUT/uvit_trace_summary.json" \
+    || echo "ERROR SQG_UVIT_TRACE_SUMMARY_FAILED"
+for f in profile_uvit.json uvit_ops.txt uvit_trace_summary.json gpu.csv; do
+    [ -e "$OUT/$f" ] && cp "$OUT/$f" "$RES"/
+done
+echo "=== end $(date '+%F %T') ==="

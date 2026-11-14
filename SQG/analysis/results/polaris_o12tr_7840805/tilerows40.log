@@ -1,0 +1,95 @@
+O12_KNOB BUF=16384 (o1.2: 262144)
+O12_KNOB BATCH=16 (o1.2: 32)
+O12_KNOB N_EPOCH=4 (o1.2: 250)
+O12_KNOB N_VAL=64 (o1.2: 200)
+strict fp32 check passed: conv 2.2e-06, matmul 4.1e-07, attention 1.9e-06
+UViT_m16_dt0.02_tendency_online3: 4 GPU(s), NVIDIA A100-SXM4-40GB
+O12_SOLVER tilerows40
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A100-SXM4-40GB" (39 GiB, sm_80, mempool enabled)
+   Kernel cache:
+     /lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/o12tr_7840805/warp_cache_r3/1.17.0
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A100-SXM4-40GB" (39 GiB, sm_80, mempool enabled)
+   Kernel cache:
+     /lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/o12tr_7840805/warp_cache_r1/1.17.0
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A100-SXM4-40GB" (39 GiB, sm_80, mempool enabled)
+   Kernel cache:
+     /lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/o12tr_7840805/warp_cache_r0/1.17.0
+O12_TR_ENV warp=1.17.0 preload=none cache=/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/o12tr_7840805/warp_cache_r0
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A100-SXM4-40GB" (39 GiB, sm_80, mempool enabled)
+   Kernel cache:
+     /lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/o12tr_7840805/warp_cache_r2/1.17.0
+O12_TR_SCHEME tilerows40 kind=tr if=0 steps_per_frame=40 h=5.000000e-06
+O12_KNOB STEPS_PER_EPOCH=30 (o1.2: 2734)
+O12_SEGMENTS 4 staged checkpoints per rank, 6 needed by the full schedule -> o1.2 reuses them (wrap-around): fine for timing, not for science
+solver A-SQG_data.py: 16 checkpoints of 7 members (t_c + 1 <= 1120); 4 per rank, ~6 needed -> each used at most once
+online: segment 1 = 200000 steps = 5000 frames (stride 40 steps), S = 480 steps = 12 pairs per ML step, ring 101 frames (pair lag 4000 steps = 0.02), 4901 pairs per segment, host buffer 16384 pairs (3 segments), training starts at 4 segments
+O12_KNOB START_PAIRS=600 (o1.2: 19604)
+O12_TR_PATH tilerows40 jax_to_torch=dlpack
+Module kernels__locals__build_w_b5a2d1bc b5a2d1b load on device 'cuda:0' took 1820.33 ms  (compiled)
+Module kernels__locals__build_w_b5a2d1bc b5a2d1b load on device 'cuda:0' took 1797.32 ms  (compiled)
+Module kernels__locals__build_w_b5a2d1bc b5a2d1b load on device 'cuda:0' took 1813.39 ms  (compiled)
+Module kernels__locals__build_w_b5a2d1bc b5a2d1b load on device 'cuda:0' took 1864.60 ms  (compiled)
+Module kernels__locals__expand_89275604 8927560 load on device 'cuda:0' took 136.26 ms  (compiled)
+Module kernels__locals__expand_89275604 8927560 load on device 'cuda:0' took 138.61 ms  (compiled)
+Module kernels__locals__expand_89275604 8927560 load on device 'cuda:0' took 117.14 ms  (compiled)
+Module kernels__locals__expand_89275604 8927560 load on device 'cuda:0' took 139.86 ms  (compiled)
+Module kernels__locals__rows_15f34186 15f3418 load on device 'cuda:0' took 3804.70 ms  (compiled)
+Module kernels__locals__rows_15f34186 15f3418 load on device 'cuda:0' took 3825.14 ms  (compiled)
+Module kernels__locals__rows_15f34186 15f3418 load on device 'cuda:0' took 3817.24 ms  (compiled)
+Module kernels__locals__rows_15f34186 15f3418 load on device 'cuda:0' took 3823.47 ms  (compiled)
+Module kernels__locals__update_aee95a27 aee95a2 load on device 'cuda:0' took 175.37 ms  (compiled)
+Module kernels__locals__update_aee95a27 aee95a2 load on device 'cuda:0' took 184.17 ms  (compiled)
+Module kernels__locals__update_aee95a27 aee95a2 load on device 'cuda:0' took 193.23 ms  (compiled)
+Module kernels__locals__update_aee95a27 aee95a2 load on device 'cuda:0' took 204.89 ms  (compiled)
+O12_TR_PATH tilerows40 torch_to_jax=dlpack
+O12_TR_GATE tilerows40 frame=1 steps=40 rel_arm_ref64=2.868e-07 rel_twin32_ref64=3.575e-07 pass=True (1.5 s)
+O12_TR_GATE tilerows40 frame=4 steps=160 rel_arm_ref64=6.380e-07 rel_twin32_ref64=7.692e-07 pass=True (2.2 s)
+O12_TR_GATE_VERDICT tilerows40 pass=True
+O12_FILL pairs=621 frames=721 seconds=76.4 load_s=0.9 s_per_frame_steady=0.08921 solver=tilerows40
+O12_BITWISE solver=tilerows40 frames_per_rank=4 max_abs_diff=2.328e-03 INFO
+buffer filled: 621 pairs from 1 segments in 76 s; first segment checked against the taxonomy production frames (4 frames each; O12_BITWISE)
+sample: x (1, 256, 256) torch.float32, x std 1.095, (y - x) std 0.2519
+val: 64 random pairs of 64 (per trajectory: [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]); per epoch: 30 steps x 16 x 4 GPUs (as offline)
+ConvNextUViT 40.81M params, tendency (big skip), circular padding
+wandb: (no wandb on Polaris: /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/o12tr_7840805/tilerows40/wandb_shim.jsonl)
+training from scratch: epochs 0..3 x 30 steps -> /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/o12tr_7840805/tilerows40/model_ckpt/UViT_m16_dt0.02_tendency_online3_best.pt
+peak GPU memory (PyTorch) 21.0 GiB
+epoch 0: train 0.0861  val 0.0590 (persistence 0.0776)  lr 4.63e-04  1.520 s/step  (46 s)
+  val per trajectory: traj 0 0.0422  traj 1 0.0408  traj 2 0.1039  traj 3 0.0572  traj 4 0.0592  traj 5 0.0460  traj 6 0.0552  traj 7 0.0594  traj 8 0.0776  traj 9 0.0838  traj 10 0.0706  traj 11 0.0258  traj 12 0.0504  traj 13 0.0526  traj 14 0.0476  traj 15 0.0714
+  online: 0 segments this epoch (1 used per rank, 4.0 time units on all ranks), buffer 981 pairs, checkpoint loads 0 s
+O12_EPOCH epoch=0 steps=30 step_median=1.5100 step_p10=1.5096 step_p90=1.5108 train_s=45.6 val_s=0.54 save_last_s=0.77 solver=tilerows40
+O12_SAVE best seconds=0.71
+  best val 0.0590 -> UViT_m16_dt0.02_tendency_online3_best.pt
+epoch 1: train 0.0635  val 0.0577 (persistence 0.0776)  lr 2.86e-04  1.510 s/step  (46 s)
+  val per trajectory: traj 0 0.0428  traj 1 0.0415  traj 2 0.0917  traj 3 0.0523  traj 4 0.0578  traj 5 0.0498  traj 6 0.0576  traj 7 0.0571  traj 8 0.0789  traj 9 0.0827  traj 10 0.0694  traj 11 0.0270  traj 12 0.0507  traj 13 0.0543  traj 14 0.0424  traj 15 0.0671
+  online: 0 segments this epoch (1 used per rank, 4.0 time units on all ranks), buffer 1341 pairs, checkpoint loads 0 s
+O12_EPOCH epoch=1 steps=30 step_median=1.5101 step_p10=1.5096 step_p90=1.5104 train_s=45.3 val_s=0.28 save_last_s=0.74 solver=tilerows40
+O12_SAVE best seconds=0.84
+  best val 0.0577 -> UViT_m16_dt0.02_tendency_online3_best.pt
+epoch 2: train 0.0571  val 0.0588 (persistence 0.0776)  lr 8.38e-05  1.510 s/step  (46 s)
+  val per trajectory: traj 0 0.0461  traj 1 0.0435  traj 2 0.0832  traj 3 0.0484  traj 4 0.0604  traj 5 0.0568  traj 6 0.0589  traj 7 0.0590  traj 8 0.0829  traj 9 0.0820  traj 10 0.0705  traj 11 0.0289  traj 12 0.0540  traj 13 0.0620  traj 14 0.0398  traj 15 0.0640
+  online: 0 segments this epoch (1 used per rank, 4.0 time units on all ranks), buffer 1701 pairs, checkpoint loads 0 s
+O12_EPOCH epoch=2 steps=30 step_median=1.5102 step_p10=1.5097 step_p90=1.5105 train_s=45.3 val_s=0.28 save_last_s=0.75 solver=tilerows40
+epoch 3: train 0.0549  val 0.0583 (persistence 0.0776)  lr 2.00e-09  1.510 s/step  (46 s)
+  val per trajectory: traj 0 0.0463  traj 1 0.0436  traj 2 0.0817  traj 3 0.0478  traj 4 0.0602  traj 5 0.0550  traj 6 0.0588  traj 7 0.0586  traj 8 0.0824  traj 9 0.0815  traj 10 0.0700  traj 11 0.0290  traj 12 0.0539  traj 13 0.0616  traj 14 0.0392  traj 15 0.0634
+  online: 0 segments this epoch (1 used per rank, 4.0 time units on all ranks), buffer 2061 pairs, checkpoint loads 0 s
+O12_EPOCH epoch=3 steps=30 step_median=1.5104 step_p10=1.5098 step_p90=1.5106 train_s=45.3 val_s=0.28 save_last_s=0.74 solver=tilerows40
+done: best val 0.0577
+O12_PHASES solver=tilerows40 startup_to_fill_done_s=108.3 total_s=296.1
+O12_RUN_DONE solver=tilerows40

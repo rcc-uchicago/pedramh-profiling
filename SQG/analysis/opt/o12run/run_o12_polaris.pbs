@@ -1,0 +1,105 @@
+#!/bin/bash -l
+#PBS -N sqg_o12
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:59:00
+#PBS -j oe
+# run_o12_polaris.pbs -- o1.2-TrainUViT_m16_tendency.py ITSELF on one Polaris node (4 A100s, torchrun, one rank per
+# GPU), short, once per solver; then extrapolate a full o1.2 run's A100 wall-clock (user, 2026-11-10).
+# Predictions + gates: SQG/analysis/opt/o12run/PREDICTIONS_o12.md (written first).
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ SQG/analysis/opt/o12run/run_o12_polaris.pbs
+# 1. test_o12run.py under sqg-env (O12_TEST_OK).  2. build_val_store.py from the taxonomy job's production frames.
+# 3. o12_polaris.py x 3 arms (ref, lean_u1, lean32ek_fast), each O12_RUN_DONE, each under a timeout.
+# 4. o12_extrapolate.py (O12_EXTRAPOLATE_OK). End token: O12_JOB_DONE failures=N.
+# Logs + extrapolation -> SQG/analysis/results/polaris_o12_<jobid>/; model checkpoints + val store stay in
+# $MEMBER_ROOT/sqg_profile/o12_<jobid>/.
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+# o1.2 remaps CUDA_VISIBLE_DEVICES to its LOCAL_RANK's GPU only when it lists several devices (o1.2 L34-35)
+export CUDA_VISIBLE_DEVICES=0,1,2,3 PYTHONUNBUFFERED=1
+HERE=SQG/analysis/opt/o12run
+RUN="${MEMBER_ROOT}/sqg_profile/o12_${JOB}"
+RES="SQG/analysis/results/polaris_o12_${JOB}"
+REF="${O12_REF_DIR:-${MEMBER_ROOT}/sqg_profile/taxonomy_7824121}"
+[ -e "$RUN" ] && { echo "ERROR O12_RUN_DIR_EXISTS $RUN"; echo "O12_JOB_DONE failures=1"; exit 5; }
+mkdir -p "$RUN" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+sha256sum SQG/o1.2-TrainUViT_m16_tendency.py | tee "$RUN/o12_source.sha256"
+T0=$(date +%s)
+FAILURES=0
+fail() { echo "ERROR $*"; FAILURES=$((FAILURES + 1)); }
+echo "=== run_o12 on $(hostname) job $JOB: $(date '+%F %T') ==="
+echo "host=$(hostname) job=$JOB py=$PY run=$RUN root=$SQG_TRAINING_ROOT ref=$REF"
+nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee "$RUN/gpu.csv"
+
+# ---- 1. tests (compile under 3.10 too) ------------------------------------------------------------------------------
+"$PY" "$HERE/test_o12run.py" 2>&1 | tee "$RUN/test_o12run.log" || fail O12_TEST
+grep -q "O12_TEST_OK" "$RUN/test_o12run.log" || fail O12_TEST_NO_TOKEN
+
+# ---- 2. the val store ----------------------------------------------------------------------------------------------
+"$PY" "$HERE/build_val_store.py" --ref-dir "$REF" --out "$RUN/val_store" 2>&1 | tee "$RUN/build_val_store.log" \
+    || fail O12_VAL_STORE
+grep -q "VAL_STORE_OK" "$RUN/build_val_store.log" || fail O12_VAL_STORE_NO_TOKEN
+
+# ---- 3. o1.2, one arm per solver (timeouts keep the three inside the hour) -----------------------------------------
+export O12_VAL_STORE="$RUN/val_store" O12_REF_DIR="$REF" O12_MEMBERS=1,2,3,4 \
+       O12_BATCH=16 O12_START_PAIRS=600 O12_N_EPOCH=4 O12_STEPS_PER_EPOCH=30 O12_N_VAL=64 O12_BUF=16384
+declare -A LIMIT=([ref]=1440 [lean_u1]=1020 [lean32ek_fast]=600)
+LOGS=()
+if [ "$FAILURES" = "0" ]; then
+    for s in ref lean_u1 lean32ek_fast; do
+        echo "=== arm $s: $(date '+%F %T') (limit ${LIMIT[$s]} s)"
+        mkdir -p "$RUN/$s"
+        set +e
+        O12_SOLVER=$s O12_OUT="$RUN/$s" timeout --signal=TERM --kill-after=30 "${LIMIT[$s]}" \
+            "$PY" -m torch.distributed.run --standalone --nproc_per_node=4 --max_restarts=0 "$HERE/o12_polaris.py" \
+            > "$RUN/$s.log" 2> "$RUN/$s.err"
+        rc=$?
+        set -e
+        [ "$rc" = "0" ] || fail "O12_ARM_RC solver=$s rc=$rc (124 = timeout)"
+        grep -q "O12_RUN_DONE solver=$s" "$RUN/$s.log" || { fail "O12_ARM_NO_TOKEN solver=$s"; tail -n 25 "$RUN/$s.err"; }
+        grep -E "^(O12_|ERROR|epoch [0-9]+:|peak GPU|ConvNextUViT|buffer filled|strict fp32)" "$RUN/$s.log" \
+            | grep -v "^O12_KNOB" || true
+        LOGS+=(--log "$s=$RUN/$s.log")
+    done
+else
+    echo "ERROR O12_ARMS_SKIPPED (tests or val store failed)"
+fi
+
+# ---- 4. extrapolation -----------------------------------------------------------------------------------------------
+if [ "${#LOGS[@]}" -gt 0 ]; then
+    "$PY" "$HERE/o12_extrapolate.py" "${LOGS[@]}" --out "$RES" 2>&1 | tee "$RUN/o12_extrapolate.log" \
+        || fail O12_EXTRAPOLATE
+    grep -q "O12_EXTRAPOLATE_OK" "$RUN/o12_extrapolate.log" || fail O12_EXTRAPOLATE_NOT_OK
+fi
+
+for f in "$RUN"/*.log "$RUN"/*.err "$RUN"/gpu.csv "$RUN"/o12_source.sha256; do
+    [ -e "$f" ] && cp "$f" "$RES"/
+done
+for s in ref lean_u1 lean32ek_fast; do
+    [ -e "$RUN/$s/wandb_shim.jsonl" ] && cp "$RUN/$s/wandb_shim.jsonl" "$RES/${s}_wandb_shim.jsonl"
+done
+du -sh "$RUN"/*/model_ckpt 2>/dev/null || true
+echo "=== end $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+echo "O12_JOB_DONE failures=$FAILURES"

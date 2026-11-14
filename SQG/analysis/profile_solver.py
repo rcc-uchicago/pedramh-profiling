@@ -22,6 +22,11 @@ JAX device memory; which CUDA libraries were actually loaded (module cuda/12.9 p
 cudaProfilerStop -- run under `nsys profile --capture-range=cudaProfilerApi`.
 
 Writes <out>/profile_solver_bench.json (+ hlo_<variant>.txt); prints PROFILE_OK.
+
+Polaris overrides (profile_solver_polaris.pbs; each one unset = the Midway path above, unchanged):
+  SQG_ASQG_PY        path of the vendored solver copy (SQG/fixed_ring/A-SQG_data.py, byte-identical to Weidong's)
+  SQG_TRAINING_ROOT  run the solver with only its hard-coded TRAINING_ROOT line replaced, in memory (patch_training_root)
+  SQG_INIT=random    start from the production spin-up IC stepped to AB3 level 2 instead of the archived checkpoint
 """
 import os
 
@@ -39,22 +44,47 @@ import statistics
 import sys
 import time
 
-ASQG_PY = "/project/pedramh/weidong/SQG/fixed_ring/A-SQG_data.py"
+ASQG_PY = os.environ.get("SQG_ASQG_PY", "/project/pedramh/weidong/SQG/fixed_ring/A-SQG_data.py")
 CKPT_NAME = "ckpt_t0100.00.npz"
 STRIDE = 40                 # solver steps per jitted call (o1.2 STRIDE)
 CALLS = 12                  # calls per optimizer step (S = 480 = 12 x 40)
 M = 16                      # coarse subsampling
 
 
+def patch_training_root(src, root):
+    """`src` with its one `TRAINING_ROOT = ...` line replaced by `TRAINING_ROOT = Path(r"<root>")`.
+
+    A-SQG_data.py mkdirs its run dirs under the hard-coded Midway TRAINING_ROOT at import, and hashes its own bytes
+    into CONFIG, so the file itself must not be edited (PROFILING_PROMPT.md §3.1). One line in, one line out: the
+    line numbers of every traceback still match the file on disk.
+    """
+    lines = src.split("\n")
+    hits = [i for i, line in enumerate(lines) if line.startswith("TRAINING_ROOT = ")]
+    if len(hits) != 1:
+        raise RuntimeError(f"expected one TRAINING_ROOT line in {ASQG_PY}, found {len(hits)}")
+    lines[hits[0]] = f'TRAINING_ROOT = Path(r"{root}")'
+    return "\n".join(lines)
+
+
 def import_asqg():
-    """A-SQG_data.py as a module, as o1.2's import_asqg (argv --member 1, silenced, signal handlers restored)."""
+    """A-SQG_data.py as a module, as o1.2's import_asqg (argv --member 1, silenced, signal handlers restored).
+
+    With SQG_TRAINING_ROOT set, the source is compiled with patch_training_root applied, under the unmodified file's
+    name and __file__, so CONFIG["solver_sha256"] is still the hash of the file on disk.
+    """
     argv, handlers = sys.argv, {s: signal.getsignal(s) for s in (signal.SIGUSR1, signal.SIGTERM)}
     sys.argv = [ASQG_PY, "--member", "1"]
     try:
         spec = importlib.util.spec_from_file_location("asqg_data", ASQG_PY)
         mod = importlib.util.module_from_spec(spec)
+        root = os.environ.get("SQG_TRAINING_ROOT")
         with contextlib.redirect_stdout(io.StringIO()):
-            spec.loader.exec_module(mod)
+            if root:
+                with open(ASQG_PY, "rb") as fh:
+                    src = patch_training_root(importlib.util.decode_source(fh.read()), root)
+                exec(compile(src, ASQG_PY, "exec", dont_inherit=True), mod.__dict__)
+            else:
+                spec.loader.exec_module(mod)
     finally:
         sys.argv = argv
         for s, h in handlers.items():
@@ -96,8 +126,17 @@ def main():
     N = GD.N
     dev = jax.devices()[0]
     template = GD.sqg.init(GD.p, jax.random.key(GD.SEED_INITIAL_CONDITION))   # stepper-state template, as GD.main
-    ckpt = GD.CHECKPOINT_DIR / CKPT_NAME
-    st0, completed = GD.load_checkpoint(template, ckpt)
+    init = os.environ.get("SQG_INIT", "checkpoint")
+    if init == "random":
+        # DT is fixed and the CFL checks are host-side, so every step runs the same 4096^2 FFTs whatever the field;
+        # the only state that changes which code runs is the AB3 level, 2 after two steps (PROFILING_PROMPT.md §2b).
+        ckpt, completed = None, None
+        st0 = GD.advance(template, 2)
+    elif init == "checkpoint":
+        ckpt = GD.CHECKPOINT_DIR / CKPT_NAME
+        st0, completed = GD.load_checkpoint(template, ckpt)
+    else:
+        raise ValueError(f"SQG_INIT={init!r}: expected random or checkpoint")
     assert int(st0._ablevel) == 2, f"checkpoint AB level {int(st0._ablevel)} != 2: the fixed variant is not valid"
 
     # ---- variants -------------------------------------------------------------------------------------------
@@ -156,8 +195,9 @@ def main():
         print(f"PROFILE_OK nsys {args.variant}: {args.reps} x {CALLS} x {STRIDE} steps captured")
         return
 
-    res = {"device": str(dev), "device_kind": dev.device_kind, "jax": jax.__version__,
-           "checkpoint": str(ckpt), "completed_blocks": completed, "stride": STRIDE, "calls_per_optstep": CALLS,
+    res = {"device": str(dev), "device_kind": dev.device_kind, "jax": jax.__version__, "init": init,
+           "checkpoint": None if ckpt is None else str(ckpt), "completed_blocks": completed, "stride": STRIDE,
+           "calls_per_optstep": CALLS,
            "import_s": round(t_import, 2), "LD_LIBRARY_PATH": os.environ.get("LD_LIBRARY_PATH", "")}
 
     # ---- compile + optimized HLO + cost analysis of one step --------------------------------------------------
