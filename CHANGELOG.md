@@ -114,6 +114,24 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-14** — **SQG: Warp built-ins reference (1.19.0) read in full and audited against the tile-row step:
+  nothing applicable is unused except one fusion (est. 0–13%); upgrading Warp gains nothing. No code, no jobs.**
+  Write-up `SQG/analysis/opt/warp/WARP_BUILTINS_AUDIT_2026-11-14.md`.
+  - **Read:** the 300-entry index, plus all 179 detail pages in the solver-relevant categories (Tile, Scalar,
+    Vector, Utility, Operators, Other, Code Generation). The other 121 entries (geometry, volumes, quaternions,
+    RNG) were read at index level only.
+  - **Version:** we run 1.17.0. Its registry already has every tile primitive, `aligned=` loads, the
+    3–8-argument `tile_map`, `tile_axpy`, `tile_empty`, `div_approx`, reversed tile views and
+    `tile_load_indexed`; cuFFTDx was active (`"mathdx": 1`). The 19 built-ins new in 1.18/1.19 are norms and
+    quaternion/transform helpers. `tile_matmul(precision="tf32")` is new but would change the arithmetic.
+  - **Finding:** per op (7840376), the SIMT and tile kernels run at 67–96% of the 1.36 TB/s copy rate. The cuFFT
+    column passes run at 48% and the 2-D C2R at 33%. So gains need fewer bytes moved, not faster arithmetic.
+    Already used or measured: cuFFTDx, `block_dim`, rows per block, `tile_map` fusion, tile column layouts,
+    `enable_backward=False`. `aligned=True` applies only to shared tiles, so it has ~no expected gain.
+  - **Open candidates (unrun):**
+    1. In-tile C2R via `tile_load_indexed` or a reversed `tile_view`: −0.2 to +0.02 ms/step. Needs a probe,
+       then the full gate battery.
+    2. Skip rewriting W's zero rows (out-of-place column FFT): ~2%. Needs a bitwise check.
 - **2026-11-13 (in progress)** — **SQG: the same gates (A, B, E, D) for `tilerows_if25`.** The user asked "did we
   also test if it avoids drifting and overfitting" (only `lean32ek_fast` had gate D), then "okay do the same gates
   for tilerows_if25".
