@@ -114,6 +114,26 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-16** — **SQG gate D for `tilerows_if25` (capacity job 7843532, failures=0): PASS_D on best.pt (25×
+  margin) and last.pt (23×). All four gates are now done for it: A PASS, B NOT_PASS on detection only (k2–4), PASS_E,
+  PASS_D. 15/15 predictions confirmed. Notes Part XVII H.**
+  - **Run:** 23.3 node-h; frames reused from job 7835786 (bitwise); 4 arms (0, 0, 860, 8,600) × 195,250 steps; 0/16
+    blown in all 8 rollouts.
+  - **Result:** no overfitting (final/min ≤ 1.0010). The positive control drifts beyond N in 77/90 cells, with κ_8600
+    0.91 / 0.99. The extrapolated 1× effect is ≤ 8.0e-4 of a band energy. The tightest cell is k64-128 at 0–5 TU.
+  - **Post hoc (not part of the verdict):** |Δ_860| > N in 33/90 cells, all same-sign at k ≥ 16. The cause is the
+    reference arm: same-seed training is not bitwise reproducible. This job's a0_sA and Part XV's are two
+    realizations, and they differ at k ≥ 16 by about Δ_860. So N from one seed pair understates realization noise.
+    That makes the rule stricter, and the PASS is an upper bound set by training noise. Future gate D runs should take
+    N from ≥ 3 α = 0 realizations.
+  - **The user's calls:**
+    1. admit `tilerows_if25` (0.926 s/step, 50.9 h on 14 A100s) to generate o1.2's data;
+    2. the CFL > 0.72 episodes (Part XVII G);
+    3. option B statistical gates;
+    4. a full-scale o1.2 run.
+  - Results: `SQG/analysis/results/polaris_trgateD_7843532/` (summaries + logs; checkpoints and rollout npz stay in
+    `$MEMBER_ROOT/sqg_profile/gateD_tr_v1/`).
+
 - **2026-11-14** — **SQG: Warp built-ins reference (1.19.0) read in full and audited against the tile-row step:
   nothing applicable is unused except one fusion (est. 0–13%); upgrading Warp gains nothing. No code, no jobs.**
   Write-up `SQG/analysis/opt/warp/WARP_BUILTINS_AUDIT_2026-11-14.md`.
@@ -132,12 +152,12 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     1. In-tile C2R via `tile_load_indexed` or a reversed `tile_view`: −0.2 to +0.02 ms/step. Needs a probe,
        then the full gate battery.
     2. Skip rewriting W's zero rows (out-of-place column FFT): ~2%. Needs a bitwise check.
-- **2026-11-13 (in progress)** — **SQG: the same gates (A, B, E, D) for `tilerows_if25`.** The user asked "did we
-  also test if it avoids drifting and overfitting" (only `lean32ek_fast` had gate D), then "okay do the same gates
-  for tilerows_if25".
+- **2026-11-13 (done 2026-11-16; see that entry)** — **SQG: the same gates (A, B, E, D) for `tilerows_if25`.** The
+  user asked "did we also test if it avoids drifting and overfitting" (only `lean32ek_fast` had gate D), then "okay
+  do the same gates for tilerows_if25".
   - Rules and thresholds are unchanged, with production (`lean_u1`) as the reference.
-  - Prereg: `SQG/analysis/opt/tilegates/PREDICTIONS_gates_tilerows.md` (18 predictions; gate D's doses from the
-    arm's bias size); scorer `score_gates_tilerows.py`.
+  - Prereg: `SQG/analysis/opt/tilegates/PREDICTIONS_gates_tilerows.md` (15 predictions — this entry first said 18;
+    gate D's doses from the arm's bias size); scorer `score_gates_tilerows.py`.
   - Harness checks before submission:
     - gate A/B's pipeline reproduces `lean32ek`'s sealed statistics 72/72;
     - the modified energy analysis reproduces job 7836358's PASS_E.
@@ -158,7 +178,8 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
       (`DOSE_JOB_DONE failures=0`, 351 s). `GATED_TEST_OK` with PASS_D / FAIL_D / INCONCLUSIVE_NO_POWER for both
       pairs; training at 0.433 s/step; 8/8 rollouts; both analyses print a verdict.
     - D: **resubmitted as capacity 7843532** (the user's go-ahead). Same arguments as 7841338 except `TR_SRC`; the
-      same run name `gateD_tr_v1` and frames `gateD_frames` (resumable).
+      same run name `gateD_tr_v1` and frames `gateD_frames` (resumable). **DONE 2026-11-14: PASS_D** (2026-11-16
+      entry).
 
 - **2026-11-13** — **SQG 50-TU stability of tile-rows + IF-AB3 at 25 steps/frame (capacity job 7840662): STABLE,
   STATS PASS, production's 0.72 CFL policy EXCEEDED; 7 confirmed / 3 refuted. Notes Part XVII G.**

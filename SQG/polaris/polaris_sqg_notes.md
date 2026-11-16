@@ -2842,3 +2842,216 @@ first; **7/7 confirmed**).
   - 200 TU bound rare failures only to ≲ 1 per 67 TU (95%), against ~6,700 TU per o1.2 schedule.
   - The high-k excess and the episode velocities are what option B's statistical gates should judge.
   - `if32_25` (pure JAX) shares the scheme and the time step, so these results speak to it too.
+
+## H. Gates A, B, E and D for `tilerows_if25` (jobs 7841299, 7841269, 7843532; 2026-11-13 to 11-16)
+
+**Ask (user, 2026-11-13):**
+- "did we also test if it avoids drifting and overfitting". Only `lean32ek_fast` had been through gate D.
+- Then: "okay do the same gates for tilerows_if25".
+
+**Rules.** Every gate keeps its rule file and thresholds unchanged: A and B from `taxonomy/ACCEPTANCE_gates_AB.md`, E
+from `energy/PREDICTIONS_energy.md`, D from `gateD/PREDICTIONS_gateD.md`.
+- The reference stays production (`lean_u1`, bitwise production).
+- Prereg: `SQG/analysis/opt/tilegates/PREDICTIONS_gates_tilerows.md` (15 predictions, with gate D's dose rule).
+  Scorer: `score_gates_tilerows.py`. Both were committed before any job (a6378033, 58b1d1bd).
+- `if32_25` (pure JAX, same scheme and step) ran beside the candidate in A, B and E and is reported only.
+
+| gate | job | queue | results (`SQG/analysis/results/`) | verdict |
+|---|---|---|---|---|
+| A, B | 7841299 | debug | `polaris_trab_7841299/` | A **PASS**; B **NOT_PASS** on B3 detection, k2–4 only |
+| E | 7841269 | debug-scaling | `polaris_tre_7841269/` | **PASS_E** |
+| D | 7843532 | capacity | `polaris_trgateD_7843532/` | **PASS_D** (best.pt and last.pt) |
+
+Gate D's first try, 7841338, died in its stage-0 self-test. That was a harness bug, not a gate result: the self-test
+did not use the env doses (fix bdcaab2f; CHANGELOG 2026-11-13). Smoke 7843287 then passed.
+
+### Gates A and B (job 7841299)
+
+- **Validity.** All three checks hold:
+  - the regenerated `lean_u1` frames are bitwise equal to job 7824121's, 64/64;
+  - `lean32ek`'s sealed statistics are reproduced, 72/72;
+  - the floor table matches the protocol.
+- **Gate A: PASS.** Var_b(e)/A_b is 1.3e-7 to 5.3e-7, against a limit of 0.01.
+- **Gate B: NOT_PASS, on B3 detection in k2–4 only.**
+  - In k2–4, 4 of 6 shells sit at p < 0.0027 (fraction 0.67, limit 0.060), with z_x = −17.2.
+  - B1 and B2 hold in every band. The largest |B_x| is 4.96e-6 against T_b = 4.40e-4 (k2–4), a margin of 89×. The
+    learnable bias is ≤ 4.9e-6.
+  - By comparison, `lean32ek` failed B3 in 5 bands.
+- **`if32_25`:** the same verdicts.
+- **Accuracy (information only).** Median error of the 0.02 delta, over the 16 first pairs, against float64 IF-AB3 at
+  160 steps per frame:
+
+  | band | 1-2 | 2-4 | 4-8 | 8-16 | 16-32 | 32-64 | 64-128 | 128-182 |
+  |---|---|---|---|---|---|---|---|---|
+  | `lean_u1` (production) | 5.8e-5 | 1.8e-5 | 1.4e-5 | 2.1e-5 | 3.1e-5 | 5.7e-5 | 1.4e-4 | 2.1e-4 |
+  | `tilerows_if25` | 1.5e-5 | 7.2e-6 | 4.7e-6 | 5.6e-6 | 6.5e-6 | 1.0e-5 | 2.1e-5 | 2.7e-5 |
+  | `if32_25` | 1.9e-5 | 8.7e-6 | 5.8e-6 | 6.7e-6 | 7.7e-6 | 1.3e-5 | 2.4e-5 | 3.2e-5 |
+
+  `tilerows_if25` is 3–8× closer to the converged solution than production in every band. Most of what gate B
+  detects is production's own time-step error, not the candidate's.
+- **Gate D input.** R = rms B̂_tr / rms B̂_lean32ek = 1.164. The pre-set rule gives doses α_lo = 860 and α_hi = 8,600.
+
+### Gate E (job 7841269)
+
+- **Validity:**
+  - `lean_u1` is bitwise equal to gate D's frames at every checked call (4/4 ICs);
+  - `budget()` agrees with `GD.diagnostics` to ≤ 4e-16;
+  - the null arm `f64ic32` gives max |s| = 6e-13;
+  - the `dquant` calibration gives s = s_A;
+  - every arm is finite, with CFL < 0.72 at its own step (`tilerows_if25` max 0.599 at h).
+- **`tilerows_if25`: PASS_E.**
+  - SPE: mean s = −4.2e-6, max |s| = 1.96e-5 (0.20 T_E).
+  - VIE: mean s = −6.6e-8, max |s| = 2.4e-6.
+  - Production's own residual is −1.09e-5 (SPE) and −5.8e-7 (VIE).
+  - DETECTED: the residual is real but small. It is not "equivalent to double".
+- **`if32_25`:** PASS_E, max |s| 2.0e-5 (SPE) and 4.0e-6 (VIE).
+- **ms/step with the budget:** `tilerows_if25` 1.78, `if32_25` 2.84, `lean_u1` 6.45.
+
+### Gate D (job 7843532)
+
+**Run.**
+- `tilegates/run_tr_gateD_polaris.pbs`, 1-node capacity, x3004c0s37b0n0, 2026-11-13 16:59 → 2026-11-14 16:18
+  (83,944 s = 23.3 node-h). It ended `DOSE_JOB_DONE failures=0`.
+- Code ran from the snapshot `sqg_profile/src_trgateD_bdcaab2f`. The pattern is
+  `bias_pattern_tilerows_if25.json` from job 7841299.
+- **Frames:** job 7835786's `gateD_frames`, reused (16/16 complete; their records are bitwise equal to job 7824121 at
+  frames 0, 100, 200, 300 and 400), so this stage took 70 s.
+- **Training:** 4 arms, one per GPU, ~23 h. **Rollouts:** 340–359 s each, best + last per arm.
+- **Arms:** a0_sA, a0_sB, a860_sA, a8600_sA. In `dose_summary.json` the keys `delta_1000` / `delta_10000` hold the 860 /
+  8,600 arms.
+- **The injected pattern.** α_b < 0 in all 8 bands: the arm's 0.02 delta is slightly damped relative to production's.
+  `lean32ek`'s pattern changed sign across bands.
+
+**Validity: all checks pass.**
+- **Harness test.** `GATED_TEST_OK`:
+  - pattern round trip 2.2e-14;
+  - PASS_D / FAIL_D / INCONCLUSIVE_NO_POWER reproduced for both 1000/10000 and 860/8600;
+  - torch `bias_hat` vs numpy rel 5.5e-7.
+- **Training.** All 4 arms finished 195,250 steps, with no error or NaN lines.
+- **Stability.** 0/16 ICs blew up in all 8 rollouts. All 2,500 steps and 10/10 windows are usable.
+- **Power.**
+  - |Δ_8600| > N in 77/90 window-band cells on best.pt and 76/90 on last.pt.
+  - κ_8600 = 0.91 (best) and 0.99 (last), both above the 0.3 rule.
+
+**Training** (`DOSE_OVERFIT`; s/step = mean over the 79 val intervals):
+
+| arm | val_clean min (step) | final / min | train final | val / train | best.pt step | s/step |
+|---|---|---|---|---|---|---|
+| `a0_sA` | 0.005534 (180,000) | 1.0001 | 0.001637 | 3.38 | 180,000 | 0.4254 |
+| `a0_sB` | 0.005620 (165,000) | 1.0001 | 0.001665 | 3.38 | 165,000 | 0.4251 |
+| `a860_sA` | 0.005601 (180,000) | 1.0010 | 0.001639 | 3.42 | 180,000 | 0.4254 |
+| `a8600_sA` | 0.005576 (167,500) | 1.0009 | 0.001634 | 3.42 | 167,500 | 0.4254 |
+
+- **Seed spread vs dose.** The seeds differ by 1.6% in final val_clean. The doses move it by +1.3% (860) and +0.8%
+  (8,600), both inside the seed spread.
+- **No overfitting.** final/min ≤ 1.0010 in every arm.
+
+**Rollout drift, best.pt (deciding).** R = E/E_clim − 1 per 5-TU window; ranges are over the 10 windows. These tables
+are regenerated by `tilegates/table_trgateD.py`, and the post hoc cross-job table by its `--cross` mode.
+
+| quantity | R_0A (model's own) | N(w) | Δ_860 | Δ_8600 | windows \|Δ_8600\| > N | max real-bias effect | max real / (0.1 N) |
+|---|---|---|---|---|---|---|---|
+| E_low | −0.187 to +0.520 | 0.092–1.200 | −0.673 to −0.008 | −0.931 to −0.142 | 8/10 | 7.8e-04 | 0.017 |
+| k1-2 | −0.031 to +0.318 | 0.126–0.447 | −0.211 to +0.159 | −0.622 to −0.366 | 9/10 | 2.5e-04 | 0.012 |
+| k2-4 | −0.203 to +0.530 | 0.088–1.228 | −0.688 to −0.006 | −0.940 to −0.136 | 8/10 | 8.0e-04 | 0.016 |
+| k4-8 | −0.097 to +0.517 | 0.152–0.786 | −0.459 to +0.066 | −0.886 to −0.127 | 7/10 | 5.3e-04 | 0.008 |
+| k8-16 | −0.070 to +0.057 | 0.051–0.256 | −0.018 to +0.124 | −0.249 to −0.109 | 7/10 | 1.4e-04 | 0.009 |
+| k16-32 | −0.141 to +0.012 | 0.035–0.115 | +0.059 to +0.202 | +0.044 to +0.267 | 10/10 | 2.4e-04 | 0.028 |
+| k32-64 | −0.244 to −0.059 | 0.033–0.160 | +0.072 to +0.227 | +0.143 to +0.400 | 10/10 | 2.6e-04 | 0.037 |
+| k64-128 | −0.506 to −0.410 | 0.026–0.149 | +0.063 to +0.141 | +0.102 to +0.229 | 10/10 | 1.6e-04 | 0.041 |
+| k128-182 | −0.771 to −0.736 | 0.020–0.082 | +0.038 to +0.064 | +0.037 to +0.082 | 8/10 | 7.5e-05 | 0.028 |
+
+**last.pt (reported).** Also PASS_D.
+- The largest real / (0.1 N) is 0.043 (k64-128, 0–5 TU), a 23× margin.
+- The largest real-bias effect is 3.6e-4 (k2-4).
+- The model's own E_low is −0.186 to +0.149.
+- The seed spread reaches 1.39 in E_low at 45–50 TU.
+
+**Absorption κ (one step on the 512 held-out pairs).**
+
+| | κ_860 | κ_8600 | seed-noise reference (per 860 / per 8,600) |
+|---|---|---|---|
+| best.pt | −2.63 | 0.91 | −2.07 / −0.21 |
+| last.pt | −2.19 | 0.99 | 1.68 / 0.17 |
+
+- κ_8600 is resolved on both checkpoints: 4.4× (best) and 5.9× (last) its seed-noise reference. In Part XV it was
+  resolved only on last.pt.
+- At α = 860 the seed noise dominates, as in Part XV.
+
+**Verdict: PASS_D** on best.pt (and on last.pt).
+- Extrapolated to the arm's own size (α = 1), the effect is ≤ 8.0e-4 of a band energy.
+- In the tightest cell (k64-128, 0–5 TU) that is 25× below the pass line (0.1·N). Part XV's margin was 55×.
+
+**Post hoc (not pre-registered; the verdict above does not use it).**
+- **The low dose looks "detected" at k ≥ 16.**
+  - |Δ_860| > N in 33/90 cells on best.pt (22/90 on last.pt). In Part XV the low dose crossed N in 10/90.
+  - At k ≥ 16 the 860 and 8,600 arms both *add* energy in 10/10 windows, against the injected α_b < 0.
+  - Δ_8600/Δ_860 has medians of 1.3–2.3 there (1.7–3.5 on last.pt), not 10.
+  - Below k = 16, Δ_8600 removes energy in 10/10 windows, as injected.
+- **The cause is the reference arm, not the dose.** This job's a0_sA has the same seed, frames, ICs and climatology
+  as Part XV's a0_sA. But training is not bitwise reproducible: torch is seeded, but deterministic algorithms are not
+  forced. The two a0_sA runs end at different val_clean minima (0.005534 at 180,000 vs 0.005540 at 160,000), so they are
+  two independent realizations.
+
+  Medians over the 10 windows (best / last):
+
+  | quantity | Part XV a0_sA − this a0_sA | this Δ_860 | this a860_sA − Part XV a0_sA |
+  |---|---|---|---|
+  | E_low | −0.425 / −0.186 | −0.307 / −0.167 | +0.104 / +0.027 |
+  | k16-32 | +0.109 / +0.054 | +0.089 / +0.065 | −0.013 / +0.003 |
+  | k32-64 | +0.184 / +0.083 | +0.107 / +0.102 | −0.080 / +0.008 |
+  | k64-128 | +0.133 / +0.065 | +0.088 / +0.071 | −0.049 / +0.005 |
+  | k128-182 | +0.038 / +0.017 | +0.046 / +0.036 | +0.008 / +0.018 |
+
+  - At k ≥ 16, this job's α = 0 arm runs low by about the size of Δ_860.
+  - Measured against Part XV's α = 0 arm instead, the 860 arm's median offsets are −0.08 to +0.02.
+  - So the low dose's same-sign shift is realization noise in the reference arm.
+- **N understates the realization noise.** N(w) comes from one seed pair. Two same-seed realizations differ by up to
+  0.77 in E_low (45–50 TU, best.pt), above this job's N in some windows (e.g. 0.49 vs 0.25 at 25–30 TU).
+  - Both effects make the rule stricter, not looser. Realization noise inflates |Δ_lo|, so it inflates the "real" effect
+    that is tested. And a smaller N lowers the pass line.
+  - So PASS_D is an upper bound set by training noise. The true per-unit effect is not resolved.
+- **The model's own climate varies more between realizations than with dose.**
+  - This a0_sA's E_low climbs from −19% to +52% over 50 TU (best.pt). Part XV's seed-1 arm stayed at −16% to −26%.
+  - On best.pt, the dosed arms of both jobs stay at −8% to −49%.
+  - This is the same lesson as Part XV, made sharper: training realization sets rollout quality, not solver precision
+    or the time scheme.
+- **For any future gate D (suggestion only):** take N from ≥ 3 α = 0 realizations. Pooling the four α = 0 arms of jobs
+  7835786 and 7843532 (same frames and ICs) is free, but it is not part of either job's rule.
+
+### Scorecard (`score_gates_tilerows.py`): 15 confirmed, 0 refuted
+
+- A1–A7 (gates A/B, 7/7) and E1–E5 (gate E, 5/5): as scored at b60744a9 and 9a0843ad.
+- **D1 (0.7):** PASS_D on best.pt.
+- **D2 (0.85):** no overfitting in the α = 0 arms (final/min 1.0001 and 1.0001).
+- **D3 (0.6):** the α = 8,600 positive control drifts beyond N in 77/90 cells (8/10 windows on E_low).
+- The CHANGELOG entry of 2026-11-13 said "18 predictions"; the prereg table has 15.
+
+### What it means
+
+- **The pre-set chain for `tilerows_if25` now reads as `lean32ek_fast`'s did (Part XV).** Admitting it is the
+  user's call (prereg: "Admission stays the user's call").
+
+  | test | `lean32ek_fast` | `tilerows_if25` |
+  |---|---|---|
+  | gate A | PASS | PASS (Var/A_b ≤ 5.3e-7) |
+  | gate B | NOT_PASS on detection, 5 bands; ≥ 100× below T_b | NOT_PASS on detection, k2–4 only; 89× below T_b |
+  | gate E | PASS_E (max \|s\| 5.5e-6) | PASS_E (max \|s\| 1.96e-5 = 0.20 T_E) |
+  | gate D | PASS_D (55× best, 31× last) | PASS_D (25× best, 23× last; bound set by training noise) |
+  | 50-TU stability | not run | STABLE, STATS PASS; production's 0.72 CFL policy exceeded (G) |
+  | o1.2 s/step; 14-A100 schedule | 1.708; 94 h | 0.926; 50.9 h (F) |
+
+- **Unlike `lean32ek_fast`, most of this arm's difference from production is production's own error.**
+  `tilerows_if25` is 3–8× closer than production to the converged float64 solution in every band. Adopting it moves
+  o1.2's targets toward the converged solution, by about production's own time-step error.
+- **Open, the user's calls:**
+  1. admit `tilerows_if25` to generate o1.2's data;
+  2. whether o1.2 may ride through the CFL > 0.72 episodes (G);
+  3. option B statistical gates (the k > 500 excess, G);
+  4. a full-scale o1.2 run (Part XIII lists what it needs).
+- **Limits** (as Part XV):
+  - about 1/14 of o1.2's samples, on 12 TU of training data;
+  - only the band-level bias pattern is injected;
+  - two seeds;
+  - the 1× effect is a linear extrapolation from α = 860.
+  - New here: same-seed arms are not paired, because training is not bitwise reproducible.
