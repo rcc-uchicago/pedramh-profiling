@@ -14,6 +14,10 @@
 # to 2 significant figures, alpha_hi = 10 alpha_lo, R from gates_ab_tr.py).
 #   qsub -v TR_SRC=<snap>,DOSE_BIAS_PATTERN=<json>,DOSE_LO=<a>,DOSE_HI=<10a> -o .../sqg_profile/logs/ \
 #        SQG/analysis/opt/tilegates/run_tr_gateD_polaris.pbs                   (capacity; SMOKE=1 on debug as before)
+# Or, submitted before gates A/B have run (2026-11-16, PREDICTIONS_gates_inrow.md): the doses are read at start by
+# doses_from_trab.py (same rule), which refuses unless A/B is valid and judged TR_CAND:
+#   qsub -W depend=afterany:<A/B job> -v TR_SRC=<snap>,TRAB_RES=<polaris_trab_<job> dir>,TRAB_LOG=<its PBS output>,\
+#        TR_CAND=<arm>,RUN_NAME=<new name> ...                                  (RUN_NAME required: never gateD_tr_v1)
 # Stages, each resumable (a rerun or a resubmission with the same RUN_NAME continues):
 #   0 test_gateD.py under sqg-env (GATED_TEST_OK, torch checks on the GPU)
 #   1 gen_frames.py x 4 (16 segments; complete ones are skipped; bitwise vs taxonomy 7824121)
@@ -47,6 +51,16 @@ JOB="${PBS_JOBID%%.*}"
 export PYTHONUNBUFFERED=1
 HERE=SQG/analysis/opt/gateD
 REF="${MEMBER_ROOT}/sqg_profile/taxonomy_7824121"
+if [ -n "${TRAB_RES:-}" ]; then                         # late-bound doses from a finished gates A/B run
+    [ -z "${DOSE_BIAS_PATTERN:-}${DOSE_LO:-}${DOSE_HI:-}" ] && [ -n "${TR_CAND:-}" ] && [ -n "${RUN_NAME:-}" ] \
+        && [ "${RUN_NAME}" != "gateD_tr_v1" ] || {
+        echo "ERROR TRD_LATE_ARGS TRAB_RES needs TR_CAND and a new RUN_NAME, and no DOSE_* (RUN_NAME=${RUN_NAME:-})";
+        echo "DOSE_JOB_DONE failures=1"; exit 5; }
+    D_LINE=$("$PY" "$SRC/SQG/analysis/opt/tilegates/doses_from_trab.py" --res "$TRAB_RES" --candidate "$TR_CAND" \
+        ${TRAB_LOG:+--log "$TRAB_LOG"}) || { echo "$D_LINE"; echo "DOSE_JOB_DONE failures=1"; exit 5; }
+    echo "$D_LINE"
+    read -r _ DOSE_LO DOSE_HI DOSE_BIAS_PATTERN TRAB_R <<< "$D_LINE"
+fi
 if [ "${SMOKE:-0}" = "1" ]; then
     RUN_NAME="gateD_smoke_${JOB}"; FRAMES="${MEMBER_ROOT}/sqg_profile/gateD_frames_smoke_${JOB}"
     SEG_T=0.05; STEPS=300; VAL_EVERY=100; CKPT_EVERY=100; RSTEPS=500; N_IC=4; NTIMES=1; N_VAL=128

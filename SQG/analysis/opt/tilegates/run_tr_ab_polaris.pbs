@@ -15,6 +15,9 @@
 # 4 x tr_pairs.py (GPU w: the taxonomy job's states, member ((w + i) mod 4) + 1 at t = TIMES[i], 4 pairs each), then
 # gates_ab_tr.py. End token (every exit path): TRAB_JOB_DONE failures=N. Results -> SQG/analysis/results/
 # polaris_trab_<jobid>/ (incl. bias_pattern_tilerows_if25.json for gate D); pair npz stay in $MEMBER_ROOT/sqg_profile/.
+# 2026-11-16 (PREDICTIONS_gates_inrow.md): TR_ARMS ('+'-separated: qsub -v splits on commas) and TR_CAND (the
+# deciding arm) choose the arms; the defaults are job 7841299's (tilerows_if25+if32_25 / tilerows_if25). The in-row
+# battery passes -v TR_ARMS=tilerows_inrow_if25+tilerows_if25,TR_CAND=tilerows_inrow_if25.
 set -eo pipefail
 FAILURES=0
 DONE_PRINTED=0
@@ -52,6 +55,9 @@ export PYTHONUNBUFFERED=1
 WARP_PATH="${WARP_PATH:-${MEMBER_ROOT}/pylibs/warp-1.17.0}"
 NVMATH_PATH="${NVMATH_PATH:-${MEMBER_ROOT}/pylibs/nvmath-1.0.0}"
 TAXO="${TAXO:-${MEMBER_ROOT}/sqg_profile/taxonomy_7824121}"
+TR_ARMS="${TR_ARMS:-tilerows_if25+if32_25}"
+TR_ARMS="${TR_ARMS//+/,}"
+TR_CAND="${TR_CAND:-tilerows_if25}"
 OUT="${MEMBER_ROOT}/sqg_profile/trab_${JOB}"
 RES="${REPO}/SQG/analysis/results/polaris_trab_${JOB}"
 mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
@@ -66,9 +72,9 @@ for d in "$WARP_PATH/warp" "$NVMATH_PATH/nvmath" "$TAXO/sealed"; do
     [ -d "$d" ] || { echo "ERROR TRAB_INPUT_MISSING $d"; exit 5; }
 done
 T0=$(date +%s)
-echo "=== run_tr_ab on $(hostname) job $JOB: $(date '+%F %T') src=$SRC taxo=$TAXO ==="
+echo "=== run_tr_ab on $(hostname) job $JOB: $(date '+%F %T') src=$SRC taxo=$TAXO arms=$TR_ARMS cand=$TR_CAND ==="
 nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee "$OUT/gpu.csv"
-sha256sum "$HERE"/*.py SQG/analysis/opt/o12run/tilerows_advance.py "$HERE"/PREDICTIONS_gates_tilerows.md \
+sha256sum "$HERE"/*.py SQG/analysis/opt/o12run/tilerows_advance.py "$HERE"/PREDICTIONS_gates_*.md \
     | tee "$OUT/sha256.txt"
 "$PY" SQG/analysis/opt/o12run/test_tilerows_advance.py 2>&1 | tee "$OUT/test_tilerows_advance.log" || fail TR_TEST
 grep -q "O12_TR_TEST_OK" "$OUT/test_tilerows_advance.log" || fail TR_TEST_NO_TOKEN
@@ -92,7 +98,7 @@ for w in 0 1 2 3; do
     mkdir -p "$OUT/warp_cache_w$w"
     # shellcheck disable=SC2086
     CUDA_VISIBLE_DEVICES=$w WARP_CACHE_PATH="$OUT/warp_cache_w$w" "$PY" "$HERE/tr_pairs.py" --out "$OUT" --worker $w \
-        ${WARGS[$w]} --taxo "$TAXO" --warp-path "$WARP_PATH" --nvmath-path "$NVMATH_PATH" \
+        ${WARGS[$w]} --taxo "$TAXO" --warp-path "$WARP_PATH" --nvmath-path "$NVMATH_PATH" --arms "$TR_ARMS" \
         > "$OUT/worker_${w}.log" 2>&1 &
     pids+=($!)
 done
@@ -103,7 +109,8 @@ for w in 0 1 2 3; do
 done
 echo "=== workers done $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
 
-OPENBLAS_NUM_THREADS=8 "$PY" "$HERE/gates_ab_tr.py" --taxo "$TAXO" --new "$OUT" --out "$RES" 2>&1 \
+OPENBLAS_NUM_THREADS=8 "$PY" "$HERE/gates_ab_tr.py" --taxo "$TAXO" --new "$OUT" --out "$RES" --arms "$TR_ARMS" \
+    --candidate "$TR_CAND" 2>&1 \
     | tee "$OUT/gates_ab_tr.log" || fail TRAB_ANALYSIS_RC
 grep -q "GATES_AB_TR_DONE" "$OUT/gates_ab_tr.log" || fail TRAB_ANALYSIS_NO_TOKEN
 

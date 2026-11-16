@@ -48,8 +48,8 @@ import lean32_fast as LF                                             # noqa: E40
 ARMS = ("lean_u1", "lean32ek_fast", "f64ic32", "dquant", "lean32")   # run order: reference and candidate first
 # 2026-11-13 (PREDICTIONS_gates_tilerows.md): IF-AB3 arms at 25 steps per 40-step call (h = 8e-6), through
 # o12run/tilerows_advance.py; not in the default --arms. CFL and ms/step use each arm's own step.
-ARMS_EXTRA = ("tilerows_if25", "if32_25")
-ARM_STEPS = {"tilerows_if25": 25, "if32_25": 25}                     # solver steps per call (else STRIDE)
+ARMS_EXTRA = ("tilerows_if25", "if32_25", "tilerows_inrow_if25")    # + the in-row arm (PREDICTIONS_gates_inrow.md)
+ARM_STEPS = {"tilerows_if25": 25, "if32_25": 25, "tilerows_inrow_if25": 25}   # solver steps per call (else STRIDE)
 FIELDS = ("SPE", "VIE", "P_S", "nu_S", "mu_S", "P_V", "nu_V", "mu_V",
           "Q_S", "Q_V", "B_S", "B_V", "A_S", "A_V", "E_S", "E_V")
 CHECK_CALLS = (0, 1, 10, 100, 1000, 2500)
@@ -136,7 +136,7 @@ def main():
     if set(arms) & set(ARMS_EXTRA):
         for p in ("timestep", "tilerows", "o12run"):
             sys.path.insert(0, os.path.join(OPT, p))
-        if "tilerows_if25" in arms:
+        if any(a.startswith("tilerows") for a in arms):                # the Warp tile-row arms
             import site
             sys.path.insert(0, args.warp_path)
             site.addsitedir(args.nvmath_path)

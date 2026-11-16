@@ -3,7 +3,8 @@ archived states x 4 consecutive 0.02 pairs as the taxonomy job 7824121 (taxonomy
 every pair start. One A100 per process; run_tr_ab_polaris.pbs starts 4, then gates_ab_tr.py.
 
   "$PY" tr_pairs.py --out <dir> --worker <w> --ckpt <member>:<npz> [--ckpt ...] --taxo <taxonomy_7824121 dir>
-        --warp-path <dir> --nvmath-path <dir>
+        --warp-path <dir> --nvmath-path <dir> [--arms tilerows_if25,if32_25]
+--arms (2026-11-16, PREDICTIONS_gates_inrow.md): any tilerows_advance.py schemes; the default is job 7841299's pair.
 
 Per state (loaded as o1.2 does, taxonomy.py L114-124) and pair j, S_{j+1} = lean_u1's state 4,000 steps after S_j:
   lean_u1        regenerated (bitwise production); its sub / af frames at every lag are checked bit for bit against
@@ -64,7 +65,9 @@ def main():
     ap.add_argument("--pairs", type=int, default=4)
     ap.add_argument("--warp-path", required=True)
     ap.add_argument("--nvmath-path", required=True)
+    ap.add_argument("--arms", default="tilerows_if25,if32_25", help="tilerows_advance.py schemes, comma separated")
     args = ap.parse_args()
+    arms = tuple(x for x in args.arms.split(",") if x)
     os.makedirs(args.out, exist_ok=True)
     W = args.worker
 
@@ -85,6 +88,7 @@ def main():
     N, DT, STRIDE, M = GD.N, GD.DT, PS.STRIDE, PS.M
     template = GD.sqg.init(GD.p, jax.random.key(GD.SEED_INITIAL_CONDITION))
     res = {"worker": W, "device_kind": jax.devices()[0].device_kind, "jax": jax.__version__, "lags_frames": LAGS,
+           "arms": list(arms),
            "ref_nsub": REF_NSUB, "states": [], "bitwise_vs_7824121": [], "npz": [], "errors": []}
 
     def config_hash(member):
@@ -101,9 +105,9 @@ def main():
     _, ncol = LS.preconditions(GD)
     cu1 = LS.build_consts(GD, ncol)
     u1_call = LS.make_advance(GD, STRIDE, ncol=ncol, unroll1=True)
-    adv = {"lean_u1": lambda st: u1_call(st, cu1),
-           "tilerows_if25": TA.make(GD, STRIDE, "tilerows_if25", rank=W, log=print, gate=False),
-           "if32_25": TA.make(GD, STRIDE, "if32_25", rank=W, log=print, gate=False)}
+    adv = {"lean_u1": lambda st: u1_call(st, cu1)}
+    for arm in arms:
+        adv[arm] = TA.make(GD, STRIDE, arm, rank=W, log=print, gate=False)
     ladder = IF.Ladder(GD, ncol, cu1)
 
     def af_rows(a):
@@ -161,7 +165,7 @@ def main():
                           for k in (0,) + LAGS)
             res["bitwise_vs_7824121"].append({"pair": name, "equal": bool(bit)})
             dump, secs = {}, {}
-            for arm in ("tilerows_if25", "if32_25"):
+            for arm in arms:
                 ta = time.time()
                 sub_v, af_v, _ = run_frames(adv[arm], s)
                 secs[arm] = round(time.time() - ta, 2)

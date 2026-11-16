@@ -94,11 +94,18 @@ def rel_close(a, b, tol=1e-9):
 
 
 def main():
+    global ARMS, CANDIDATE
     ap = argparse.ArgumentParser()
     ap.add_argument("--taxo", required=True)
     ap.add_argument("--new", required=True)
     ap.add_argument("--out", required=True)
+    # 2026-11-16 (PREDICTIONS_gates_inrow.md): the arms and the deciding one; the defaults are job 7841299's
+    ap.add_argument("--arms", default=",".join(ARMS))
+    ap.add_argument("--candidate", default=CANDIDATE)
     a = ap.parse_args()
+    ARMS, CANDIDATE = tuple(x for x in a.arms.split(",") if x), a.candidate
+    if CANDIDATE not in ARMS:
+        raise SystemExit(f"ERROR TRAB_CANDIDATE_NOT_IN_ARMS {CANDIDATE} {ARMS}")
     os.makedirs(a.out, exist_ok=True)
     G = AT.geometry()
     nb = len(AT.BANDS)
@@ -116,7 +123,8 @@ def main():
     for p in pairs:
         clusters.setdefault((p["w"], p["s"]), len(clusters))
     ncl = len(clusters)
-    res = {"pairs": len(pairs), "new_pairs": sum(p["new"] for p in pairs), "states": ncl, "validity": {}}
+    res = {"pairs": len(pairs), "new_pairs": sum(p["new"] for p in pairs), "states": ncl, "validity": {},
+           "arms": list(ARMS), "candidate": CANDIDATE}
     print(f"TRAB_DATA pairs={len(pairs)} with new arms={res['new_pairs']} states={ncl}", flush=True)
 
     # ---- validity: regenerated production frames, sealed reproduction ---------------------------------------------
