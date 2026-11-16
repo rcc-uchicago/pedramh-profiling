@@ -108,6 +108,9 @@ if [ "$FAILURES" = "0" ]; then
             tilerows_if25_cufft114) s=tilerows_if25; pre="$TK/libnvJitLink.so.12:$TK/libcufft.so.11" ;;
             tilerows_if25_scatter_t) s=tilerows_if25; extra="O12_TR_EXPAND=scatter O12_TR_TIMING=1" ;;
             tilerows_if25_concat_t) s=tilerows_if25; extra="O12_TR_EXPAND=concat O12_TR_TIMING=1" ;;
+            # the network's precision (mixprec/PREDICTIONS_mixprec.md, probe 2); the bare name is o1.2's ieee
+            tilerows_inrow_if25_tf32) s=tilerows_inrow_if25; extra="O12_PREC=tf32" ;;
+            tilerows_inrow_if25_bf16) s=tilerows_inrow_if25; extra="O12_PREC=bf16" ;;
         esac
         echo "=== arm $a (solver $s, preload ${pre:-none}, env ${extra:-none}): $(date '+%F %T') (limit $LIMIT s)"
         mkdir -p "$RUN/$a"

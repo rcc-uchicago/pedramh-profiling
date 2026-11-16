@@ -191,6 +191,8 @@ def main():
         with open(os.path.join(args.out, f"worker_{W}.json"), "w") as fh:
             json.dump(jsonable(res), fh, indent=1)
     ok = all(b["equal"] for b in res["bitwise_vs_7824121"])
+    if "mixprec" in sys.modules:                                     # @policy arms: stored 16-bit column fractions
+        res["mixprec"] = sys.modules["mixprec"].summary()
     res["wall_s"] = round(time.time() - t_wall, 1)
     with open(os.path.join(args.out, f"worker_{W}.json"), "w") as fh:
         json.dump(jsonable(res), fh, indent=1)

@@ -14,7 +14,8 @@ must match exactly once and keeps the line count (tracebacks point at the real l
                N_EPOCH, STEPS_PER_EPOCH, N_VAL, BUF; O12_SOLVER = ref (o1.2's own call) | lean_u1 | lean32ek_fast
                | if32_25 | tilerows40 | tilerows_if25 | tilerows_inrow_if25 (tilerows_advance.py; Warp from
                O12_WARP_PATH, nvmath from O12_NVMATH_PATH, a per-rank Warp kernel cache under O12_WARP_CACHE;
-               O12_TR_GATE=1: rank 0's in-situ accuracy gate on the first segment).
+               O12_TR_GATE=1: rank 0's in-situ accuracy gate on the first segment). O12_PREC = ieee (o1.2's strict
+               fp32, default) | tf32 | bf16 (autocast on the training forward): mixprec/PREDICTIONS_mixprec.md.
 Timing lines (rank 0): O12_FILL, O12_BITWISE, O12_EPOCH (per-step median / p10 / p90, train, val, save), O12_PHASES.
 
   O12_OUT=<run dir> O12_VAL_STORE=<dir> O12_REF_DIR=<taxonomy raw dir> SQG_ASQG_PY=... SQG_TRAINING_ROOT=... \
@@ -109,7 +110,12 @@ PATCHES = [
      "        __O12__.timed('save_last', save, last_path, epoch, val_loss); __O12__.epoch_done(epoch, n_steps, t_train)"),
     ("save_best", "            save(best_path, epoch, val_loss)",
      "            __O12__.timed('save_best', save, best_path, epoch, val_loss)"),
+    # 2026-11-16 (mixprec/PREDICTIONS_mixprec.md, probe 2): O12_PREC = ieee (default: o1.2's own) | tf32 | bf16
+    ("prec_check", "\ncheck_fp32()\n", "\n__O12__.precision(torch, check_fp32)\n"),
+    ("autocast", "        loss = criterion(model(x), y)\n",
+     "        with __O12__.autocast(): loss = criterion(__O12__.seen(model(x)), y)\n"),
 ]
+PRECS = ("ieee", "tf32", "bf16")
 
 
 def apply_patches(src, patches=PATCHES):
@@ -186,6 +192,40 @@ class Helper:
         self.members = [int(m) for m in env.get("O12_MEMBERS", "1,2,3,4").split(",")]
         self.env, self.ref_dir, self._ref_index = env, env.get("O12_REF_DIR"), None
         self.t_start, self.marks, self.fill, self.steps, self.knobs = time.time(), {}, [], [], {}
+        self.prec, self._seen = env.get("O12_PREC", "ieee"), False
+        if self.prec not in PRECS:
+            raise SystemExit(f"ERROR O12_PREC={self.prec!r} not in {PRECS}")
+
+    # ---- O12_PREC (probe 2 of mixprec/PREDICTIONS_mixprec.md): the network's precision; ieee = o1.2's own ------
+    def precision(self, torch, check_fp32):
+        """o1.2 L153's check_fp32(), after switching the network's precision. ieee: unchanged (the check asserts).
+        tf32: TF32 matmul + cuDNN conv, and the check must FAIL (logged: proof that TF32 is on). bf16: strict fp32
+        flags, the training forward under bf16 autocast (autocast()); the check passes."""
+        self.log(f"O12_PREC {self.prec}")
+        if self.prec == "ieee":
+            check_fp32()
+            return
+        if self.prec == "tf32":
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.set_float32_matmul_precision("high")
+        try:
+            check_fp32()
+            self.log(f"O12_PREC_CHECK {self.prec} strict_fp32_check=passed")
+        except AssertionError as exc:
+            self.log(f"O12_PREC_CHECK {self.prec} strict_fp32_check=failed ({str(exc)[:160]})")
+
+    def autocast(self):
+        import contextlib
+        import torch
+        return torch.autocast("cuda", dtype=torch.bfloat16) if self.prec == "bf16" else contextlib.nullcontext()
+
+    def seen(self, out):
+        """The training forward's output, unchanged; logs its dtype once (bf16 under autocast)."""
+        if not self._seen:
+            self._seen = True
+            self.log(f"O12_PREC_FORWARD {self.prec} output_dtype={out.dtype}")
+        return out
 
     def log(self, msg):
         if self.is_main:

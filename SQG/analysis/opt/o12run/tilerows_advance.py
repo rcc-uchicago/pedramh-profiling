@@ -37,7 +37,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OPT = os.path.dirname(HERE)
-for _p in ("seed1", "delta", "taxonomy", "timestep", "tilerows", "inrow"):
+for _p in ("seed1", "delta", "taxonomy", "timestep", "tilerows", "inrow", "mixprec"):
     if os.path.join(OPT, _p) not in sys.path:
         sys.path.insert(0, os.path.join(OPT, _p))
 
@@ -82,7 +82,9 @@ def full_from_compact(xp, c, n, nk, km):
 
 def make(GD, stride, scheme, *, rank=0, log=print, gate=False, history=False):
     """history=True (tile-row arms): the returned state's _updates are the true newest and second tendencies
-    (expanded to complex128) instead of the input's -- for callers that read them (energy_budget.py's Q terms)."""
+    (expanded to complex128) instead of the input's -- for callers that read them (energy_budget.py's Q terms).
+    tilerows_inrow_if<n>@<policy> (2026-11-16, mixprec/PREDICTIONS_mixprec.md): the in-row solver with its
+    intermediates rounded to 16 bits by mixprec.make_solver; plain scheme names are unchanged."""
     import jax
     import jax.numpy as jnp
     from pyqg_jax import steppers as pst
@@ -90,7 +92,10 @@ def make(GD, stride, scheme, *, rank=0, log=print, gate=False, history=False):
     import lean32_precise as LP
     import lean32_fast as LF
     import if_ab3 as IF
-    kind, if_mode, n = parse(scheme, stride)
+    base_scheme, _, policy = scheme.partition("@")
+    kind, if_mode, n = parse(base_scheme, stride)
+    if policy and kind != "tri":
+        raise ValueError(f"{scheme}: a precision policy needs the in-row solver (tilerows_inrow_if<n>@<policy>)")
     N, NK, DT = GD.N, GD.N // 2 + 1, GD.DT
     h = stride * DT / n
     _, ncol = LS.preconditions(GD)
@@ -183,7 +188,11 @@ def make(GD, stride, scheme, *, rank=0, log=print, gate=False, history=False):
               "f0patch": np.concatenate([np.asarray(c32["f0bot"]), np.asarray(c32["f0top"])], 0).astype(np.complex64)}
     if kind == "tri":
         import inrow_step as IRS
-        solver = IRS.InRow(tables, h, if_mode=if_mode)
+        if policy:
+            import mixprec as MP
+            solver = MP.make_solver(tables, h, if_mode=if_mode, policy=policy)
+        else:
+            solver = IRS.InRow(tables, h, if_mode=if_mode)
         fft_rows = torch.as_tensor(TS.ROW_IDX, device="cuda")
     else:
         solver = TS.TileRows(tables, h, if_mode=if_mode)
