@@ -114,6 +114,35 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-16 (in progress)** — **SQG on Midway3's H100 NVL, timed as on Polaris (`SQG/midway3/MIDWAY3_INROW_PROMPT.md`).
+  Built on branch `sqg-midway3-inrow`. Job 1 (env) = 63274057, Job 2 (solver step + gates) = 63274058
+  (afterok). Both pending: the only `pedramh-gpu` node is held by job 63233495 (no time limit).** Notes:
+  `SQG/midway3/midway3_sqg_notes.md`.
+  - **Env, Option A (wdenv, read only):** matches every key Polaris `sqg-env` pin (jax 0.4.28, torch 2.3.1, cuFFT
+    wheel 11.0.2.54, cuDNN 8.9.2). Warp 1.17.0 and nvmath 1.0.0 are in `--target` dirs under
+    `/project/rcc/mehta5/sqg_midway3/pylibs`. All 16 o1.2 checkpoints exist on Midway and are symlinked read only.
+  - **Prereg first:** `SQG/midway3/PREDICTIONS_midway3_timing.md` (1c6176a3) and its stdlib scorer
+    (`MIDWAY3_SCORER_TEST_OK` on the real Polaris files).
+    - Predicted H100 speedups: f32 solver step 2.1× [1.5, 2.7]; f64 2.3× [1.5, 3.2]; strict-FP32 ML step
+      2.0× [1.3, 3.0].
+    - `tilerows_inrow_if25` → 0.43 s per o1.2 step [0.31, 0.64], ~82 h on 1 node at batch 16.
+    - Directional: the ML step shrinks less than the solver.
+  - **Scripts** (Polaris `.pbs` untouched): `run_inrow_midway.sh` (Job 2, + seed 1), `run_o12_midway.sh` (3A),
+    `run_o12_tilerows_midway.sh` (3B; 3C = `_b32` arms).
+    - Every timed job: `--exclusive`; an env stage records the cuFFT / cudart actually mapped and Warp's mathdx flag.
+    - A guard fails the job if `LD_LIBRARY_PATH` carries a CUDA module.
+  - **`o12_extrapolate.py`:** additive "1 node, 4 GPUs, batch 32" config, projected only from batch-32 logs (Polaris
+    projections unchanged, re-checked). New `table_o12_solvers_midway.py` (H100 | A100 | ratio, step split, per-op
+    split).
+  - **Blocked:**
+    1. Jobs 3A–3C need Polaris' 20 MiB `o12tr_7853365/val_store/` copied to `/project/rcc/mehta5/sqg_midway3/val_store/`
+       (user's credentials).
+    2. All jobs wait for the node. `pedramh-gpu2` is idle but **H200**, so it would not give an H100 comparison
+       (user's call).
+  - **Next:** when 63274057 / 63274058 finish, key on `SQG_MIDWAY_PROBE_DONE failures=0` / `IR_JOB_DONE failures=0`.
+    Then score with `score_midway3_timing.py --probe --inrow`, `git add -f` the result dirs, and submit 3A, 3B, 3C
+    once the val store is present.
+
 - **2026-11-16** — **SQG: `inrow/inrow_step.py` (the `tilerows_inrow_if25` solver) fully documented. No code change:
   the docstring-stripped AST is identical to the previous commit's.** The user asked for docstrings and comments on
   what each line and function does, the maths, and which kernel represents it.
