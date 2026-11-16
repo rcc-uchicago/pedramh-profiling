@@ -114,9 +114,22 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
-- **2026-11-16 (in progress)** — **SQG: in-tile C2R probe, the Warp built-ins audit's "up to ~13%" item (candidate
-  1). Debug job 7853317, from snapshot `sqg_profile/src_inrow_0d1ac0ed`.** The user asked to include "the last item
-  from the documentation … there was a 13% boost" (the 11-14 audit session).
+- **2026-11-16** — **SQG: in-tile C2R, the Warp built-ins audit's "up to ~13%" item (candidate 1): WORTH. Debug
+  job 7853317 (failures=0): 1.482 vs 1.594 ms/step (−7.0%) at production cuFFT, G32 / GIF pass, 15/15 predictions
+  confirmed. Notes Part XVII I.** The user asked to include "the last item from the documentation … there was a 13%
+  boost" (the 11-14 audit session).
+  - **Result:**
+    - θ's q_u is slightly more accurate than cuFFT C2R's (rms 3.09e-7 vs 3.51e-7).
+    - `hi` was preserved, and its zero rows stayed zero.
+    - The row kernel costs 0.418 ms (+0.115 ms). It removes 0.380 ms of `expand` + C2R, and θ's column pass adds
+      0.129 ms.
+    - CUDA graph: 1.467 vs 1.578 ms. The cuFFT 11.4.1 pass gives ratio 0.927.
+  - **Do not re-try:** W's FFT before θ's in that kernel. It is bit-identical but 8.8% slower (register pressure).
+    Block 512 is slower too.
+  - **o1.2 projection (not measured):** 300 solver steps per optimizer step → ≈ −34 ms of 0.926 s (−3.6%). The
+    14-A100 schedule goes 50.9 → ≈ 49 h.
+  - **Owed:** the o1.2 arm and its timing (debug), then gates A/B/E/D (D on capacity = the user's call).
+  - **Run setup:** from snapshot `sqg_profile/src_inrow_0d1ac0ed`.
   - **Design** (`SQG/analysis/opt/inrow/inrow_step.py`):
     - The state's `hi` is stored in FFT row order, so θ's inverse column pass is one out-of-place cuFFT C2C straight
       from the state. `expand` and the 2-D C2R (0.079 + 0.302 ms) are removed.
@@ -127,8 +140,6 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   - **Rules** (`PREDICTIONS_inrow.md`, committed first at 0d1ac0ed): G32 / GIF unchanged; WORTH needs ≤ 0.97 ×
     `tilerows32` in the same job (production cuFFT). Prior: 0–10% gain. Job 7840069's fused 3-FFT row kernel (0.549
     ms) is the no-gain case.
-  - **Next:** score with `score_inrow.py <res>/inrow_probe_prod.json`. If WORTH, an o1.2 arm, then gates A/B/E/D (D
-    on capacity = the user's call). If not, add it to the audit's "Do not re-try".
 
 - **2026-11-16** — **SQG gate D for `tilerows_if25` (capacity job 7843532, failures=0): PASS_D on best.pt (25×
   margin) and last.pt (23×). All four gates are now done for it: A PASS, B NOT_PASS on detection only (k2–4), PASS_E,

@@ -82,6 +82,15 @@ fewer bytes (fusion), not from faster arithmetic.**
      waste measured 3× slower.
    - **Cost:** it changes the rounding (a different FFT path for θ), so if it wins it needs the full gate
      battery (A, B, E, D), as `tilerows_if25` did.
+   - **MEASURED 2026-11-16 (job 7853317, `opt/inrow/`, notes Part XVII I): WORTH.** 1.482 vs 1.594 ms/step
+     (−7.0%) at production cuFFT. G32 / GIF pass, θ is slightly more accurate than C2R, and 15/15 predictions were
+     confirmed.
+     - **The build was simpler than planned above.** `hi` is stored in FFT row order, so θ's column pass is an
+       out-of-place C2C from the state. No `expand` is needed.
+     - Bounds-checked tile loads zero-pad, so no `tile_load_indexed` is needed. The row inverse is one-sided:
+       q_u = 2·Re IFFT(G) with G₀ halved.
+     - The row kernel costs 0.418 ms (+0.115 ms).
+     - Still owed: an o1.2 arm and gates A/B/E/D.
 2. **Skip rewriting W's zero rows (not a built-in; found while checking).**
    - **Change:** make the forward column FFT out-of-place from a persistent zero-padded buffer, so `build_w`
      writes the 2,731 kept rows instead of all 4,096.
@@ -95,3 +104,5 @@ fewer bytes (fusion), not from faster arithmetic.**
 - Tile column FFTs in any of the three layouts measured: 2× slower than cuFFT (7840069).
 - cuFFT callbacks to fuse SIMT work into the column passes: doubled the FFT cost (hybrid job 7840175).
 - Upgrading Warp for built-ins: nothing in 1.18 / 1.19's built-in list helps this step.
+- In the in-tile C2R row kernel, doing W's FFT before θ's. The result is bit-identical, but it runs 8.8% slower
+  (1.612 vs 1.482 ms/step; two complex tiles live). Block 512 is slower too (1.622) (job 7853317).
