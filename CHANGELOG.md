@@ -117,6 +117,23 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 - **2026-11-16 (in progress)** — **SQG: gates A, B, E and D for `tilerows_inrow_if25`. Jobs: A/B 7854208
   (capacity), D 7854209 (capacity, held on A/B), E 7854210 (debug-scaling). Snapshot
   `sqg_profile/src_trgates_inrow_29eeca11`.** The user asked: "okay run it on capacity for gates A-D".
+  - **Interim, A/B and E done (both `failures=0`): A PASS, B NOT_PASS on detection only, E PASS_E. 10 confirmed /
+    4 refuted / 3 unscored (D).**
+    - **A/B 7854208** (1,098 s): valid (64/64 bitwise, sealed 72/72, floor matches). Gate A max Var/A_b is
+      5.29e-7.
+    - **Gate B** fails on B3 in k2-4 (4 of 6 shells, as `tilerows_if25`) and in **k4-8**. In k4-8 one shell of
+      20 is over the limit (0.050 vs 0.035); `tilerows_if25` has none there. B1, B2 and power hold in every
+      band. The k4-8 bias is 1.15e-6 against T_b 7.12e-4.
+    - **R = 1.0798**, 7.3% under `tilerows_if25`'s 1.1643: the in-row bias estimate is smaller (rms 2.06e-7 vs
+      2.22e-7). So D's doses are **930 / 9300** (`doses_from_trab.py` preview, by the rule), not 860 / 8600.
+    - Accuracy against ref160 is 0.974–1.026× `tilerows_if25`'s.
+    - The `tilerows_if25` re-run reproduces job 7841299's gate A/B dicts exactly, and 7841269's energy numbers
+      too.
+    - **E 7854210** (2,228 s): valid. PASS_E with max |s| SPE 1.971e-5 and VIE 2.400e-6, against
+      `tilerows_if25`'s 1.959e-5 / 2.397e-6 in the same job. ms/step (budget included) 1.659 vs 1.699.
+    - **Refuted:** A4 and A5 (the extra k4-8 band), A6 (R ±2%) and A7 (doses 860).
+    - Score log: `results/polaris_trab_7854208/score_gates_inrow_AE.log`. D 7854209 was queued on capacity at
+      the time of writing. Do not move `polaris_trab_7854208/`: D reads its pattern when it starts.
   - **Rules:** the same gates, thresholds and reference as the `tilerows_if25` battery. The reported arm is now
     `tilerows_if25` (it was `if32_25`).
   - **Prereg:** `SQG/analysis/opt/tilegates/PREDICTIONS_gates_inrow.md`, 17 predictions, committed first at
