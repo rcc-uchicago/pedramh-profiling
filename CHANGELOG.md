@@ -114,6 +114,22 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-16 (in progress)** — **SQG: in-tile C2R probe, the Warp built-ins audit's "up to ~13%" item (candidate
+  1). Debug job 7853317, from snapshot `sqg_profile/src_inrow_0d1ac0ed`.** The user asked to include "the last item
+  from the documentation … there was a 13% boost" (the 11-14 audit session).
+  - **Design** (`SQG/analysis/opt/inrow/inrow_step.py`):
+    - The state's `hi` is stored in FFT row order, so θ's inverse column pass is one out-of-place cuFFT C2C straight
+      from the state. `expand` and the 2-D C2R (0.079 + 0.302 ms) are removed.
+    - The row kernel gets a third `tile_ifft` on the one-sided row: q_u = 2·Re G with G₀ halved, which equals the
+      C2R exactly. This is simpler than the audit's mirror-and-conjugate gather: bounds-checked tile loads return zero
+      past the array (Warp 1.17.0 `tile.h`).
+  - **Checked before the run:** `test_inrow_math.py` gives 2.4e-16, including a non-Hermitian DC column.
+  - **Rules** (`PREDICTIONS_inrow.md`, committed first at 0d1ac0ed): G32 / GIF unchanged; WORTH needs ≤ 0.97 ×
+    `tilerows32` in the same job (production cuFFT). Prior: 0–10% gain. Job 7840069's fused 3-FFT row kernel (0.549
+    ms) is the no-gain case.
+  - **Next:** score with `score_inrow.py <res>/inrow_probe_prod.json`. If WORTH, an o1.2 arm, then gates A/B/E/D (D
+    on capacity = the user's call). If not, add it to the audit's "Do not re-try".
+
 - **2026-11-16** — **SQG gate D for `tilerows_if25` (capacity job 7843532, failures=0): PASS_D on best.pt (25×
   margin) and last.pt (23×). All four gates are now done for it: A PASS, B NOT_PASS on detection only (k2–4), PASS_E,
   PASS_D. 15/15 predictions confirmed. Notes Part XVII H.**
