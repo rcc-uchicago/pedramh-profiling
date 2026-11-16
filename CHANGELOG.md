@@ -114,6 +114,18 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-16 (in progress)** — **SQG: `tilerows_inrow_if25` inside o1.2, debug job 7853365.** It runs 2 arms
+  (`tilerows_if25` as the same-job baseline, and `tilerows_inrow_if25`) from snapshot
+  `sqg_profile/src_o12inrow_0f9fdd9d`. The user asked for "the resulting wall-clock time for tilerows_inrow_if25".
+  - The current answer is the projection: 0.890 s/step, 48.9 h on 14 A100s. This job replaces it with a
+    measurement.
+  - Prereg `o12run/PREDICTIONS_o12_inrow.md` (committed first at 0f9fdd9d).
+  - **Code:** `tilerows_advance.py` gets the scheme `tilerows_inrow_if<n>` with an FFT-row `hi` hand-off. It is
+    unchanged for the existing schemes.
+  - **Score:** `score_o12_inrow.py --res SQG/analysis/results/polaris_o12tr_7853365`, then update
+    `table_o12_solvers.py` with the measured row.
+  - Table of every arm: `python3 SQG/analysis/opt/o12run/table_o12_solvers.py`.
+
 - **2026-11-16** — **SQG: in-tile C2R, the Warp built-ins audit's "up to ~13%" item (candidate 1): WORTH. Debug
   job 7853317 (failures=0): 1.482 vs 1.594 ms/step (−7.0%) at production cuFFT, G32 / GIF pass, 15/15 predictions
   confirmed. Notes Part XVII I.** The user asked to include "the last item from the documentation … there was a 13%
