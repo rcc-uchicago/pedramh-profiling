@@ -1,8 +1,11 @@
 """tilerows_advance.py -- o1.2's per-frame `advance` (one ring frame = STRIDE = 40 steps of DT = 2e-4 TU) by
   if32_<n>         the JAX float32 IF-AB3 (if_ab3.make_call_if32) at n steps per frame (h = 2e-4 / n);
   tilerows40       the tile-row step (tilerows/tilerows_step.TileRows; lean32ek numerics) at DT, 40 steps per frame;
-  tilerows_if<n>   the tile-row step with IF-AB3 at n steps per frame.
-Option C of the 2026-11-12 plan (tile-rows inside o1.2). Predictions + gates: PREDICTIONS_o12_tilerows.md (first).
+  tilerows_if<n>   the tile-row step with IF-AB3 at n steps per frame;
+  tilerows_inrow_if<n>  the same with theta's inverse real FFT in the row kernel (inrow/inrow_step.InRow; job
+                   7853317). Its hi lives in FFT row order: the hand-off below scatters / gathers the compact block.
+Option C of the 2026-11-12 plan (tile-rows inside o1.2). Predictions + gates: PREDICTIONS_o12_tilerows.md (first);
+the in-row arm: PREDICTIONS_o12_inrow.md.
 
   advance = make(GD, stride, scheme, rank=..., log=..., gate=...)        # then: st = advance(st), once per frame
 
@@ -34,7 +37,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OPT = os.path.dirname(HERE)
-for _p in ("seed1", "delta", "taxonomy", "timestep", "tilerows"):
+for _p in ("seed1", "delta", "taxonomy", "timestep", "tilerows", "inrow"):
     if os.path.join(OPT, _p) not in sys.path:
         sys.path.insert(0, os.path.join(OPT, _p))
 
@@ -43,10 +46,13 @@ GATE_FRAMES = (1, 4)
 
 
 def parse(scheme, stride):
-    """scheme -> (kind 'if32' | 'tr', if_mode, steps per frame)."""
+    """scheme -> (kind 'if32' | 'tr' | 'tri' (in-row tile rows), if_mode, steps per frame)."""
     if scheme.startswith("if32_"):
         n = int(scheme[len("if32_"):])
         kind, if_mode = "if32", True
+    elif scheme.startswith("tilerows_inrow_if"):
+        n = int(scheme[len("tilerows_inrow_if"):])
+        kind, if_mode = "tri", True
     elif scheme.startswith("tilerows_if"):
         n = int(scheme[len("tilerows_if"):])
         kind, if_mode = "tr", True
@@ -175,8 +181,29 @@ def make(GD, stride, scheme, *, rank=0, log=print, gate=False, history=False):
     k = k.reshape(k.shape[-2:]) if k.ndim == 3 else k
     tables = {"kinv": TS.to_compact(np.broadcast_to(k, (N, NK))), "edec": TS.to_compact(np.asarray(e)),
               "f0patch": np.concatenate([np.asarray(c32["f0bot"]), np.asarray(c32["f0top"])], 0).astype(np.complex64)}
-    solver = TS.TileRows(tables, h, if_mode=if_mode)
+    if kind == "tri":
+        import inrow_step as IRS
+        solver = IRS.InRow(tables, h, if_mode=if_mode)
+        fft_rows = torch.as_tensor(TS.ROW_IDX, device="cuda")
+    else:
+        solver = TS.TileRows(tables, h, if_mode=if_mode)
+        fft_rows = None
     rows = jnp.asarray(TS.ROW_IDX)
+
+    def put_hi(x):
+        """The compact hi into the solver: as is (TileRows), or into its FFT rows (InRow; the others stay 0)."""
+        if fft_rows is None:
+            solver.hi.copy_(x)
+        else:
+            solver.hi.index_copy_(0, fft_rows, x)
+
+    def get_hi():
+        """The solver's hi as the compact block (InRow: a gather, finished before JAX reads it by DLPack)."""
+        if fft_rows is None:
+            return solver.hi
+        c = solver.hi.index_select(0, fft_rows)
+        torch.cuda.current_stream().synchronize()
+        return c
     CC = TS.CC
     c64, c128 = jnp.complex64, jnp.complex128
     path = {}
@@ -251,7 +278,8 @@ def make(GD, stride, scheme, *, rank=0, log=print, gate=False, history=False):
         if float(outside) != 0.0:
             raise ValueError(f"O12_TR {scheme}: state not zero outside the kept block (max {float(outside):.3e})")
         torch.cuda.synchronize()
-        for dst, src in ((solver.hi, hi), (solver.lo, lo), (solver.T[0], tn), (solver.T[1], to)):
+        put_hi(to_torch(hi))
+        for dst, src in ((solver.lo, lo), (solver.T[0], tn), (solver.T[1], to)):
             dst.copy_(to_torch(src))
         solver.slot = [0, 1, 2]
         torch.cuda.synchronize()
@@ -270,7 +298,7 @@ def make(GD, stride, scheme, *, rank=0, log=print, gate=False, history=False):
         solver.run(steps)
         solver.stream.synchronize()
         t3 = time.time()
-        a, b = to_jax(solver.hi), to_jax(solver.lo)
+        a, b = to_jax(get_hi()), to_jax(solver.lo)
         qh = expand(a, b)
         if "logged" not in path:
             path["logged"] = True

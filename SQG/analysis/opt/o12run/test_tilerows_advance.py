@@ -21,13 +21,15 @@ def main():
     assert TA.parse("if32_25", STRIDE) == ("if32", True, 25)
     assert TA.parse("tilerows_if25", STRIDE) == ("tr", True, 25)
     assert TA.parse("tilerows40", STRIDE) == ("tr", False, 40)
-    for bad in ("tilerows32", "if32_2", "if32_41", "lean32ek_fast", "tilerows_if"):
+    assert TA.parse("tilerows_inrow_if25", STRIDE) == ("tri", True, 25)
+    for bad in ("tilerows32", "if32_2", "if32_41", "lean32ek_fast", "tilerows_if", "tilerows_inrow_if",
+                "tilerows_inrow_if41"):
         try:
             TA.parse(bad, STRIDE)
         except ValueError:
             continue
         raise AssertionError(f"parse accepted {bad!r}")
-    for scheme in ("if32_25", "tilerows_if25", "tilerows40"):
+    for scheme in ("if32_25", "tilerows_if25", "tilerows40", "tilerows_inrow_if25"):
         kind, if_mode, n = TA.parse(scheme, STRIDE)
         h = STRIDE * DT / n
         first = TA.frame_steps(if_mode, n, True) + (2 if if_mode else 0)
@@ -39,6 +41,10 @@ def main():
     c = rng.standard_normal((TS.CR, TS.CC)) + 1j * rng.standard_normal((TS.CR, TS.CC))
     full = TA.full_from_compact(np, c, TS.N, TS.NK, TS.KM)
     assert full.shape == (TS.N, TS.NK) and np.array_equal(full, TS.from_compact(c, np.complex128)), "expand order"
+    import inrow_step as IRS                                         # numpy-only at import; on sys.path via TA
+    fr = IRS.to_fft_rows(c, np.complex128)                           # put_hi's index_copy_ (rows ROW_IDX)
+    assert np.array_equal(fr[TS.ROW_IDX], c), "in-row hand-off"      # get_hi's index_select
+    assert np.array_equal(fr, TS.from_compact(c, np.complex128)[:, :TS.CC]), "FFT rows == the half plane's rows"
     assert set(OP.TILEROWS_SOLVERS) <= set(OP.SOLVERS)
     assert not set(OP.TILEROWS_SOLVERS) & set(OP.BITWISE_SOLVERS)
     for s in OP.TILEROWS_SOLVERS:

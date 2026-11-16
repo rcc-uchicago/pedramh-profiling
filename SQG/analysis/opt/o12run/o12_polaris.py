@@ -12,9 +12,9 @@ must match exactly once and keeps the line count (tracebacks point at the real l
                production frames of the same checkpoints (lean_u1 == production bitwise, job 7824121).
   knobs        O12_<NAME> env overrides, each logged; unset = o1.2's value. BATCH (A100 40 GB: 16), START_PAIRS,
                N_EPOCH, STEPS_PER_EPOCH, N_VAL, BUF; O12_SOLVER = ref (o1.2's own call) | lean_u1 | lean32ek_fast
-               | if32_25 | tilerows40 | tilerows_if25 (tilerows_advance.py; Warp from O12_WARP_PATH, nvmath from
-               O12_NVMATH_PATH, a per-rank Warp kernel cache under O12_WARP_CACHE; O12_TR_GATE=1: rank 0's in-situ
-               accuracy gate on the first segment).
+               | if32_25 | tilerows40 | tilerows_if25 | tilerows_inrow_if25 (tilerows_advance.py; Warp from
+               O12_WARP_PATH, nvmath from O12_NVMATH_PATH, a per-rank Warp kernel cache under O12_WARP_CACHE;
+               O12_TR_GATE=1: rank 0's in-situ accuracy gate on the first segment).
 Timing lines (rank 0): O12_FILL, O12_BITWISE, O12_EPOCH (per-step median / p10 / p90, train, val, save), O12_PHASES.
 
   O12_OUT=<run dir> O12_VAL_STORE=<dir> O12_REF_DIR=<taxonomy raw dir> SQG_ASQG_PY=... SQG_TRAINING_ROOT=... \
@@ -32,9 +32,9 @@ OPT = os.path.dirname(HERE)
 ANALYSIS = os.path.dirname(OPT)
 SQG = os.path.dirname(ANALYSIS)
 O12 = os.path.join(SQG, "o1.2-TrainUViT_m16_tendency.py")
-SOLVERS = ("ref", "lean_u1", "lean32ek_fast", "if32_25", "tilerows40", "tilerows_if25")
+SOLVERS = ("ref", "lean_u1", "lean32ek_fast", "if32_25", "tilerows40", "tilerows_if25", "tilerows_inrow_if25")
 BITWISE_SOLVERS = ("ref", "lean_u1")            # production bit for bit (jobs 7815637, 7824121)
-TILEROWS_SOLVERS = ("if32_25", "tilerows40", "tilerows_if25")   # tilerows_advance.py
+TILEROWS_SOLVERS = ("if32_25", "tilerows40", "tilerows_if25", "tilerows_inrow_if25")   # tilerows_advance.py
 
 # (name, old, new): old must occur exactly once in o1.2's source; new has the same number of lines
 PATCHES = [
