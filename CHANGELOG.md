@@ -114,6 +114,30 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-16 (in progress)** — **SQG: gates A, B, E and D for `tilerows_inrow_if25`. Jobs: A/B 7854208
+  (capacity), D 7854209 (capacity, held on A/B), E 7854210 (debug-scaling). Snapshot
+  `sqg_profile/src_trgates_inrow_29eeca11`.** The user asked: "okay run it on capacity for gates A-D".
+  - **Rules:** the same gates, thresholds and reference as the `tilerows_if25` battery. The reported arm is now
+    `tilerows_if25` (it was `if32_25`).
+  - **Prereg:** `SQG/analysis/opt/tilegates/PREDICTIONS_gates_inrow.md`, 17 predictions, committed first at
+    29eeca11. Scorer: `score_gates_inrow.py --ab ... --e ... --d .../best/dose_summary.json`.
+  - **Harness changes** (the defaults reproduce the old battery):
+    - The arm is configurable: `TR_ARMS` / `TR_CAND`, `TRE_ARMS` / `TRE_CANDS`, `--arms` / `--candidate`.
+    - Checked: on job 7841299's pairs, `gates_ab_tr.py` with its defaults reproduces that job's json and pattern.
+      Verdicts are identical; floats differ by ≤ 1.6e-14 rel.
+  - **Gate D's doses are late-bound** (`doses_from_trab.py`, same rule):
+    - D reads them from 7854208's results when it starts.
+    - It refuses unless A/B was valid, judged `tilerows_inrow_if25`, and ended `TRAB_JOB_DONE failures=0`.
+    - It runs as `gateD_inrow_v1`, with a new `RUN_NAME` required, so it cannot resume 7843532's run.
+    - On job 7841299 it returns 860 / 8600.
+  - **Queue limits** (`qstat -Qf capacity`): at most 2 queued and 1 running per project. Hence A/B and D on
+    capacity, and E on debug-scaling (its script's default, 1 node, ≤ 1 h; 7841269 ran there too). D takes about
+    23 node-h, as 7843532 did, and blocks the project's capacity slot while it runs.
+  - **To score:** `python3 SQG/analysis/opt/tilegates/score_gates_inrow.py --ab SQG/analysis/results/polaris_trab_7854208
+    --e SQG/analysis/results/polaris_tre_7854210 --d SQG/analysis/results/polaris_trgateD_7854209/best/dose_summary.json`.
+    The PBS logs are in `sqg_profile/logs/`. Each job ends with `TRAB_` / `TRE_` / `DOSE_JOB_DONE failures=N`.
+    D's `TRD_DOSES` line gives the doses it used.
+
 - **2026-11-16** — **SQG: `tilerows_inrow_if25` measured inside o1.2, debug job 7853365
   (`O12TR_JOB_DONE failures=0`): 0.8885 s per optimizer step, 48.9 h on 14 A100s (196 node-h). 6/6 predictions
   confirmed. Notes Part XVII I.** The user asked for "the resulting wall-clock time for tilerows_inrow_if25".
