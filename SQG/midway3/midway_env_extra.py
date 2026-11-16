@@ -1,7 +1,8 @@
 """midway_env_extra.py -- the Midway3-specific half of Job 1 (MIDWAY3_INROW_PROMPT.md §4); the cluster-agnostic half
 is SQG/polaris/sqg_env_probe.py. Run by sqg_env_probe_midway.sh on a 4-GPU compute node, never on a login node.
 
-  1. torch: CUDA available, every visible device's name; jax: jax.devices() (expect 4 x H100).
+  1. torch: CUDA available, every visible device's name; jax: jax.devices() (expect --expect-gpus x H100, default 4). The timed jobs
+     run this too (as their `env` stage), so every result records the libraries loaded and the mathdx flag.
   2. Warp 1.17.0 from --warp-path: wp.init(), the libmathdx flag ("mathdx": 1 is required -- without cuFFTDx the
      tile FFT falls back to a scalar path ~4.6x slower and every speed number would be invalid), then a 4096-point
      wp.tile_fft row kernel (warp_kernels.row, the kernel warp_fft_probe.py timed on A100) on a 4096^2 complex64
@@ -39,6 +40,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--warp-path", required=True)
     ap.add_argument("--nvmath-path", required=True)
+    ap.add_argument("--expect-gpus", type=int, default=4, help="visible H100s this job must see (Job 1: 4)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     R = {"errors": [], "env": {"LD_LIBRARY_PATH": os.environ.get("LD_LIBRARY_PATH", ""),
@@ -61,10 +63,11 @@ def main():
     R["torch_gpus"], R["jax_devices"] = gpus, jdev
     print(f"torch {torch.__version__} gpus={gpus}", flush=True)
     print(f"jax {jax.__version__} devices={jdev}", flush=True)
-    if len(gpus) != 4 or not all("H100" in g for g in gpus):
-        err("TORCH_GPUS", RuntimeError(f"expected 4 x H100, torch sees {gpus}"))
-    if len(jdev) != 4 or not all("H100" in d for d in jdev):
-        err("JAX_DEVICES", RuntimeError(f"expected 4 x H100, jax sees {jdev}"))
+    n = a.expect_gpus
+    if len(gpus) != n or not all("H100" in g for g in gpus):
+        err("TORCH_GPUS", RuntimeError(f"expected {n} x H100, torch sees {gpus}"))
+    if len(jdev) != n or not all("H100" in d for d in jdev):
+        err("JAX_DEVICES", RuntimeError(f"expected {n} x H100, jax sees {jdev}"))
 
     # ---- 2. Warp + cuFFTDx tile FFT -------------------------------------------------------------------------------
     try:
@@ -135,7 +138,7 @@ def main():
     if fails:
         print(f"ERROR MIDWAY_ENV_FAILED {','.join(fails)}", flush=True)
         sys.exit(1)
-    print(f"SQG_MIDWAY_ENV_OK gpus=4xH100 mathdx=1 tile_fft_rel={R['tile_fft']['rel_l2_vs_torch']:.1e} "
+    print(f"SQG_MIDWAY_ENV_OK gpus={n}xH100 mathdx=1 tile_fft_rel={R['tile_fft']['rel_l2_vs_torch']:.1e} "
           f"cufft={R['nvmath']['cufft_version']}", flush=True)
 
 
