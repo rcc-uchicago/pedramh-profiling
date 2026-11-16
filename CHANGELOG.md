@@ -114,6 +114,26 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-16** — **SQG: `inrow/inrow_step.py` (the `tilerows_inrow_if25` solver) fully documented. No code change:
+  the docstring-stripped AST is identical to the previous commit's.** The user asked for docstrings and comments on
+  what each line and function does, the maths, and which kernel represents it.
+  - **The module docstring** states:
+    - the SQG model as `A-SQG_data.inner` runs it, with its FFT convention;
+    - the AB3 and IF-AB3 step formulas;
+    - every buffer's layout;
+    - the seven ops, in order, with their maths and their per-op cost in job 7853317;
+    - the in-tile C2R identity.
+  - **Each kernel's docstring** derives its formula: `build_w`'s conj(ψ̂) form gives p = u − i v under the forward
+    FFT; `rows_ir` forms the flux (u + i v)θ; `update` does the Hermitian split, the tendency −i k·(…) + f0,
+    (IF-)AB3, and the TwoSum / Fast2Sum compensation.
+  - **Line comments** give the maths of each statement.
+  - **Checked against the sources:** `A-SQG_data.py` (inversion, damping, 2/3 truncation, forcing) and
+    `delta/f32_update.py` (compensation).
+  - Warp drops docstrings in kernels (`codegen.py`: "Skip variable creation for standalone constants, including
+    docstrings"), so the generated code is unchanged. The kernel source hash changes, so the first run recompiles
+    once.
+  - `test_inrow_math.py` passes. Queued jobs run from their own snapshots, so none is affected.
+
 - **2026-11-16 (in progress)** — **SQG: mixed-precision probes with `tilerows_inrow_if25`. Probe 1 (16-bit storage
   in the solver) = debug 7854381; probe 2 (the network's precision in o1.2) = debug-scaling 7854382. Snapshot
   `sqg_profile/src_mixprec_ee51c7f4`.**
