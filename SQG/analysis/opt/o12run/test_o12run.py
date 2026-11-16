@@ -161,7 +161,36 @@ def test_extrapolate():
     assert one["steps"] == 250 * ((174993 // 4) // 16) and one["terms_s"]["steps"] == one["steps"] * 4.85
     p2 = dict(p, s_frame=None)
     assert EX.project(p2, 4, 16, 1) is None
+    test_extrapolate_batch_configs()
     return pr["hours"]
+
+
+def test_extrapolate_batch_configs():
+    """A log is projected only onto the configurations of its own batch (the batch-32 entry, 2026-11-16)."""
+    old_argv = sys.argv
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            logs = {}
+            for b in (16, 32):
+                logs[b] = os.path.join(tmp, f"b{b}.log")
+                with open(logs[b], "w") as fh:
+                    fh.write(LOG.replace("O12_KNOB BATCH=16 (o1.2: 32)", f"O12_KNOB BATCH={b} (o1.2: 32)"))
+            sys.argv = ["o12_extrapolate.py", "--log", f"a16={logs[16]}", "--log", f"a32={logs[32]}", "--out", tmp]
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                EX.main()
+            res = json.load(open(os.path.join(tmp, "o12_extrapolation.json")))
+    finally:
+        sys.argv = old_argv
+    b16 = [c[0] for c in EX.CONFIGS if c[2] == 16]
+    b32 = [c[0] for c in EX.CONFIGS if c[2] == 32]
+    assert b32 == ["1 node, 4 GPUs, batch 32"] and len(b16) == 3
+    s16, s32 = res["solvers"]["a16"], res["solvers"]["a32"]
+    assert sorted(s16["projections"]) == sorted(b16) and s16["skipped_configs"] == b32
+    assert list(s32["projections"]) == b32 and sorted(s32["skipped_configs"]) == sorted(b16)
+    assert s32["projections"][b32[0]]["steps"] == 250 * ((174993 // 4) // 32)
+    out = buf.getvalue()
+    assert "O12_EXTRAPOLATE_OK solvers=2" in out and out.count("SKIPPED (run at batch") == 4, out
 
 
 def main():

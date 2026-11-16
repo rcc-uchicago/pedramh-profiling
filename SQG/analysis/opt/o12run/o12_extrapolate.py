@@ -17,6 +17,8 @@ Full run (configuration: n GPUs, batch b per GPU, nodes):
             + N_EPOCH x (t_val x ceil(ceil(N_VAL / n) / b) + t_save_last + t_save_best)
             + ceil(steps x FRAMES_PER_STEP / FRAMES_PER_SEG) x t_load
 ddp_xnode = 0.005 s/step (DDP over CXI, job 7815637, notes Part IX). No restarts are modelled.
+A configuration is projected only from a log run at its batch b (s_step depends on b); the others print SKIPPED and
+are left out of O12_EXTRAPOLATE_OK (added 2026-11-16 with the batch-32 configuration, midway3/PREDICTIONS_*).
 """
 import argparse
 import json
@@ -29,7 +31,9 @@ N_EPOCH, N_OFFLINE_PAIRS, N_VAL = 250, 174993, 200
 START_SEGS, PAIRS_PER_SEG, LAG, FRAMES_PER_SEG, FRAMES_PER_STEP = 4, 4901, 100, 5000, 12
 DDP_XNODE = 0.005
 CONFIGS = (("1 node, 4 GPUs, batch 16", 4, 16, 1), ("4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)", 14, 16, 4),
-           ("4 nodes, 16 GPUs, batch 16", 16, 16, 4))
+           ("4 nodes, 16 GPUs, batch 16", 16, 16, 4),
+           ("1 node, 4 GPUs, batch 32", 4, 32, 1))          # Midway3 H100 NVL (94 GB) only: o1.2's own BATCH_SIZE
+O12_BATCH_DEFAULT = 32                                    # o1.2's BATCH_SIZE when no O12_BATCH knob is logged
 
 RX = {
     "params": re.compile(r"ConvNextUViT ([\d.]+)M params"),
@@ -146,14 +150,19 @@ def main():
         with open(path) as fh:
             r = parse(fh.read())
         p = pieces(r)
+        run_b = int(p["batch"]) if p.get("batch") is not None else O12_BATCH_DEFAULT
         res["solvers"][name] = {"parsed": r, "pieces": p,
-                                "projections": {c[0]: project(p, *c[1:]) for c in CONFIGS}}
+                                "projections": {c[0]: project(p, *c[1:]) for c in CONFIGS if c[2] == run_b},
+                                "skipped_configs": [c[0] for c in CONFIGS if c[2] != run_b]}
         bw = r.get("bitwise", {})
         print(f"O12_PIECES {name}: s_step={p['s_step']} s_frame={p['s_frame']} t_init={p['t_init']} "
               f"t_load={p['t_load']} t_val={p['t_val']} t_save_last={p['t_save_last']} t_save_best={p['t_save_best']} "
               f"peak={r.get('peak')} GiB params={r.get('params')}M bitwise={bw.get('verdict')} "
               f"run_done={r.get('run_done', False)}")
         for c in CONFIGS:
+            if c[0] in res["solvers"][name]["skipped_configs"]:
+                print(f"O12_PROJECTION {name} [{c[0]}]: SKIPPED (run at batch {run_b})")
+                continue
             pr = res["solvers"][name]["projections"][c[0]]
             if pr:
                 print(f"O12_PROJECTION {name} [{c[0]}]: {pr['steps']} steps, {pr['hours']:.1f} h "
