@@ -1,0 +1,18 @@
+Time (%),Total Time (ns),Instances,Avg (ns),Med (ns),Min (ns),Max (ns),StdDev (ns),Name
+31.1,899832912,3840,234331.5,197183.0,187679,433309,65525.9,"void regular_fft_factor<(unsigned int)4096, EPT<(unsigned int)16>, (unsigned int)4, (unsigned int)1, (padding_t)0, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)1, unsigned int, float>(kernel_arguments_t<T9>)"
+17.3,499388055,480,1040391.8,1040777.5,1016441,1055609,5623.5,loop_add_multiply_fusion
+13.5,389721745,480,811920.3,812506.5,775867,824730,6276.3,loop_add_multiply_fusion_1
+8.4,243023605,960,253149.6,253038.5,250079,258239,1291.3,loop_multiply_fusion_1
+7.8,225908959,960,235321.8,235326.0,233023,240158,1198.1,input_concatenate_fusion_1
+7.3,212087184,1920,110462.1,110399.0,105471,118239,1759.1,"void vector_fft_symm_r2c<(unsigned int)4096, EPT<(unsigned int)16>, (unsigned int)1, (unsigned int)10, (padding_t)8, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)0, unsigned int, float>(kernel_arguments_t<T9>)"
+6.4,185867723,960,193612.2,193279.0,191103,199647,1428.1,"void vector_fft<(unsigned int)4096, EPT<(unsigned int)16>, (unsigned int)1, (unsigned int)5, (padding_t)8, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)0, unsigned int, float>(kernel_arguments_t<T9>)"
+3.4,98710108,960,102823.0,102559.0,102239,111232,1472.3,"void scal_kernel_val<float, float>(cublasScalParamsVal<T1, T2>)"
+3.4,97078031,960,101122.9,100928.0,98431,108895,1326.7,"void vector_fft_symm_c2r<(unsigned int)4096, EPT<(unsigned int)16>, (unsigned int)1, (unsigned int)10, (padding_t)8, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)0, unsigned int, float>(kernel_arguments_t<T9>)"
+0.7,19719877,24,821661.5,821835.0,813402,830587,4123.9,loop_convert_fusion
+0.4,12564179,72,174502.5,174495.0,168831,179487,2075.4,wrapped_convert_3
+0.0,1164153,480,2425.3,2400.0,2272,3072,118.6,loop_add_fusion
+0.0,1058522,480,2205.3,2208.0,2080,2720,110.6,loop_add_fusion_1
+0.0,1002394,480,2088.3,2080.0,1983,2656,110.8,loop_multiply_fusion_3
+0.0,906653,480,1888.9,1856.0,1824,2848,125.2,loop_multiply_fusion_2
+0.0,852342,480,1775.7,1775.5,1664,2432,98.6,loop_add_fusion_2
+0.0,844031,480,1758.4,1696.0,1663,3232,246.9,loop_multiply_fusion_4

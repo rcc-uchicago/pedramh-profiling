@@ -1,0 +1,6 @@
+stats: null shell frac 0.0037; uniform bias recovered 0.932 (z 7.5); shell bias: pooled z -10.9, shells flagged 1.00, learnable 0.993 of truth
+  TAXO_CONTROL bitwise prod==lean_u1 True; lean32ek_fast==lean32ek True; dt40==lean_u1 True
+  TAXO_CONTROL a (dquant, mechanism A; alpha_n vs -drate_n x 0.02) PASS: kappa k1-2=1.000 k2-4=1.000 k4-8=1.000 k8-16=1.000 k16-32=1.000 k32-64=1.000 k64-128=1.00
+  TAXO_CONTROL b (planted shift in lean32ek vs its float64 truth) PASS: k1-2:ok(z=1165.9) k2-4:ok(z=447.2) k4-8:ok(z=396.5) k8-16:ok(z=1376.1) k16-32:ok(z=5115.5)
+  TAXO_ANALYSIS_DONE valid=True control_a=True control_b=True prod_bitwise=True dt_valid=True fast=True
+TAXO_ANALYSIS_TEST_OK

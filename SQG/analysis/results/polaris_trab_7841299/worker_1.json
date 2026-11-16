@@ -1,0 +1,321 @@
+{
+ "worker": 1,
+ "device_kind": "NVIDIA A100-SXM4-40GB",
+ "jax": "0.4.28",
+ "lags_frames": [
+  1,
+  10,
+  25,
+  50,
+  100
+ ],
+ "ref_nsub": 160,
+ "states": [
+  {
+   "member": 2,
+   "path": "/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_stage/AllTrainData/trainingdata_m02_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02/checkpoint/ckpt_t0100.00.npz",
+   "t": 100.0,
+   "spe": 48.34869794942628,
+   "cfl_DT": 0.26393045160542844,
+   "pairs": [
+    {
+     "j": 0,
+     "spe": 48.34869794942628,
+     "cfl_DT": 0.26393045160542844,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 9.59,
+      "if32_25": 8.09,
+      "ref160": 111.49
+     },
+     "pair_seconds": 155.4
+    },
+    {
+     "j": 1,
+     "spe": 48.46485040521701,
+     "cfl_DT": 0.25516326122700445,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 4.1,
+      "if32_25": 6.92
+     },
+     "pair_seconds": 36.7
+    },
+    {
+     "j": 2,
+     "spe": 48.571978890204605,
+     "cfl_DT": 0.2714856786918638,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 4.1,
+      "if32_25": 6.93
+     },
+     "pair_seconds": 36.8
+    },
+    {
+     "j": 3,
+     "spe": 48.668484539195724,
+     "cfl_DT": 0.27006499133874634,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 4.1,
+      "if32_25": 6.91
+     },
+     "pair_seconds": 36.8
+    }
+   ],
+   "seconds": 273.9
+  },
+  {
+   "member": 3,
+   "path": "/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_stage/AllTrainData/trainingdata_m03_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02/checkpoint/ckpt_t0200.00.npz",
+   "t": 200.0,
+   "spe": 32.38780671620143,
+   "cfl_DT": 0.2515027059786504,
+   "pairs": [
+    {
+     "j": 0,
+     "spe": 32.38780671620143,
+     "cfl_DT": 0.2515027059786504,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 4.09,
+      "if32_25": 6.91,
+      "ref160": 110.75
+     },
+     "pair_seconds": 147.5
+    },
+    {
+     "j": 1,
+     "spe": 32.50791649777148,
+     "cfl_DT": 0.2376465309503135,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 4.1,
+      "if32_25": 6.92
+     },
+     "pair_seconds": 36.7
+    },
+    {
+     "j": 2,
+     "spe": 32.62899296540362,
+     "cfl_DT": 0.23958268983497163,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 4.1,
+      "if32_25": 6.93
+     },
+     "pair_seconds": 36.8
+    },
+    {
+     "j": 3,
+     "spe": 32.751473002662706,
+     "cfl_DT": 0.24186860579507805,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 4.1,
+      "if32_25": 6.91
+     },
+     "pair_seconds": 36.8
+    }
+   ],
+   "seconds": 259.7
+  },
+  {
+   "member": 4,
+   "path": "/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_stage/AllTrainData/trainingdata_m04_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02/checkpoint/ckpt_t0300.00.npz",
+   "t": 300.0,
+   "spe": 25.68329850803869,
+   "cfl_DT": 0.18397228810710795,
+   "pairs": [
+    {
+     "j": 0,
+     "spe": 25.68329850803869,
+     "cfl_DT": 0.18397228810710795,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 4.1,
+      "if32_25": 6.93,
+      "ref160": 110.74
+     },
+     "pair_seconds": 147.5
+    },
+    {
+     "j": 1,
+     "spe": 25.708291630023357,
+     "cfl_DT": 0.1896070580755736,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 4.1,
+      "if32_25": 6.92
+     },
+     "pair_seconds": 36.8
+    },
+    {
+     "j": 2,
+     "spe": 25.738516876247783,
+     "cfl_DT": 0.20452906075071733,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 4.1,
+      "if32_25": 6.92
+     },
+     "pair_seconds": 36.8
+    },
+    {
+     "j": 3,
+     "spe": 25.772370174449915,
+     "cfl_DT": 0.22174005370366315,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 4.1,
+      "if32_25": 6.92
+     },
+     "pair_seconds": 36.8
+    }
+   ],
+   "seconds": 259.3
+  },
+  {
+   "member": 1,
+   "path": "/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_stage/AllTrainData/trainingdata_m01_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02/checkpoint/ckpt_t0400.00.npz",
+   "t": 400.0,
+   "spe": 46.276555411451255,
+   "cfl_DT": 0.24938144598666914,
+   "pairs": [
+    {
+     "j": 0,
+     "spe": 46.276555411451255,
+     "cfl_DT": 0.24938144598666914,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 4.1,
+      "if32_25": 6.91,
+      "ref160": 110.74
+     },
+     "pair_seconds": 147.5
+    },
+    {
+     "j": 1,
+     "spe": 46.40814895981212,
+     "cfl_DT": 0.2565114648232724,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 4.1,
+      "if32_25": 6.92
+     },
+     "pair_seconds": 36.8
+    },
+    {
+     "j": 2,
+     "spe": 46.53712251368666,
+     "cfl_DT": 0.2562570799785506,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 4.1,
+      "if32_25": 6.92
+     },
+     "pair_seconds": 36.8
+    },
+    {
+     "j": 3,
+     "spe": 46.66250272544909,
+     "cfl_DT": 0.2540243089118448,
+     "lean_u1_bitwise_vs_7824121": true,
+     "seconds": {
+      "tilerows_if25": 4.1,
+      "if32_25": 6.92
+     },
+     "pair_seconds": 36.8
+    }
+   ],
+   "seconds": 258.9
+  }
+ ],
+ "bitwise_vs_7824121": [
+  {
+   "pair": "pair_w1_s0_p0.npz",
+   "equal": true
+  },
+  {
+   "pair": "pair_w1_s0_p1.npz",
+   "equal": true
+  },
+  {
+   "pair": "pair_w1_s0_p2.npz",
+   "equal": true
+  },
+  {
+   "pair": "pair_w1_s0_p3.npz",
+   "equal": true
+  },
+  {
+   "pair": "pair_w1_s1_p0.npz",
+   "equal": true
+  },
+  {
+   "pair": "pair_w1_s1_p1.npz",
+   "equal": true
+  },
+  {
+   "pair": "pair_w1_s1_p2.npz",
+   "equal": true
+  },
+  {
+   "pair": "pair_w1_s1_p3.npz",
+   "equal": true
+  },
+  {
+   "pair": "pair_w1_s2_p0.npz",
+   "equal": true
+  },
+  {
+   "pair": "pair_w1_s2_p1.npz",
+   "equal": true
+  },
+  {
+   "pair": "pair_w1_s2_p2.npz",
+   "equal": true
+  },
+  {
+   "pair": "pair_w1_s2_p3.npz",
+   "equal": true
+  },
+  {
+   "pair": "pair_w1_s3_p0.npz",
+   "equal": true
+  },
+  {
+   "pair": "pair_w1_s3_p1.npz",
+   "equal": true
+  },
+  {
+   "pair": "pair_w1_s3_p2.npz",
+   "equal": true
+  },
+  {
+   "pair": "pair_w1_s3_p3.npz",
+   "equal": true
+  }
+ ],
+ "npz": [
+  "pair_w1_s0_p0.npz",
+  "pair_w1_s0_p1.npz",
+  "pair_w1_s0_p2.npz",
+  "pair_w1_s0_p3.npz",
+  "pair_w1_s1_p0.npz",
+  "pair_w1_s1_p1.npz",
+  "pair_w1_s1_p2.npz",
+  "pair_w1_s1_p3.npz",
+  "pair_w1_s2_p0.npz",
+  "pair_w1_s2_p1.npz",
+  "pair_w1_s2_p2.npz",
+  "pair_w1_s2_p3.npz",
+  "pair_w1_s3_p0.npz",
+  "pair_w1_s3_p1.npz",
+  "pair_w1_s3_p2.npz",
+  "pair_w1_s3_p3.npz"
+ ],
+ "errors": [],
+ "wall_s": 1114.9
+}

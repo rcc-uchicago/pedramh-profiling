@@ -1,0 +1,116 @@
+{
+ "steps": 2400,
+ "span_ms_per_step": 3.6728,
+ "busy_ms_per_step": 3.5999,
+ "gpu_busy_fraction": 0.9802,
+ "kernels_per_step": 24.1,
+ "dtoh_copies_per_step": 1.0,
+ "dtoh_bytes_per_step": 0.0,
+ "htod_copies_per_step": 0.0,
+ "sync_api_calls_per_step": {
+  "cuStreamSynchronize": 1.0,
+  "cuEventQuery": 0.037
+ },
+ "memcpy_api_calls_per_step": {
+  "cuMemcpyDtoDAsync_v2": 7.025,
+  "cuMemcpyDtoHAsync_v2": 1.0,
+  "cuGraphExecMemcpyNodeSetParams": 0.225
+ },
+ "launch_api_calls_per_step": {
+  "cuLaunchKernel": 15.075,
+  "cuGraphLaunch": 1.025,
+  "cudaLaunchKernel": 3.025
+ },
+ "top_kernels": [
+  {
+   "name": "void regular_fft_factor<(unsigned int)4096, EPT<(unsigned int)16>, (unsigned int)4, (unsig",
+   "time_pct": 31.8,
+   "instances_per_step": 5.03,
+   "avg_us": 195.7
+  },
+  {
+   "name": "loop_add_multiply_fusion_1",
+   "time_pct": 21.0,
+   "instances_per_step": 1.0,
+   "avg_us": 649.8
+  },
+  {
+   "name": "void scal_kernel_val<float, float>(cublasScalParamsVal<T1, T2>)",
+   "time_pct": 10.2,
+   "instances_per_step": 3.02,
+   "avg_us": 104.0
+  },
+  {
+   "name": "wrapped_multiply_1",
+   "time_pct": 10.0,
+   "instances_per_step": 2.0,
+   "avg_us": 154.9
+  },
+  {
+   "name": "void vector_fft_symm_c2r<(unsigned int)4096, EPT<(unsigned int)16>, (unsigned int)1, (unsi",
+   "time_pct": 9.9,
+   "instances_per_step": 3.02,
+   "avg_us": 100.9
+  },
+  {
+   "name": "loop_multiply_fusion",
+   "time_pct": 9.4,
+   "instances_per_step": 1.0,
+   "avg_us": 289.8
+  },
+  {
+   "name": "void vector_fft_symm_r2c<(unsigned int)4096, EPT<(unsigned int)16>, (unsigned int)1, (unsi",
+   "time_pct": 7.2,
+   "instances_per_step": 2.0,
+   "avg_us": 111.3
+  },
+  {
+   "name": "loop_clamp_fusion",
+   "time_pct": 0.1,
+   "instances_per_step": 1.0,
+   "avg_us": 2.8
+  },
+  {
+   "name": "loop_multiply_fusion_1",
+   "time_pct": 0.1,
+   "instances_per_step": 1.0,
+   "avg_us": 2.8
+  },
+  {
+   "name": "loop_add_fusion_3",
+   "time_pct": 0.1,
+   "instances_per_step": 1.0,
+   "avg_us": 1.9
+  },
+  {
+   "name": "loop_multiply_fusion_5",
+   "time_pct": 0.1,
+   "instances_per_step": 1.0,
+   "avg_us": 1.9
+  },
+  {
+   "name": "loop_add_fusion_5",
+   "time_pct": 0.1,
+   "instances_per_step": 1.0,
+   "avg_us": 1.8
+  },
+  {
+   "name": "loop_add_fusion_4",
+   "time_pct": 0.1,
+   "instances_per_step": 1.0,
+   "avg_us": 1.8
+  },
+  {
+   "name": "loop_multiply_fusion_4",
+   "time_pct": 0.1,
+   "instances_per_step": 1.0,
+   "avg_us": 1.7
+  },
+  {
+   "name": "loop_gather_fusion",
+   "time_pct": 0.0,
+   "instances_per_step": 0.03,
+   "avg_us": 6.6
+  }
+ ]
+}

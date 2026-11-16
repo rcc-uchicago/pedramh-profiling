@@ -1,0 +1,19 @@
+Time (%),Total Time (ns),Instances,Avg (ns),Med (ns),Min (ns),Max (ns),StdDev (ns),Name
+40.2,8176711986,2400,3406963.3,3406885.0,3394916,3437156,4461.1,loop_add_multiply_fusion_1
+24.0,4879303297,24120,202292.8,202176.0,196544,211904,2644.0,"void regular_fft_factor<(unsigned int)64, EPT<(unsigned int)8>, (unsigned int)32, (unsigned int)4, (padding_t)1, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)1, unsigned int, double>(kernel_arguments_t<T9>)"
+8.0,1621660311,2400,675691.8,675105.0,667072,732960,5919.9,loop_multiply_fusion_9
+7.5,1517920171,7260,209079.9,208832.0,206433,230976,2170.3,"void vector_fft_c2r<(unsigned int)4096, EPT<(unsigned int)32>, (unsigned int)1, (unsigned int)3, (padding_t)8, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)0, unsigned int, double>(kernel_arguments_t<T9>)"
+7.4,1501409112,4800,312793.6,312704.0,307232,321632,1796.9,wrapped_multiply_1
+7.1,1434927872,7260,197648.5,197632.0,195616,200352,565.1,"void scal_kernel_val<double, double>(cublasScalParamsVal<T1, T2>)"
+4.9,992224084,4800,206713.4,206496.0,203584,228417,2276.1,"void vector_fft_r2c<(unsigned int)4096, EPT<(unsigned int)32>, (unsigned int)1, (unsigned int)3, (padding_t)8, (twiddle_t)0, (loadstore_modifier_t)2, (layout_t)0, unsigned int, double>(kernel_arguments_t<T9>)"
+0.8,166658231,2400,69440.9,69216.0,68000,89632,2009.4,loop_select_fusion_1
+0.0,5065318,2400,2110.5,2112.0,1920,2784,90.0,loop_multiply_fusion_11
+0.0,4916647,2400,2048.6,2048.0,1888,2656,82.9,loop_multiply_fusion_6
+0.0,4837353,2400,2015.6,1984.0,1888,2752,80.8,loop_negate_fusion_1
+0.0,4234566,2400,1764.4,1792.0,1664,2400,83.5,loop_add_fusion_3
+0.0,4163683,2400,1734.9,1728.0,1664,2368,60.6,loop_add_fusion_4
+0.0,4130090,2400,1720.9,1728.0,1664,2368,56.6,loop_add_fusion_5
+0.0,3985126,2400,1660.5,1664.0,1632,2144,49.8,loop_multiply_fusion_10
+0.0,3617061,2400,1507.1,1504.0,1312,2080,80.7,loop_multiply_fusion_8
+0.0,3137542,2400,1307.3,1312.0,1280,1696,40.3,loop_multiply_fusion_7
+0.0,503393,60,8389.9,8352.0,7840,8896,177.3,loop_convert_fusion

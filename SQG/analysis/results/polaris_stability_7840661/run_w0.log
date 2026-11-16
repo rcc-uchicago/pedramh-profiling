@@ -1,0 +1,17 @@
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A100-SXM4-40GB" (39 GiB, sm_80, mempool enabled)
+   Kernel cache:
+     /lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/stability_7840661/warp_cache_w0/1.17.0
+STAB_STATE w=0 member=1 t=100 h=8.000e-06 CFL_h(start)=0.3795
+Module kernels__locals__build_w_b5a2d1bc b5a2d1b load on device 'cuda:0' took 2222.71 ms  (compiled)
+Module kernels__locals__expand_89275604 8927560 load on device 'cuda:0' took 115.31 ms  (compiled)
+Module kernels__locals__rows_15f34186 15f3418 load on device 'cuda:0' took 3865.00 ms  (compiled)
+Module kernels__locals__update_64ac6e68 64ac6e6 load on device 'cuda:0' took 263.95 ms  (compiled)
+STAB_GATE w=0 n=1 rel(TileRows,if64)=3.080e-08 rel(if32,if64)=3.152e-08 pass=True
+STAB_GATE w=0 n=40 rel(TileRows,if64)=3.178e-07 rel(if32,if64)=3.025e-07 pass=True
+STAB_GATE w=0 edec_err=1.16e-10 pass=True
+STAB_TU w=0 tu=  0.200 SPE=47.2433 VIE=13.7717 P=18.279 CFL_h=0.3732 max=0.3798 >=0.60:0 >=0.72:0 wall=43s
+STAB_RUN_DONE w=0 status=COMPLETE tu=0.200 cfl_max=0.3798 >=0.60:0/84 >=0.72:0 ms/step(wall)=1.7263 full_qh=host_copy (XlaRuntimeError: UNIMPLEMENTED: from_dlpack got array with non-default layout with minor-to-major dimensions (2,0,1), expected (2,1,0))

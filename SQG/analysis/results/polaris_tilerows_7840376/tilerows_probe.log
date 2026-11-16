@@ -1,0 +1,24 @@
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A100-SXM4-40GB" (39 GiB, sm_80, mempool enabled)
+   Kernel cache:
+     /lus/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/warp_cache_7840376/1.17.0
+TR_ENV_OK {"torch": "2.3.1+cu121", "jax": "0.4.28", "warp": "1.17.0", "cufft_version": 11401, "gpu": "NVIDIA A100-SXM4-40GB", "ld_preload": "/soft/compilers/cudatoolkit/cuda-12.9.1/lib64/libnvJitLink.so.12:/soft/compilers/cudatoolkit/cuda-12.9.1/lib64/libcufft.so.11"}
+Module kernels__locals__build_w_b5a2d1bc b5a2d1b load on device 'cuda:0' took 2019.48 ms  (compiled)
+Module kernels__locals__expand_89275604 8927560 load on device 'cuda:0' took 162.99 ms  (compiled)
+Module kernels__locals__rows_15f34186 15f3418 load on device 'cuda:0' took 4260.68 ms  (compiled)
+Module kernels__locals__update_aee95a27 aee95a2 load on device 'cuda:0' took 199.89 ms  (compiled)
+Module kernels__locals__update_6a8bfe6c 6a8bfe6 load on device 'cuda:0' took 201.68 ms  (compiled)
+TR_REL n=1 tilerows32_vs_u1=1.912e-08 fast_vs_u1=1.939e-08 tilerows32_vs_fast=1.998e-08 tilerows32if_vs_if64=1.912e-08 if32_vs_if64=1.939e-08 finite={'tilerows32': True, 'tilerows32_if': True}
+TR_REL n=40 tilerows32_vs_u1=2.331e-07 fast_vs_u1=2.270e-07 tilerows32_vs_fast=2.526e-07 tilerows32if_vs_if64=2.338e-07 if32_vs_if64=2.269e-07 finite={'tilerows32': True, 'tilerows32_if': True}
+TR_REL n=4000 tilerows32_vs_u1=1.545e-06 fast_vs_u1=1.460e-06 tilerows32_vs_fast=1.613e-06 tilerows32if_vs_if64=1.546e-06 if32_vs_if64=1.461e-06 finite={'tilerows32': True, 'tilerows32_if': True}
+TR_GATE32 pass=True ([True, True])
+TR_GATEIF pass=True ([True, True])
+TR_BANDS      tilerows32_vs_lean_u1 sub 6.75e-06 7.18e-06 4.82e-06 4.28e-06 4.72e-06 6.51e-06 1.14e-05 1.55e-05 | af 1.62e-06 1.18e-06 2.30e-06 2.41e-06 1.84e-06 2.13e-06 3.60e-06 6.67e-06
+TR_BANDS   lean32ek_fast_vs_lean_u1 sub 6.62e-06 6.76e-06 4.47e-06 4.42e-06 4.71e-06 6.36e-06 1.02e-05 1.29e-05 | af 1.62e-06 8.77e-07 1.72e-06 1.96e-06 1.81e-06 2.06e-06 3.31e-06 6.04e-06
+TR_BANDS      tilerows32_if_vs_if64 sub 7.03e-06 7.30e-06 4.78e-06 4.30e-06 4.71e-06 6.51e-06 1.14e-05 1.56e-05 | af 1.62e-06 1.18e-06 2.30e-06 2.42e-06 1.84e-06 2.13e-06 3.60e-06 6.67e-06
+TR_BANDS               if32_vs_if64 sub 7.31e-06 6.60e-06 4.45e-06 4.42e-06 4.72e-06 6.36e-06 1.02e-05 1.30e-05 | af 1.62e-06 8.76e-07 1.72e-06 1.96e-06 1.81e-06 2.06e-06 3.31e-06 6.04e-06
+TR_BENCH {"tilerows32_eager": 1.5778, "tilerows32_if_eager": 1.5774, "tilerows32_graph": 1.5622, "tilerows32_graph_finite": true, "tilerows32_split_ms": {"build_w": 0.14745600521564484, "cufft_cols_w": 0.2754560112953186, "expand": 0.07884799689054489, "cufft_c2r": 0.3020800054073334, "tile_rows": 0.3020800054073334, "cufft_cols_z": 0.2764799892902374, "update": 0.21606400609016418}, "lean32ek_fast": 2.7076, "if32": 2.7585, "lean_u1": 6.4004}
+TR_PROBE_DONE failures=0

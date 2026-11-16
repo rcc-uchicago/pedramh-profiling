@@ -1,0 +1,9 @@
+==WARNING== Note: Running with unmodified GPU clocks. If not controlled otherwise, profiling results may be inconsistent.
+==PROF== Connected to process 329090 (/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/bin/python3.10)
+==PROF== Profiling "regular_fft_factor": 0%....50%....100% - 50 passes
+==PROF== Profiling "regular_fft_factor": 0%....50%....100% - 50 passes
+==PROF== Profiling "regular_fft_factor": 0%....50%....100% - 50 passes
+device NVIDIA A100-SXM4-40GB, jax 0.4.28, init random, import 5.8 s, warm 2 optsteps 11.49 s, profiled range 9.82 s
+NCU_HARNESS_OK ref 2
+==PROF== Disconnected from process 329090
+==PROF== Report: /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/profile_ab3_ncu_7814044/ncu_fft.ncu-rep

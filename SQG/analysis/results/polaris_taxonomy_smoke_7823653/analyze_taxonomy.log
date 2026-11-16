@@ -1,0 +1,24 @@
+TAXO_DATA pairs=8 states=4 workers=[0, 1, 2, 3]
+TAXO_CONTROL bitwise prod==lean_u1 True; lean32ek_fast==lean32ek True; dt40==lean_u1 True
+TAXO_BENCH ms/step (median over workers): lean_u1=6.405 lean32ek=3.340 lean32ek_fast=2.694 lean32sr=2.789 lean32=3.190
+TAXO_FAST PASS bitwise=True ms=2.694 (gate <= 2.9)
+TAXO_DELTA rms(Delta) at 4,000 steps (o1.2 units): median 0.8212 [0.7821, 0.8355] over 8 pairs (synthetic job 7819310: 0.825)
+TAXO_EDELTA lean32ek: overall 40:1.21e-05 400:5.65e-06 1000:5.72e-06 2000:6.89e-06 4000:8.80e-06 | sub@4000 k1-2=2.78e-05 k2-4=5.10e-06 k4-8=3.08e-06 k8-16=2.97e-06 k16-32=3.93e-06 k32-64=7.52e-06 k64-128=1.64e-05 k128-182=2.26e-05 | af k1-2 2.32e-06 rem k1-2 7.85e-05
+TAXO_EDELTA lean32: overall 40:5.37e-05 400:7.47e-05 1000:1.29e-04 2000:2.39e-04 4000:5.83e-04 | sub@4000 k1-2=5.37e-03 k2-4=2.08e-03 k4-8=4.45e-04 k8-16=2.16e-04 k16-32=2.25e-04 k32-64=4.53e-04 k64-128=9.94e-04 k128-182=1.40e-03 | af k1-2 5.41e-03 rem k1-2 1.81e-03
+TAXO_EDELTA lean32sr: overall 40:1.42e-05 400:6.66e-06 1000:7.23e-06 2000:9.33e-06 4000:1.65e-05 | sub@4000 k1-2=6.46e-05 k2-4=4.12e-05 k4-8=8.58e-06 k8-16=5.60e-06 k16-32=6.76e-06 k32-64=1.34e-05 k64-128=2.98e-05 k128-182=4.13e-05 | af k1-2 5.98e-05 rem k1-2 1.05e-04
+TAXO_EDELTA f64ic32: overall 40:1.31e-06 400:2.14e-07 1000:1.63e-07 2000:1.73e-07 4000:2.25e-07 | sub@4000 k1-2=9.83e-07 k2-4=3.99e-07 k4-8=1.18e-07 k8-16=6.77e-08 k16-32=9.15e-08 k32-64=1.86e-07 k64-128=4.07e-07 k128-182=5.77e-07 | af k1-2 8.62e-07 rem k1-2 1.35e-06
+TAXO_EDELTA dquant: overall 40:2.60e-05 400:4.12e-05 1000:7.15e-05 2000:1.38e-04 4000:3.39e-04 | sub@4000 k1-2=6.79e-04 k2-4=1.16e-03 k4-8=2.90e-04 k8-16=1.43e-04 k16-32=1.28e-04 k32-64=2.64e-04 k64-128=5.83e-04 k128-182=8.01e-04 | af k1-2 4.06e-04 rem k1-2 1.45e-03
+TAXO_EDELTA inj: overall 40:1.21e-05 400:5.68e-06 1000:5.77e-06 2000:6.98e-06 4000:9.11e-06 | sub@4000 k1-2=3.51e-05 k2-4=7.07e-06 k4-8=3.30e-06 k8-16=3.06e-06 k16-32=4.06e-06 k32-64=7.79e-06 k64-128=1.69e-05 k128-182=2.33e-05 | af k1-2 2.54e-05 rem k1-2 7.67e-05
+TAXO_EDELTA inj64: overall 40:4.77e-07 400:2.33e-07 1000:2.53e-07 2000:4.04e-07 4000:8.72e-07 | sub@4000 k1-2=2.51e-05 k2-4=2.61e-06 k4-8=7.94e-07 k8-16=4.10e-07 k16-32=4.57e-07 k32-64=7.09e-07 k64-128=1.40e-06 k128-182=1.92e-06 | af k1-2 2.41e-05 rem k1-2 3.15e-06
+TAXO_ALIAS lean32ek k1-2 alias-free / subsampled e_delta = 0.084 (prediction <= 0.3)
+TAXO_SPECTRUM per-mode |e|^2 spread over bands (max/min): lean32ek=5.7 lean32=248.3 lean32sr=124.9 f64ic32=53.2 (synthetic: lean32ek 5, lean32 260)
+TAXO_MDE lean32ek (sub, delta units, 2.8 SE) x-coef: k1-2=7.26e-06(pred 8.0e-06) k2-4=7.26e-07(pred 8.8e-07) k4-8=9.29e-08(pred 2.6e-07) k8-16=1.73e-07(pred 1.2e-07) k16-32=1.24e-07(pred 1.2e-07) k32-64=8.61e-08(pred 1.2e-07) k64-128=7.00e-08(pred 1.2e-07) k128-182=1.06e-07(pred 1.2e-07)
+TAXO_CONTROL a (dquant, mechanism A; alpha_n vs -drate_n x 0.02) PASS: kappa k1-2=1.083 k2-4=1.001 k4-8=0.988 k8-16=0.930 k16-32=0.453 k32-64=0.169 k64-128=0.095 k128-182=-0.082 (gate (0.8, 1.2) on k<8); learnable bias of mechanism A: k1-2=3.25e-04 k2-4=1.23e-03 k4-8=2.79e-04 k8-16=1.13e-04
+TAXO_CONTROL b (planted shift in lean32ek vs its float64 truth) FAIL: k1-2:FAIL(z=-13.4) k2-4:FAIL(z=-25.5) k4-8:FAIL(z=-58.7) k8-16:FAIL(z=-4.5) k16-32:FAIL(z=-5.6) k32-64:FAIL(z=-15.8) k64-128:FAIL(z=-20.5) k128-182:FAIL(z=-4.9) (ratios sealed)
+TAXO_BIAS lean32: z_x k1-2=-0.8 k2-4=-14.5 k4-8=-8.7 k8-16=4.0 k16-32=1.0 k32-64=-0.2 k64-128=-0.7 k128-182=-0.4 | shells p<0.0027 k1-2=0.000 k2-4=0.333 k4-8=0.350 k8-16=0.191 | learnable bias k1-2 0.00e+00
+TAXO_BIAS lean32sr: z_x k1-2=-0.5 k2-4=-1.8 k4-8=-1.3 k8-16=-0.0 k16-32=1.2 k32-64=0.9 k64-128=-0.4 k128-182=1.2 | shells p<0.0027 k1-2=0.000 k2-4=0.000 k4-8=0.000 k8-16=0.044 | learnable bias k1-2 3.08e-05
+TAXO_BIAS f64ic32: z_x k1-2=1.5 k2-4=-1.4 k4-8=0.7 k8-16=-1.2 k16-32=-0.3 k32-64=0.0 k64-128=-0.3 k128-182=0.1 | shells p<0.0027 k1-2=0.000 k2-4=0.167 k4-8=0.050 k8-16=0.029 | learnable bias k1-2 2.99e-07
+TAXO_BIAS lean32_minus_dquant_af: z_x k1-2=-0.6 k2-4=-3.4 k4-8=-5.1 k8-16=-0.8 k16-32=-1.0 k32-64=-3.9 k64-128=-1.5 k128-182=-1.9 | shells p<0.0027 k1-2=0.000 k2-4=0.000 k4-8=0.100 k8-16=0.000 | learnable bias k1-2 0.00e+00
+TAXO_DT80 production time error |D(2.5e-6)|/|Delta| per band (sub): k1-2=2.30e-04 k2-4=3.97e-05 k4-8=2.53e-05 k8-16=2.90e-05 k16-32=4.91e-05 k32-64=1.12e-04 k64-128=2.75e-04 k128-182=4.04e-04
+TAXO_SEALED sha256=cafcf8a0fc249e35a485606876d25118722930c0763a328a58d38e6317d19097 path=/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/taxonomy_smoke_7823653/sealed/sealed_taxonomy.json (lean32ek, dt30, dt32 bias statistics; control b ratios; dt order ratio) -- open after item 4's gates are signed
+TAXO_ANALYSIS_DONE valid=False control_a=True control_b=False prod_bitwise=True dt_valid=True fast=True

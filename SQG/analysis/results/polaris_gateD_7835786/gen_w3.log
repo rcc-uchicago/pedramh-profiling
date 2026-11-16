@@ -1,0 +1,5 @@
+GEN_SEGMENT m04_t0100.00 frames=5001 seconds=1298.0 bitwise=PASS checked=[0, 100, 200, 300, 400]
+GEN_SEGMENT m01_t0200.00 frames=5001 seconds=1297.0 bitwise=PASS checked=[0, 100, 200, 300, 400]
+GEN_SEGMENT m02_t0300.00 frames=5001 seconds=1296.8 bitwise=PASS checked=[0, 100, 200, 300, 400]
+GEN_SEGMENT m03_t0400.00 frames=5001 seconds=1297.4 bitwise=PASS checked=[0, 100, 200, 300, 400]
+GEN_WORKER_DONE w=3 failures=0

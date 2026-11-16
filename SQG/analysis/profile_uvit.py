@@ -12,6 +12,7 @@ Cost does not depend on the data values, so x = randn, y = x + 0.1 randn.
      cudnn.benchmark=True and with channels_last, and the max relative difference of their forward output vs the
      baseline -- an upper bound on what layout/algorithm tuning could buy.
 Writes <out>/profile_uvit.json; prints UVIT_OK.
+SQG_BATCH overrides the batch (default 32, as Midway); profile_uvit_polaris.pbs sets it to match job B.
 """
 import argparse
 import json
@@ -27,7 +28,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 from model_UViT import ConvNextUViT
 
-BATCH, N = 32, 256
+BATCH, N = int(os.environ.get("SQG_BATCH", 32)), 256
 
 
 def build(dev, seed=0):

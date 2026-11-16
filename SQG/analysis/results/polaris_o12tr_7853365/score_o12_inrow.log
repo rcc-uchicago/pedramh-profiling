@@ -1,0 +1,9 @@
+O12IR_PRED Q1 CONFIRMED
+O12IR_PRED Q2 CONFIRMED
+O12IR_PRED Q3 CONFIRMED
+O12IR_PRED Q4 CONFIRMED
+O12IR_PRED Q5 CONFIRMED
+O12IR_PRED Q6 CONFIRMED
+O12IR_ARM tilerows_if25 s_step=0.9251 hours14=50.97775298888889 gate=True run_done=True paths={'jax_to_torch': 'dlpack', 'torch_to_jax': 'dlpack'}
+O12IR_ARM tilerows_inrow_if25 s_step=0.8885 hours14=48.886481833333335 gate=True run_done=True paths={'jax_to_torch': 'dlpack', 'torch_to_jax': 'dlpack'}
+O12IR_SCORE confirmed=6 refuted=0 unscored=0 | measurement counts: True

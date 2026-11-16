@@ -1,0 +1,148 @@
+{
+ "worker": 1,
+ "device_kind": "NVIDIA A100-SXM4-40GB",
+ "jax": "0.4.28",
+ "solver_sha256": "8d243313bd11a9ff0dc4caea70c17d3d09fc5307acb3b6feec83b2e4bfa19ddb",
+ "pairs": 2,
+ "lags_steps": [
+  40,
+  400,
+  1000,
+  2000,
+  4000
+ ],
+ "inj_factor": 3.0,
+ "mde_pred": [
+  8e-06,
+  8.8e-07,
+  2.6e-07,
+  1.2e-07,
+  1.2e-07,
+  1.2e-07,
+  1.2e-07,
+  1.2e-07
+ ],
+ "bands": [
+  [
+   1,
+   2
+  ],
+  [
+   2,
+   4
+  ],
+  [
+   4,
+   8
+  ],
+  [
+   8,
+   16
+  ],
+  [
+   16,
+   32
+  ],
+  [
+   32,
+   64
+  ],
+  [
+   64,
+   128
+  ],
+  [
+   128,
+   182
+  ]
+ ],
+ "states": [
+  {
+   "member": 0,
+   "path": "/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/delta_7819310/spinup_state_7819310.npz",
+   "offset_calls": 250,
+   "t": 0.5505050897598267,
+   "completed_blocks": -1,
+   "spe": 73.39957073838792,
+   "cfl": 0.34321089181844366,
+   "load_s": 70.9,
+   "pairs": [
+    {
+     "j": 0,
+     "spe": 73.39957073838792,
+     "cfl": 0.34321089181844366,
+     "arms": [
+      "lean32ek",
+      "inj",
+      "dquant",
+      "inj64",
+      "lean32",
+      "f64ic32",
+      "lean32sr",
+      "prod",
+      "lean32ek_fast"
+     ],
+     "seconds": 327.8,
+     "dt": true
+    },
+    {
+     "j": 1,
+     "spe": 72.64610653691572,
+     "cfl": 0.2996069127593459,
+     "arms": [
+      "lean32ek",
+      "inj"
+     ],
+     "seconds": 52.4,
+     "dt": false
+    }
+   ]
+  }
+ ],
+ "bitwise": {
+  "prod_vs_lean_u1_frames": {
+   "40": true,
+   "400": true,
+   "1000": true,
+   "2000": true,
+   "4000": true
+  },
+  "fast_vs_lean32ek_state": {
+   "40": true,
+   "400": true,
+   "4000": true
+  },
+  "dt40_vs_lean_u1": [
+   {
+    "state": 0,
+    "frame": true,
+    "state_hash": true
+   }
+  ]
+ },
+ "npz": [
+  "pair_w1_s0_p0.npz",
+  "pair_w1_s0_p1.npz"
+ ],
+ "injection": {
+  "drate_b": [
+   3.519518124193756e-05,
+   9.111496285434e-06,
+   1.0448956710613577e-05,
+   1.2007531845427443e-05,
+   2.1729258048741817e-05,
+   2.506111361414871e-05,
+   2.517786906739804e-05,
+   2.503535491351642e-05
+  ],
+  "edec_changed_modes": 32639
+ },
+ "ms_per_step": {
+  "lean_u1": 6.4036,
+  "lean32ek": 3.3397,
+  "lean32ek_fast": 2.6939,
+  "lean32sr": 2.7887,
+  "lean32": 3.1903
+ },
+ "wall_s": 535.9
+}

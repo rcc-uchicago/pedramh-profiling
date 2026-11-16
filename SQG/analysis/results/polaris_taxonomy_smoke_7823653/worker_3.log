@@ -1,0 +1,7 @@
+TAXO_STATE w=3 s=0 member=0 t=0.65 SPE=69.692 CFL=0.295
+TAXO_INJECT w=3 drate per band: 3.22e-05 1.04e-05 9.95e-06 1.17e-05 2.16e-05 2.51e-05 2.56e-05 2.54e-05; float32 e changed on 32639 modes
+TAXO_PAIR w=3 s=0 p=0 (328 s) CFL=0.295 arms=lean32ek,inj,dquant,inj64,lean32,f64ic32,lean32sr,prod,lean32ek_fast +dt
+TAXO_PAIR w=3 s=0 p=1 (52 s) CFL=0.286 arms=lean32ek,inj
+TAXO_BITWISE w=3 prod==lean_u1 True fast==lean32ek {'40': True, '400': True, '4000': True} dt40==lean_u1 [{'state': 0, 'frame': True, 'state_hash': True}]
+TAXO_BENCH w=3 lean_u1=6.4071 lean32ek=3.3354 lean32ek_fast=2.6943 lean32sr=2.7889 lean32=3.1846
+TAXO_WORKER_DONE w=3 pairs=2 wall=664s

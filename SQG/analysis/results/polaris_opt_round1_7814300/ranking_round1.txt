@@ -1,0 +1,14 @@
+Round 1 ranking: tolerance-gated (FAIL never wins); bitwise is information only; 4,000-step columns are
+ungated (chaotic flow, synthetic start state), speedup is vs the same seed's production reference.
+
+#  variant     seed  precision             gate  err1(thr)        bitwise480  coarse4000  dE4000     ms/step  ref ms  speedup  optstep s  note
+-  ----------  ----  --------------------  ----  ---------------  ----------  ----------  ---------  -------  ------  -------  ---------  ------------------------------------------------------------------------------------------------------------------------
+1  lean32      2     f32                   FAIL  2.30e-05(1e-05)  no          4.36e-04    -8.36e-05  3.205    9.291   2.899x   -          t_tc_ablevel_40_steps_random;t_tc_ablevel_480_steps_random;t_tc_ablevel_4000_steps_random;rel1_synthetic=2.302e-05>1e-05
+2  mixed       2     f32-nonlin/f64-state  FAIL  2.30e-05(1e-05)  no          6.37e-06    -2.59e-08  4.684    9.291   1.984x   -          t_tc_ablevel_40_steps_random;t_tc_ablevel_480_steps_random;t_tc_ablevel_4000_steps_random;rel1_synthetic=2.298e-05>1e-05
+3  lean_u1     1     f64                   FAIL  0.00e+00(1e-12)  yes         0.00e+00    +0.00e+00  6.402    9.290   1.451x   -          40step_t_tc_or_ablevel_differ_random
+4  lean_split  1     f64                   FAIL  0.00e+00(1e-12)  yes         0.00e+00    +0.00e+00  7.066    9.290   1.315x   -          40step_t_tc_or_ablevel_differ_random
+5  lean64      2     f64                   FAIL  2.90e-14(1e-12)  no          0.00e+00    +0.00e+00  7.073    9.291   1.314x   -          t_tc_ablevel_40_steps_random;t_tc_ablevel_480_steps_random;t_tc_ablevel_4000_steps_random;t_tc_ablevel_40_steps_syntheti
+6  lean        1     f64                   FAIL  0.00e+00(1e-12)  yes         0.00e+00    +0.00e+00  8.002    9.290   1.161x   -          40step_t_tc_or_ablevel_differ_random
+
+WARN OPT_RANK_NO_PASSING_VARIANT: no variant passed its tolerance gate with a timing
+OPT_RANK_OK

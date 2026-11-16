@@ -1,0 +1,81 @@
+#!/bin/bash -l
+#PBS -N sqg_hybrid
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# run_hybrid_polaris.pbs -- the hybrid solver step (cuFFT + nvmath LTO callbacks + one Warp kernel) vs the JAX steps.
+# One A100 (GPU 0). Predictions + gates: SQG/analysis/opt/hybrid/PREDICTIONS_hybrid.md (written first).
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ \
+#        SQG/analysis/opt/hybrid/run_hybrid_polaris.pbs                          (from the repo root; -q debug-scaling ok)
+# Needs (pip --no-deps --target, on a login node; sqg-env unchanged):
+#   $MEMBER_ROOT/pylibs/warp-1.17.0   (warp-lang 1.17.0)
+#   $MEMBER_ROOT/pylibs/nvmath-1.0.0  (nvmath-python 1.0.0, numba-cuda 0.30.4, numba 0.68.1, llvmlite 0.50.0,
+#                                      cuda-bindings 12.9.10, cuda-core 1.2.2, cuda-pathfinder 1.8.3, backports.strenum)
+# cuFFT LTO callbacks need cuFFT >= 11.3: CUDA 12.9.1's libcufft.so.11 (11.4.1) is preloaded (as Part X's phase 3),
+# so JAX, torch and nvmath in this process all use it.
+# 0. test_hybrid_math.py (HYBRID_MATH_TEST_OK).  1. hybrid_probe.py (HYB_* tokens, HYB_PROBE_DONE failures=N).
+# End token: HYB_JOB_DONE failures=N. Results -> SQG/analysis/results/polaris_hybrid_<jobid>/.
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+export PYTHONUNBUFFERED=1
+WARP_PATH="${WARP_PATH:-${MEMBER_ROOT}/pylibs/warp-1.17.0}"
+NVMATH_PATH="${NVMATH_PATH:-${MEMBER_ROOT}/pylibs/nvmath-1.0.0}"
+TK=/soft/compilers/cudatoolkit/cuda-12.9.1/lib64
+export WARP_CACHE_PATH="${MEMBER_ROOT}/tmp/warp_cache_${JOB}"
+export NUMBA_CACHE_DIR="${MEMBER_ROOT}/tmp/numba_cache_${JOB}"
+T0=$(date +%s)
+DEADLINE=$(( T0 + 50 * 60 ))
+OUT="${MEMBER_ROOT}/sqg_profile/hybrid_${JOB}"
+RES="SQG/analysis/results/polaris_hybrid_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT" "$WARP_CACHE_PATH" "$NUMBA_CACHE_DIR"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+FAILURES=0
+fail() { echo "ERROR $*"; FAILURES=$((FAILURES + 1)); }
+HERE=SQG/analysis/opt/hybrid
+echo "=== run_hybrid on $(hostname) job $JOB: $(date '+%F %T') ==="
+nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee "$OUT/gpu.csv"
+sha256sum "$HERE"/*.py "$HERE"/PREDICTIONS_hybrid.md | tee "$OUT/sha256.txt"
+for d in "$WARP_PATH/warp" "$NVMATH_PATH/nvmath" "$NVMATH_PATH/numba_cuda"; do
+    [ -d "$d" ] || { echo "ERROR HYB_LIB_MISSING $d"; echo "HYB_JOB_DONE failures=1"; exit 5; }
+done
+[ -r "$TK/libcufft.so.11" ] || { echo "ERROR HYB_CUFFT_MISSING $TK/libcufft.so.11"; echo "HYB_JOB_DONE failures=1"; exit 5; }
+LABEL_TAIL="_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02"
+CKPT="${SQG_TRAINING_ROOT}/trainingdata_m01${LABEL_TAIL}/checkpoint/ckpt_t0100.00.npz"
+[ -s "$CKPT" ] || { echo "ERROR HYB_CKPT_NOT_STAGED $CKPT"; echo "HYB_JOB_DONE failures=1"; exit 5; }
+
+"$PY" "$HERE/test_hybrid_math.py" 2>&1 | tee "$OUT/test_hybrid_math.log" || fail HYBRID_MATH_TEST
+grep -q "HYBRID_MATH_TEST_OK" "$OUT/test_hybrid_math.log" || fail HYBRID_MATH_TEST_NO_TOKEN
+
+LD_PRELOAD="$TK/libnvJitLink.so.12:$TK/libcufft.so.11" "$PY" "$HERE/hybrid_probe.py" --out "$OUT" --ckpt "1:${CKPT}" \
+    --warp-path "$WARP_PATH" --nvmath-path "$NVMATH_PATH" --deadline "$DEADLINE" 2>&1 | tee "$OUT/hybrid_probe.log" \
+    || fail HYB_PROBE_RC
+grep -q "HYB_PROBE_DONE failures=0" "$OUT/hybrid_probe.log" || fail HYB_PROBE_NOT_CLEAN
+grep -E "^(HYB_|ERROR|env |micro )" "$OUT/hybrid_probe.log" || true
+
+for f in "$OUT"/hybrid_probe.json "$OUT"/*.log "$OUT"/gpu.csv "$OUT"/sha256.txt; do
+    [ -e "$f" ] && cp "$f" "$RES"/
+done
+echo "=== end $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+echo "HYB_JOB_DONE failures=$FAILURES"

@@ -1,0 +1,28 @@
+{
+ "device": "NVIDIA A100-SXM4-40GB",
+ "torch": "2.3.1+cu121",
+ "jax": "0.4.28",
+ "init": "random",
+ "steps": 6,
+ "warmup": 3,
+ "buffer_pairs": 8192,
+ "batch": 16,
+ "results": {
+  "serial_fixed": {
+   "wall_s_median": 4.9557,
+   "wall_s_mean": 4.9551,
+   "ml_gpu_ms_median": 778.18,
+   "sample_host_ms_median": 1.65,
+   "sample_gpu_ms_median": 1.7,
+   "net_gpu_ms_median": 776.66
+  }
+ },
+ "arms": [
+  "serial_fixed"
+ ],
+ "nvtx": true,
+ "nsys": true,
+ "overlap_efficiency": {},
+ "torch_peak_GiB": 20.26,
+ "jax_peak_GiB": 3.23
+}

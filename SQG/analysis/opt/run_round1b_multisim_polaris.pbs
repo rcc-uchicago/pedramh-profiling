@@ -1,0 +1,137 @@
+#!/bin/bash -l
+#PBS -N sqg_opt_r1b_ms
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=2:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# run_round1b_multisim_polaris.pbs -- one 2-node debug job, two phases (user request 2026-11-05):
+#  Phase 1  round 1b of the solver speed-ups: seed 2's lean64 / mixed / lean32 with the corrected gates (seed2_opt.py
+#           ROUND 1b block: float32 gate = 2 x the original step's own float32 error, cap 1e-4; t within 1e-6), alone on
+#           node 0's GPU 0 so the timings are clean (node 1 idles for these ~8 min).
+#  Phase 2  the 8-GPU smoke over Slingshot (multisim/sqg_multisim.py, one rank per GPU, mpiexec through rank_env.sh):
+#           ncclprobe (NCCL all_reduce with the makani/combine_handoffs plugin stack; PASS needs "Selected Provider is
+#           cxi"), then independent and stream for the ref (float64) and lean32 solvers.
+# Launch recipe and traps from combine_handoffs (polaris_nccl_debug_info.md §0/§5/§6b, polaris_ace2_multinode_handoff.md
+# §1c): --cpu-bind depth -d 8 (mandatory), --label --line-buffer, MASTER_PORT unique per job and per run, TMPDIR=/tmp,
+# OMP_NUM_THREADS set explicitly (PBS exports 64), short process-group timeout, gloo on hsn0 for the frame stream.
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ SQG/analysis/opt/run_round1b_multisim_polaris.pbs
+# PASS = SEED2_DONE + OPT_RANK_OK (phase 1); NCCL_CXI_OK + 5 x MULTISIM_OK (phase 2); final OPT_R1B_MS_DONE.
+# Text summaries -> SQG/analysis/results/polaris_opt_round1b_ms_<jobid>/.
+set -o pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+export SQG_INIT="${SQG_INIT:-random}"
+JOB="${PBS_JOBID%%.*}"
+OUT="${MEMBER_ROOT}/sqg_profile/opt_round1b_ms_${JOB}"
+RES="SQG/analysis/results/polaris_opt_round1b_ms_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+echo "=== opt_round1b_ms on $(hostname) job $JOB: $(date '+%F %T') ==="
+echo "host=$(hostname) job=$JOB py=$PY init=$SQG_INIT out=$OUT nodes=$(sort -u "$PBS_NODEFILE" | tr '\n' ' ')"
+echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}"
+echo "modules: $(module -t list 2>&1 | tr '\n' ' ')"
+nvidia-smi --query-gpu=name,driver_version,memory.total,clocks.max.sm,clocks.max.mem,power.limit --format=csv | tee "$OUT/gpu.csv"
+# ------------------------------------------------------------------------------------------------------------------
+OPT=SQG/analysis/opt
+FAILS=0
+T_JOB0=$(date +%s)
+
+# ================= phase 1: round 1b (seed 2 only, node 0 GPU 0 alone) ===============================================
+echo "--- phase 1: round 1b  $(date '+%T')"
+"$PY" "$OPT/seed2/test_build_w_stdlib.py" || { echo "ERROR OPT_R1B_BUILDW_TEST_FAILED"; FAILS=$((FAILS + 1)); }
+timeout -k 60 1200 "$PY" "$OPT/seed2/seed2_opt.py" --out "$OUT/seed2" 2>&1 | tee "$OUT/seed2.log"
+rc=${PIPESTATUS[0]}
+echo "seed 2: rc=$rc  $(date '+%T')"
+grep -q SEED2_DONE "$OUT/seed2.log" || { echo "ERROR OPT_R1B_SEED2_FAILED rc=$rc"; FAILS=$((FAILS + 1)); }
+"$PY" "$OPT/rank_round1.py" --seed2 "$OUT/seed2/seed2.json" --out "$RES/ranking_round1b.txt" \
+    || { echo "ERROR OPT_R1B_RANK_FAILED"; FAILS=$((FAILS + 1)); }
+
+# ================= phase 2: the 8-GPU smoke over Slingshot ==========================================================
+echo "--- phase 2: multisim  $(date '+%T')"
+unset CUDA_VISIBLE_DEVICES                                       # rank_env.sh gives each rank its own GPU
+export TMPDIR=/tmp                                               # AF_UNIX path limit (combine_handoffs trap)
+export OMP_NUM_THREADS=8                                         # = cores per rank under -d 8 (PBS exports 64)
+export GPUS_PER_NODE=4 GPU_ORDER="${GPU_ORDER:-default}"
+export MASTER_ADDR="$(head -1 "$PBS_NODEFILE")"
+export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-hsn0}"         # gloo TCP over Slingshot
+NNODES=$(sort -u "$PBS_NODEFILE" | wc -l)
+NRANKS=$(( NNODES * GPUS_PER_NODE ))
+PORT0=$(( 20000 + JOB % 20000 ))                                 # unique per job (a fixed port hung 4 makani jobs)
+echo "nodes=$NNODES ranks=$NRANKS MASTER_ADDR=$MASTER_ADDR port0=$PORT0 GPU_ORDER=$GPU_ORDER GLOO_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME"
+MS=SQG/analysis/opt/multisim
+
+run_ms() {   # run_ms <index> <mode> <solver> <timeout_s> [extra args...]
+    local i="$1" mode="$2" solver="$3" tmo="$4"; shift 4
+    local log="$OUT/multisim_${mode}_${solver}.log"
+    echo "--- multisim $mode $solver (port $((PORT0 + i)), timeout ${tmo}s)  $(date '+%T')"
+    MASTER_PORT=$((PORT0 + i)) timeout -k 60 "$tmo" \
+        mpiexec -n "$NRANKS" --ppn "$GPUS_PER_NODE" --hostfile "$PBS_NODEFILE" --cpu-bind depth -d 8 \
+        --label --line-buffer \
+        bash "$MS/rank_env.sh" "$PY" "$MS/sqg_multisim.py" --mode "$mode" --solver "$solver" --out "$OUT/multisim" "$@" \
+        2>&1 | tee "$log"
+    local rc=${PIPESTATUS[0]}
+    echo "multisim $mode $solver: rc=$rc  $(date '+%T')"
+    grep -q "MULTISIM_OK $mode $solver" "$log" || { echo "ERROR OPT_MS_${mode}_${solver}_FAILED rc=$rc"; FAILS=$((FAILS + 1)); return 1; }
+}
+
+# -- NCCL probe with the makani/combine_handoffs plugin stack (only this run sees the NCCL env) --
+OFI_PLUGIN=/soft/libraries/aws-ofi-nccl/v1.6.0-libfabric-1.22.0/lib
+OFI_LIBFABRIC=/opt/cray/libfabric/2.3.1/lib64
+OFI_OK=1
+for _d in "$OFI_LIBFABRIC" "$OFI_PLUGIN" /soft/libraries/hwloc/lib; do
+    [ -d "$_d" ] || { echo "ERROR OFI_PATH_MISSING: $_d (NCCL probe skipped)"; OFI_OK=0; }
+done
+if [ "$OFI_OK" = 1 ]; then
+    (
+        export LD_LIBRARY_PATH="${OFI_LIBFABRIC}:${OFI_PLUGIN}:/soft/libraries/hwloc/lib:${LD_LIBRARY_PATH:-}"
+        export NCCL_NET="AWS Libfabric" NCCL_CROSS_NIC=1 NCCL_NET_GDR_LEVEL=PHB NCCL_PROTO=Simple \
+               FI_CXI_DISABLE_HOST_REGISTER=1 FI_MR_CACHE_MONITOR=userfaultfd FI_CXI_DEFAULT_CQ_SIZE=131072 \
+               FI_CXI_RDZV_PROTO=alt_read FI_CXI_RDZV_EAGER_SIZE=0 FI_CXI_RDZV_THRESHOLD=0 FI_CXI_RDZV_GET_MIN=0 \
+               FI_CXI_DEFAULT_TX_SIZE=2048 FI_CXI_RX_MATCH_MODE=hybrid NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,NET
+        run_ms 0 ncclprobe ref 360 --probe-mb 64
+    ) || FAILS=$((FAILS + 1))
+    PLOG="$OUT/multisim_ncclprobe_ref.log"
+    n_cxi=$(grep -c "Selected Provider is cxi" "$PLOG" 2>/dev/null || true)
+    n_p2p=$(grep -cE "via P2P" "$PLOG" 2>/dev/null || true)
+    n_shm=$(grep -cE "via SHM" "$PLOG" 2>/dev/null || true)
+    echo "nccl probe: 'Selected Provider is cxi' x${n_cxi}; intra-node 'via P2P' x${n_p2p}, 'via SHM' x${n_shm}"
+    grep -m3 -E "NCCL version|Loaded net plugin|GDR" "$PLOG" || true
+    if [ "${n_cxi:-0}" -ge "$NNODES" ]; then echo "NCCL_CXI_OK providers=${n_cxi}"
+    else echo "ERROR NCCL_NOT_CXI: transport is not Slingshot CXI (see $PLOG)"; FAILS=$((FAILS + 1)); fi
+fi
+
+# -- independent simulations, then simulators -> trainer streaming (gloo on hsn0) --
+run_ms 1 independent ref    600 --calls 30
+run_ms 2 independent lean32 600 --calls 60
+run_ms 3 stream      ref    600 --seconds 150
+run_ms 4 stream      lean32 600 --seconds 150
+
+# ---- text summaries into the repo ----------------------------------------------------------------------------------
+for f in "$OUT"/seed2/seed2.json "$OUT"/seed2/hlo_*.txt "$OUT"/*.log "$OUT"/gpu.csv "$OUT"/multisim/*.json; do
+    [ -e "$f" ] || continue
+    [ "$(stat -c %s "$f")" -lt 3000000 ] && cp "$f" "$RES"/
+done
+echo "--- tokens:"
+cat "$OUT"/*.log 2>/dev/null | grep -E '(SEED2_(GATE_OK|BENCH|OPTSTEP|BANDS|F32BASE|DONE)|MULTISIM |MULTISIM_OK|NCCL_CXI_OK|ERROR |WARN )' \
+    | sed 's/^[0-9]*: //' | sort -u | head -60 || true
+echo "summaries: $RES ($(ls -1 "$RES" 2>/dev/null | wc -l) files); raw dir: $OUT"
+echo "=== end $(date '+%F %T'), $(( $(date +%s) - T_JOB0 ))s, failures=$FAILS ==="
+echo "OPT_R1B_MS_DONE failures=$FAILS"

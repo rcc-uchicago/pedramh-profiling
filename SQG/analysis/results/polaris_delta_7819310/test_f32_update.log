@@ -1,0 +1,2 @@
+rate 0.02828/time, float32 decay applies 0.02384 (-15.7%); after 100000 steps: theta rel err  decay32 3.84e-03  plain 3.84e-03  compensated 3.81e-08; 4000-step delta rel err  decay32 3.07e-01  plain 3.07e-01  compensated 8.82e-08
+F32_UPDATE_TEST_OK

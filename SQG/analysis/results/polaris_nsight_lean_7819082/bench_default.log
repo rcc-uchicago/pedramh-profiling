@@ -1,0 +1,15 @@
+nsight bench: NVIDIA A100-SXM4-40GB, jax 0.4.28, import 12 s; built ref (compile 2.4 s, full-size copies 5), lean_u1 (compile 0.3 s, full-size copies 3), lean32 (compile 0.2 s, full-size copies 2), lean32_r2 (compile 0.2 s, full-size copies 2), lean32_u1 (compile 0.3 s, full-size copies 2), lean32_ring3 (compile 0.3 s, full-size copies 0), lean32_u1_ring3 (compile 0.4 s, full-size copies 0)
+NSIGHT_CHECK_OK lean32_r2 | rel40=0.00e+00 rel480=0.00e+00 bitwise40=True bitwise480=True t_exact=True
+NSIGHT_CHECK_OK lean32_u1 | rel40=0.00e+00 rel480=0.00e+00 bitwise40=True bitwise480=True t_exact=True
+NSIGHT_CHECK_OK lean32_ring3 | rel40=0.00e+00 rel480=0.00e+00 bitwise40=True bitwise480=True t_exact=True
+NSIGHT_CHECK_OK lean32_u1_ring3 | rel40=0.00e+00 rel480=0.00e+00 bitwise40=True bitwise480=True t_exact=True
+NSIGHT_BENCH ref ms=9.2879 vs_ref=1.0 vs_lean32=0.344 check=-
+NSIGHT_BENCH lean_u1 ms=6.4088 vs_ref=1.449 vs_lean32=0.499 check=-
+NSIGHT_BENCH lean32 ms=3.1978 vs_ref=2.904 vs_lean32=1.0 check=-
+NSIGHT_BENCH lean32_r2 ms=3.1980 vs_ref=2.904 vs_lean32=1.0 check=True
+NSIGHT_BENCH lean32_u1 ms=2.6405 vs_ref=3.517 vs_lean32=1.211 check=True
+NSIGHT_BENCH lean32_ring3 ms=3.1044 vs_ref=2.992 vs_lean32=1.03 check=True
+NSIGHT_BENCH lean32_u1_ring3 ms=2.5235 vs_ref=3.681 vs_lean32=1.267 check=True
+NSIGHT_FFT_MICRO fft2_c2c_c128=1.1999 irfft2_c2r_c128=1.0154 rfft2_r2c_f64=0.6184 fft2_c2c_c64=0.5258 irfft2_c2r_c64=0.5072 rfft2_r2c_f32=0.3111
+NSIGHT_LIBS libcublas.so.12@/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cublas/lib libcudart.so.12@/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cuda_runtime/lib libcufft.so.11@/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cufft/lib
+NSIGHT_BENCH_OK /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/nsight_lean_7819082/bench_default/nsight_bench.json check_failures=0 wall=259s

@@ -1,0 +1,164 @@
+{
+ "device_kind": "NVIDIA A100-SXM4-40GB",
+ "jax": "0.4.28",
+ "solver_sha256": "8d243313bd11a9ff0dc4caea70c17d3d09fc5307acb3b6feec83b2e4bfa19ddb",
+ "import_s": 3.8,
+ "stride": 40,
+ "check_rule": {
+  "rel_l2_max_40": 1e-06,
+  "t_rel_tol": 1e-06,
+  "reference": "seed2_opt lean32",
+  "start": "random IC, AB3 level 2"
+ },
+ "variants": {
+  "ref": {
+   "compile_s": 2.4,
+   "hlo": {
+    "fft": 5,
+    "conditional": 1,
+    "while": 1,
+    "copy": 21,
+    "fusion": 35,
+    "custom_call": 0,
+    "full_size_copies": 5,
+    "fft_ops": [
+     "IRFFT:f64",
+     "IRFFT:f64",
+     "RFFT:c128",
+     "IRFFT:f64",
+     "RFFT:c128"
+    ]
+   },
+   "ms_per_step": 9.2837,
+   "ms_per_step_repeats": [
+    9.2834,
+    9.2837,
+    9.2837
+   ],
+   "speedup_vs_ref": 1.0,
+   "speedup_vs_lean32": 0.345
+  },
+  "lean_u1": {
+   "compile_s": 0.3,
+   "hlo": {
+    "fft": 20,
+    "conditional": 0,
+    "while": 1,
+    "copy": 7,
+    "fusion": 35,
+    "custom_call": 0,
+    "full_size_copies": 3,
+    "fft_ops": [
+     "IRFFT:f64",
+     "IRFFT:f64",
+     "RFFT:c128",
+     "IRFFT:f64",
+     "RFFT:c128",
+     "IRFFT:f64",
+     "IRFFT:f64",
+     "RFFT:c128",
+     "IRFFT:f64",
+     "RFFT:c128",
+     "IRFFT:f64",
+     "IRFFT:f64",
+     "RFFT:c128",
+     "IRFFT:f64",
+     "RFFT:c128",
+     "IRFFT:f64",
+     "IRFFT:f64",
+     "RFFT:c128",
+     "IRFFT:f64",
+     "RFFT:c128"
+    ]
+   },
+   "ms_per_step": 6.4032,
+   "ms_per_step_repeats": [
+    6.4032,
+    6.4031,
+    6.4032
+   ],
+   "speedup_vs_ref": 1.45,
+   "speedup_vs_lean32": 0.5
+  },
+  "lean32": {
+   "compile_s": 0.2,
+   "hlo": {
+    "fft": 8,
+    "conditional": 0,
+    "while": 1,
+    "copy": 6,
+    "fusion": 23,
+    "custom_call": 0,
+    "full_size_copies": 2,
+    "fft_ops": [
+     "FFT:c64",
+     "IRFFT:f32",
+     "RFFT:c64",
+     "RFFT:c64",
+     "FFT:c64",
+     "IRFFT:f32",
+     "RFFT:c64",
+     "RFFT:c64"
+    ]
+   },
+   "ms_per_step": 3.1998,
+   "ms_per_step_repeats": [
+    3.2,
+    3.1998,
+    3.1997
+   ],
+   "speedup_vs_ref": 2.901,
+   "speedup_vs_lean32": 1.0
+  }
+ },
+ "frames": {
+  "ref": {
+   "f40": {
+    "rel_l2": 0.0,
+    "bitwise": true
+   },
+   "f480": {
+    "rel_l2": 0.0,
+    "bitwise": true
+   }
+  },
+  "lean_u1": {
+   "f40": {
+    "rel_l2": 0.0,
+    "bitwise": true
+   },
+   "f480": {
+    "rel_l2": 0.0,
+    "bitwise": true
+   }
+  },
+  "lean32": {
+   "f40": {
+    "rel_l2": 1.6885802297827488e-10,
+    "bitwise": false
+   },
+   "f480": {
+    "rel_l2": 6.657351684521933e-09,
+    "bitwise": false
+   }
+  }
+ },
+ "fft_ms_per_call_4096": {
+  "fft2_c2c_c128": 1.2004,
+  "irfft2_c2r_c128": 1.0145,
+  "rfft2_r2c_f64": 0.6185,
+  "fft2_c2c_c64": 0.5297,
+  "irfft2_c2r_c64": 0.5078,
+  "rfft2_r2c_f32": 0.3142
+ },
+ "loaded_cuda_libs": [
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cublas/lib/libcublas.so.12",
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cuda_runtime/lib/libcudart.so.12",
+  "/soft/compilers/cudatoolkit/cuda-12.9.1/targets/x86_64-linux/lib/libcufft.so.11.4.1.4"
+ ],
+ "jax_memory_GiB": {
+  "bytes_in_use": 2.29,
+  "peak_bytes_in_use": 3.73
+ },
+ "wall_s": 157.2
+}

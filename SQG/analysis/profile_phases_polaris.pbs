@@ -1,0 +1,79 @@
+#!/bin/bash -l
+#PBS -N sqg_prof_phases
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:40:00
+#PBS -j oe
+# profile_phases_polaris.pbs -- Job D on one Polaris A100: per-phase audit of host syncs, device-to-host copies and
+# launches in o1.2's optimizer step. For each arm, profile_overlap.py runs under SQG_NVTX=1 and nsys (timed steps
+# only, --nsys), the capture is exported to SQLite, and summarize_nsys_phases.py attributes every CUDA API call (and
+# the GPU work it issued) to the NVTX phase open on its thread, and every sync / DtoH to the XLA op that issued it.
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ [-v NSYS_ARMS="serial_ref",SQG_BATCH=16] \
+#        SQG/analysis/profile_phases_polaris.pbs                                   (from the repo root)
+# Default arms: serial_ref (production), serial_fixed (no lax.switch), thread_ref (background-thread solver).
+# Batch 16 by default: the UViT step at the production batch of 32 OOMs a 40 GB A100 (job 7809340).
+# PASS = one "PHASES_OK" per arm (+ "PHASES_TEST_OK") in the .o file. Summaries (JSON/CSV) ->
+# SQG/analysis/results/polaris_phases_<jobid>/; the .nsys-rep/.sqlite stay in $MEMBER_ROOT/sqg_profile/profile_phases_<jobid>/.
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+export SQG_INIT="${SQG_INIT:-random}"
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+export SQG_BATCH="${SQG_BATCH:-16}" SQG_NVTX=1
+ARMS="${NSYS_ARMS:-serial_ref serial_fixed thread_ref}"
+OUT="${MEMBER_ROOT}/sqg_profile/profile_phases_${JOB}"
+RES="SQG/analysis/results/polaris_phases_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+echo "=== profile_phases on $(hostname) job $JOB: $(date '+%F %T') ==="
+echo "host=$(hostname) job=$JOB py=$PY init=$SQG_INIT batch=$SQG_BATCH buf=${SQG_BUF:-8192} arms=$ARMS"
+echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}"
+echo "modules: $(module -t list 2>&1 | tr '\n' ' ')"
+nvidia-smi --query-gpu=name,driver_version,memory.total,power.limit --format=csv | tee "$OUT/gpu.csv"
+# No nsight module on Polaris; the login-shell nvidia/25.9 module puts nsys on PATH (job A), else a cudatoolkit's.
+NSYS="$(command -v nsys 2>/dev/null || ls -1 /soft/compilers/cudatoolkit/cuda-*/bin/nsys 2>/dev/null | sort -V | tail -1 || true)"
+[ -n "$NSYS" ] || { echo "ERROR SQG_NSYS_NOT_FOUND"; exit 5; }
+echo "nsys=$NSYS $("$NSYS" --version 2>&1 | head -1)"
+
+"$PY" SQG/analysis/test_summarize_nsys_phases.py      # the parser, on a synthetic capture: PHASES_TEST_OK
+
+for ARM in $ARMS; do
+    echo "--- $ARM $(date '+%T')"
+    "$NSYS" profile -t cuda,nvtx,osrt --cuda-graph-trace=node \
+        --capture-range=cudaProfilerApi --capture-range-end=stop \
+        --force-overwrite=true -o "$OUT/phases_$ARM" \
+        "$PY" SQG/analysis/profile_overlap.py --arms "$ARM" --nsys --steps 6 --warmup 3 --out "$OUT" \
+        || { echo "ERROR SQG_NSYS_PROFILE_FAILED $ARM"; continue; }
+    # nsys stats exports $OUT/phases_$ARM.sqlite next to the report (as in job A) and the API totals for a cross-check
+    "$NSYS" stats --report cuda_api_sum --format csv --force-export=true \
+        --output "$OUT/phases_$ARM" "$OUT/phases_$ARM.nsys-rep" > /dev/null \
+        || { echo "ERROR SQG_NSYS_STATS_FAILED $ARM"; continue; }
+    [ -s "$OUT/phases_$ARM.sqlite" ] || { echo "ERROR SQG_NSYS_NO_SQLITE $ARM"; continue; }
+    "$PY" SQG/analysis/summarize_nsys_phases.py "$OUT/phases_$ARM.sqlite" --out "$OUT/phases_${ARM}.json" \
+        || echo "ERROR SQG_PHASES_SUMMARY_FAILED $ARM"
+done
+
+# ---- summaries into the repo (text only; the reports and SQLite files stay in $OUT) ----
+for f in "$OUT"/phases_*.json "$OUT"/phases_*_cuda_api_sum.csv "$OUT"/profile_overlap_nsys_*.json "$OUT"/gpu.csv; do
+    [ -e "$f" ] && cp "$f" "$RES"/
+done
+echo "=== end $(date '+%F %T') ==="

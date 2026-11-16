@@ -1,0 +1,115 @@
+{
+ "steps": 2400,
+ "span_ms_per_step": 9.3823,
+ "busy_ms_per_step": 9.3052,
+ "gpu_busy_fraction": 0.9918,
+ "kernels_per_step": 33.12,
+ "dtoh_copies_per_step": 1.0,
+ "dtoh_bytes_per_step": 0.0,
+ "htod_copies_per_step": 0.0,
+ "sync_api_calls_per_step": {
+  "cuStreamSynchronize": 1.0,
+  "cuEventQuery": 0.037
+ },
+ "memcpy_api_calls_per_step": {
+  "cuMemcpyDtoDAsync_v2": 7.05,
+  "cuMemcpyDtoHAsync_v2": 1.0
+ },
+ "launch_api_calls_per_step": {
+  "cuLaunchKernel": 18.1,
+  "cuGraphLaunch": 2.0,
+  "cudaLaunchKernel": 3.025
+ },
+ "top_kernels": [
+  {
+   "name": "loop_add_multiply_fusion_1",
+   "time_pct": 39.6,
+   "instances_per_step": 1.0,
+   "avg_us": 3293.5
+  },
+  {
+   "name": "void regular_fft_factor<(unsigned int)64, EPT<(unsigned int)8>, (unsigned int)32, (unsigne",
+   "time_pct": 24.3,
+   "instances_per_step": 10.05,
+   "avg_us": 201.4
+  },
+  {
+   "name": "loop_multiply_fusion_9",
+   "time_pct": 7.9,
+   "instances_per_step": 1.0,
+   "avg_us": 656.9
+  },
+  {
+   "name": "void vector_fft_c2r<(unsigned int)4096, EPT<(unsigned int)32>, (unsigned int)1, (unsigned ",
+   "time_pct": 7.6,
+   "instances_per_step": 3.02,
+   "avg_us": 208.3
+  },
+  {
+   "name": "wrapped_multiply_1",
+   "time_pct": 7.4,
+   "instances_per_step": 2.0,
+   "avg_us": 309.1
+  },
+  {
+   "name": "void scal_kernel_val<double, double>(cublasScalParamsVal<T1, T2>)",
+   "time_pct": 7.2,
+   "instances_per_step": 3.02,
+   "avg_us": 197.1
+  },
+  {
+   "name": "void vector_fft_r2c<(unsigned int)4096, EPT<(unsigned int)32>, (unsigned int)1, (unsigned ",
+   "time_pct": 5.0,
+   "instances_per_step": 2.0,
+   "avg_us": 206.3
+  },
+  {
+   "name": "loop_select_fusion_1",
+   "time_pct": 0.8,
+   "instances_per_step": 1.0,
+   "avg_us": 68.8
+  },
+  {
+   "name": "loop_clamp_fusion",
+   "time_pct": 0.0,
+   "instances_per_step": 1.0,
+   "avg_us": 2.4
+  },
+  {
+   "name": "loop_negate_fusion_1",
+   "time_pct": 0.0,
+   "instances_per_step": 1.0,
+   "avg_us": 2.1
+  },
+  {
+   "name": "loop_multiply_fusion_11",
+   "time_pct": 0.0,
+   "instances_per_step": 1.0,
+   "avg_us": 2.1
+  },
+  {
+   "name": "loop_multiply_fusion_6",
+   "time_pct": 0.0,
+   "instances_per_step": 1.0,
+   "avg_us": 2.1
+  },
+  {
+   "name": "loop_add_fusion_3",
+   "time_pct": 0.0,
+   "instances_per_step": 1.0,
+   "avg_us": 1.8
+  },
+  {
+   "name": "loop_multiply_fusion_10",
+   "time_pct": 0.0,
+   "instances_per_step": 1.0,
+   "avg_us": 1.7
+  },
+  {
+   "name": "loop_add_fusion_4",
+   "time_pct": 0.0,
+   "instances_per_step": 1.0,
+   "avg_us": 1.7
+  }
+ ]
+}

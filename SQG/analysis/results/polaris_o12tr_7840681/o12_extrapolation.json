@@ -1,0 +1,141 @@
+{
+ "formula": "see module docstring",
+ "ddp_xnode_s": 0.005,
+ "solvers": {
+  "lean32ek_fast": {
+   "parsed": {
+    "knobs": {},
+    "epochs": [],
+    "o12_epochs": [],
+    "saves_best": [],
+    "resumes": []
+   },
+   "pieces": {
+    "s_step": null,
+    "s_step_o12_epoch": null,
+    "s_frame": null,
+    "t_load": null,
+    "t_val": null,
+    "t_save_last": null,
+    "t_save_best": null,
+    "batch": null,
+    "world_size": null,
+    "n_val_run": null,
+    "t_init": null
+   },
+   "projections": {
+    "1 node, 4 GPUs, batch 16": null,
+    "4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)": null,
+    "4 nodes, 16 GPUs, batch 16": null
+   }
+  },
+  "if32_25": {
+   "parsed": {
+    "knobs": {},
+    "epochs": [],
+    "o12_epochs": [],
+    "saves_best": [],
+    "resumes": []
+   },
+   "pieces": {
+    "s_step": null,
+    "s_step_o12_epoch": null,
+    "s_frame": null,
+    "t_load": null,
+    "t_val": null,
+    "t_save_last": null,
+    "t_save_best": null,
+    "batch": null,
+    "world_size": null,
+    "n_val_run": null,
+    "t_init": null
+   },
+   "projections": {
+    "1 node, 4 GPUs, batch 16": null,
+    "4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)": null,
+    "4 nodes, 16 GPUs, batch 16": null
+   }
+  },
+  "tilerows40": {
+   "parsed": {
+    "knobs": {},
+    "epochs": [],
+    "o12_epochs": [],
+    "saves_best": [],
+    "resumes": []
+   },
+   "pieces": {
+    "s_step": null,
+    "s_step_o12_epoch": null,
+    "s_frame": null,
+    "t_load": null,
+    "t_val": null,
+    "t_save_last": null,
+    "t_save_best": null,
+    "batch": null,
+    "world_size": null,
+    "n_val_run": null,
+    "t_init": null
+   },
+   "projections": {
+    "1 node, 4 GPUs, batch 16": null,
+    "4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)": null,
+    "4 nodes, 16 GPUs, batch 16": null
+   }
+  },
+  "tilerows_if25": {
+   "parsed": {
+    "knobs": {},
+    "epochs": [],
+    "o12_epochs": [],
+    "saves_best": [],
+    "resumes": []
+   },
+   "pieces": {
+    "s_step": null,
+    "s_step_o12_epoch": null,
+    "s_frame": null,
+    "t_load": null,
+    "t_val": null,
+    "t_save_last": null,
+    "t_save_best": null,
+    "batch": null,
+    "world_size": null,
+    "n_val_run": null,
+    "t_init": null
+   },
+   "projections": {
+    "1 node, 4 GPUs, batch 16": null,
+    "4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)": null,
+    "4 nodes, 16 GPUs, batch 16": null
+   }
+  },
+  "tilerows_if25_cufft114": {
+   "parsed": {
+    "knobs": {},
+    "epochs": [],
+    "o12_epochs": [],
+    "saves_best": [],
+    "resumes": []
+   },
+   "pieces": {
+    "s_step": null,
+    "s_step_o12_epoch": null,
+    "s_frame": null,
+    "t_load": null,
+    "t_val": null,
+    "t_save_last": null,
+    "t_save_best": null,
+    "batch": null,
+    "world_size": null,
+    "n_val_run": null,
+    "t_init": null
+   },
+   "projections": {
+    "1 node, 4 GPUs, batch 16": null,
+    "4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)": null,
+    "4 nodes, 16 GPUs, batch 16": null
+   }
+  }
+ }
+}

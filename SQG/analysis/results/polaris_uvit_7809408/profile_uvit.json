@@ -1,0 +1,113 @@
+{
+ "device": "NVIDIA A100-SXM4-40GB",
+ "torch": "2.3.1+cu121",
+ "batch": 16,
+ "params_M": 40.81,
+ "baseline_ms": {
+  "fwd": 137.54,
+  "bwd": 275.18,
+  "clip": 0.5,
+  "opt": 3.11,
+  "total": 416.27
+ },
+ "peak_GiB": 20.24,
+ "top_ops": [
+  {
+   "op": "fwd",
+   "self_cuda_pct": 14.0,
+   "calls_per_step": 1.0
+  },
+  {
+   "op": "aten::convolution_backward",
+   "self_cuda_pct": 7.3,
+   "calls_per_step": 61.0
+  },
+  {
+   "op": "aten::addmm",
+   "self_cuda_pct": 5.8,
+   "calls_per_step": 98.0
+  },
+  {
+   "op": "aten::mm",
+   "self_cuda_pct": 5.3,
+   "calls_per_step": 196.0
+  },
+  {
+   "op": "aten::native_layer_norm_backward",
+   "self_cuda_pct": 4.7,
+   "calls_per_step": 49.0
+  },
+  {
+   "op": "aten::copy_",
+   "self_cuda_pct": 3.6,
+   "calls_per_step": 1271.0
+  },
+  {
+   "op": "void at::native::(anonymous namespace)::GammaBetaBackwardCUDAKernel_32x32<float, float>(long, long, float const*, float const*, float const*, float const*, float*, float*)",
+   "self_cuda_pct": 3.6,
+   "calls_per_step": 49.2
+  },
+  {
+   "op": "void at::native::(anonymous namespace)::conv_depthwise2d_grad_weight_kernel<float, unsigned int>(at::GenericPackedTensorAccessor<float, 4ul, at::DefaultPtrTraits, int>, at::GenericPackedTensorAccessor<float, 4ul, at::DefaultPtrTraits, int>, at::GenericPackedTensorAccessor<float, 4ul, at::DefaultPtrTraits, int>, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int)",
+   "self_cuda_pct": 3.4,
+   "calls_per_step": 41.2
+  },
+  {
+   "op": "void at::native::(anonymous namespace)::conv_depthwise2d_backward_kernel<0, 1, float, int>(at::GenericPackedTensorAccessor<float, 4ul, at::DefaultPtrTraits, int>, at::GenericPackedTensorAccessor<float, 4ul, at::DefaultPtrTraits, int>, at::GenericPackedTensorAccessor<float, 4ul, at::DefaultPtrTraits, int>, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int)",
+   "self_cuda_pct": 2.9,
+   "calls_per_step": 41.2
+  },
+  {
+   "op": "ampere_sgemm_128x64_tn",
+   "self_cuda_pct": 2.8,
+   "calls_per_step": 28.0
+  },
+  {
+   "op": "aten::native_layer_norm",
+   "self_cuda_pct": 2.3,
+   "calls_per_step": 49.0
+  },
+  {
+   "op": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1} const&)::{lambda(int)#1})",
+   "self_cuda_pct": 2.2,
+   "calls_per_step": 1012.3
+  },
+  {
+   "op": "ampere_sgemm_32x128_tn",
+   "self_cuda_pct": 2.0,
+   "calls_per_step": 31.0
+  },
+  {
+   "op": "aten::_conv_depthwise2d",
+   "self_cuda_pct": 2.0,
+   "calls_per_step": 40.0
+  },
+  {
+   "op": "void at::native::(anonymous namespace)::conv_depthwise2d_forward_kernel<0, float, int>(at::GenericPackedTensorAccessor<float, 4ul, at::DefaultPtrTraits, int>, at::GenericPackedTensorAccessor<float, 4ul, at::DefaultPtrTraits, int>, at::GenericPackedTensorAccessor<float, 4ul, at::DefaultPtrTraits, int>, at::GenericPackedTensorAccessor<float, 1ul, at::DefaultPtrTraits, int>, bool, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int)",
+   "self_cuda_pct": 2.0,
+   "calls_per_step": 40.0
+  }
+ ],
+ "variants": {
+  "cudnn_benchmark": {
+   "ms": {
+    "fwd": 136.64,
+    "bwd": 274.81,
+    "clip": 0.49,
+    "opt": 3.13,
+    "total": 415.1
+   },
+   "fwd_max_rel_diff_vs_baseline": 0.0
+  },
+  "channels_last": {
+   "ms": {
+    "fwd": 133.6,
+    "bwd": 436.68,
+    "clip": 0.49,
+    "opt": 5.62,
+    "total": 576.45
+   },
+   "fwd_max_rel_diff_vs_baseline": 9.296028480321183e-08
+  }
+ }
+}

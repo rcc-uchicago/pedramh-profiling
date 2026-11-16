@@ -1,0 +1,1 @@
+O12_TEST_OK patches=34 line-count kept, compiled; val store + zarr stand-in round-trip; ref frames exact; bitwise verdicts; parser + formula (synthetic 14-GPU projection 267.0 h) (python 3.10.22)

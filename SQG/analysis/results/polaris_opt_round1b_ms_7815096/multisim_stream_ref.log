@@ -1,0 +1,10 @@
+x3001c0s1b1n0.hsn.cm.polaris.alcf.anl.gov 5: rank 5 x3001c0s1b1n0 gpu 1 simulator: {"ms_per_step": 9.3206, "pairs_sent": 300, "send_ms_median": 1.49}
+x3001c0s1b1n0.hsn.cm.polaris.alcf.anl.gov 6: rank 6 x3001c0s1b1n0 gpu 2 simulator: {"ms_per_step": 9.3225, "pairs_sent": 300, "send_ms_median": 1.379}
+x3001c0s1b0n0.hsn.cm.polaris.alcf.anl.gov 1: rank 1 x3001c0s1b0n0 gpu 1 simulator: {"ms_per_step": 9.3259, "pairs_sent": 300, "send_ms_median": 0.971}
+x3001c0s1b0n0.hsn.cm.polaris.alcf.anl.gov 2: rank 2 x3001c0s1b0n0 gpu 2 simulator: {"ms_per_step": 9.3295, "pairs_sent": 300, "send_ms_median": 0.966}
+x3001c0s1b1n0.hsn.cm.polaris.alcf.anl.gov 7: rank 7 x3001c0s1b1n0 gpu 3 simulator: {"ms_per_step": 9.33, "pairs_sent": 300, "send_ms_median": 1.542}
+x3001c0s1b1n0.hsn.cm.polaris.alcf.anl.gov 4: rank 4 x3001c0s1b1n0 gpu 0 simulator: {"ms_per_step": 9.33, "pairs_sent": 300, "send_ms_median": 1.792}
+x3001c0s1b0n0.hsn.cm.polaris.alcf.anl.gov 3: rank 3 x3001c0s1b0n0 gpu 3 simulator: {"ms_per_step": 9.3319, "pairs_sent": 300, "send_ms_median": 1.044}
+x3001c0s1b0n0.hsn.cm.polaris.alcf.anl.gov 0: rank 0 x3001c0s1b0n0 gpu 0 trainer: {"train_s_per_step_median": 0.419, "fresh_pairs_per_step_mean": 8.136}
+x3001c0s1b0n0.hsn.cm.polaris.alcf.anl.gov 0: MULTISIM stream ref: 7 simulators on 2 nodes, ms/step [9.3206, 9.3319], efficiency 0.9961; trainer 0.419 s/step, fresh pairs/step 8.136 (o1.2: 12), 19.381 pairs/s, 10.22 MB/s, send ms same/other node 0.971/1.516
+x3001c0s1b0n0.hsn.cm.polaris.alcf.anl.gov 0: MULTISIM_OK stream ref -> /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/opt_round1b_ms_7815096/multisim/multisim_stream_ref.json

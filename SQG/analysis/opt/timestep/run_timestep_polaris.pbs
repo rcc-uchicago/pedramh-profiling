@@ -1,0 +1,100 @@
+#!/bin/bash -l
+#PBS -N sqg_timestep
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:59:00
+#PBS -j oe
+# run_timestep_polaris.pbs -- research round 2's time-step lever: IF-AB3 vs production over a dt ladder, the archive
+# CFL scan, float32 IF-AB3's cost and precision, the batched-RFFT lowering check. One Polaris node, 4 A100s.
+# Predictions + decision rule: SQG/analysis/opt/timestep/PREDICTIONS_timestep.md (written first).
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ \
+#        SQG/analysis/opt/timestep/run_timestep_polaris.pbs                       (from the repo root)
+# 0. test_if_ab3.py (IF_AB3_TEST_OK), test_analyze_timestep.py (TS_ANALYSIS_TEST_OK).
+# 1. GPUs 0-2: timestep_probe.py --mode ladder on member w + 1 at t = 100 (w + 1); GPU 3: --mode aux (16 states'
+#    CFL, float32 IF on member 4 t = 400, ms/step, batched RFFT). TS_WORKER_DONE per worker.
+# 2. analyze_timestep.py: TS_VERDICT, TS_ANALYSIS_DONE.
+# End token: TS_JOB_DONE failures=N. Summaries -> SQG/analysis/results/polaris_timestep_<jobid>/; frames npz stay in
+# $MEMBER_ROOT/sqg_profile/timestep_<jobid>/.
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+export PYTHONUNBUFFERED=1
+T0=$(date +%s)
+DEADLINE=$(( T0 + 50 * 60 ))
+OUT="${MEMBER_ROOT}/sqg_profile/timestep_${JOB}"
+RES="SQG/analysis/results/polaris_timestep_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+FAILURES=0
+fail() { echo "ERROR $*"; FAILURES=$((FAILURES + 1)); }
+HERE=SQG/analysis/opt/timestep
+echo "=== run_timestep on $(hostname) job $JOB: $(date '+%F %T') ==="
+nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee "$OUT/gpu.csv"
+sha256sum "$HERE"/*.py "$HERE"/PREDICTIONS_timestep.md | tee "$OUT/sha256.txt"
+
+"$PY" "$HERE/test_if_ab3.py" 2>&1 | tee "$OUT/test_if_ab3.log" || fail IF_AB3_TEST
+grep -q "IF_AB3_TEST_OK" "$OUT/test_if_ab3.log" || fail IF_AB3_TEST_NO_TOKEN
+"$PY" "$HERE/test_analyze_timestep.py" 2>&1 | tee "$OUT/test_analyze_timestep.log" || fail TS_ANALYSIS_TEST
+grep -q "TS_ANALYSIS_TEST_OK" "$OUT/test_analyze_timestep.log" || fail TS_ANALYSIS_TEST_NO_TOKEN
+
+# ---- the archived states ------------------------------------------------------------------------------------------
+LABEL_TAIL="_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02"
+TIMES=(0100.00 0200.00 0300.00 0400.00)
+ck() { echo "${SQG_TRAINING_ROOT}/trainingdata_m0${1}${LABEL_TAIL}/checkpoint/ckpt_t${2}.npz"; }
+ALL=()
+for m in 1 2 3 4; do
+    for t in "${TIMES[@]}"; do
+        f=$(ck "$m" "$t")
+        [ -s "$f" ] || { echo "ERROR TS_CKPT_NOT_STAGED $f"; echo "TS_JOB_DONE failures=1"; exit 5; }
+        ALL+=(--ckpt "${m}:${f}")
+    done
+done
+
+# ---- 3 ladder workers + 1 aux worker ------------------------------------------------------------------------------
+pids=()
+for w in 0 1 2; do
+    m=$(( w + 1 ))
+    CUDA_VISIBLE_DEVICES=$w "$PY" "$HERE/timestep_probe.py" --out "$OUT" --worker $w --mode ladder \
+        --ckpt "${m}:$(ck "$m" "${TIMES[$w]}")" --deadline "$DEADLINE" > "$OUT/worker_${w}.log" 2>&1 &
+    pids+=($!)
+done
+CUDA_VISIBLE_DEVICES=3 "$PY" "$HERE/timestep_probe.py" --out "$OUT" --worker 3 --mode aux "${ALL[@]}" \
+    --acc "4:$(ck 4 "${TIMES[3]}")" --deadline "$DEADLINE" > "$OUT/worker_3.log" 2>&1 &
+pids+=($!)
+for w in 0 1 2 3; do
+    wait "${pids[$w]}" || fail "TS_WORKER_RC w=$w"
+    grep -q "TS_WORKER_DONE w=$w" "$OUT/worker_${w}.log" || fail "TS_WORKER_NO_TOKEN w=$w"
+    grep -E "^(ERROR|TS_STATE|TS_CONTROL|TS_ARM|TS_ERR|TS_CFL|TS_F32|TS_BENCH|TS_RFFT|TS_WORKER_DONE)" \
+        "$OUT/worker_${w}.log" || true
+done
+echo "=== workers done $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+
+# ---- analysis -----------------------------------------------------------------------------------------------------
+"$PY" "$HERE/analyze_timestep.py" --in "$OUT" --out "$RES" 2>&1 | tee "$OUT/analyze_timestep.log" || fail TS_ANALYSIS_RC
+grep -q "TS_ANALYSIS_DONE" "$OUT/analyze_timestep.log" || fail TS_ANALYSIS_NO_TOKEN
+
+for f in "$OUT"/worker_*.json "$OUT"/*.log "$OUT"/gpu.csv "$OUT"/sha256.txt; do
+    [ -e "$f" ] && cp "$f" "$RES"/
+done
+echo "=== end $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+echo "TS_JOB_DONE failures=$FAILURES"

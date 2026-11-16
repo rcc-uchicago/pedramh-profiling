@@ -1,0 +1,65 @@
+==WARNING== Note: Running with unmodified GPU clocks. If not controlled otherwise, profiling results may be inconsistent.
+==PROF== Connected to process 1075941 (/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/bin/python3.10)
+==PROF== Profiling "wrapped_convert_3": 0%....50%....100% - 50 passes
+==PROF== Profiling "wrapped_convert_3": 0%....50%....100% - 50 passes
+==PROF== Profiling "wrapped_convert_3": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_7": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_8": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_9": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_10": 0%....50%....100% - 50 passes
+==PROF== Profiling "input_concatenate_fusion_2": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_1": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_multiply_fusion_2": 0%....50%....100% - 51 passes
+==PROF== Profiling "loop_multiply_fusion_11": 0%....50%....100% - 50 passes
+==PROF== Profiling "input_concatenate_fusion_2": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_1": 0%....50%....100% - 51 passes
+==PROF== Profiling "loop_add_multiply_fusion": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_fusion": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_fusion_1": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_fusion_2": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_7": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_8": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_9": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_10": 0%....50%....100% - 50 passes
+==PROF== Profiling "input_concatenate_fusion_2": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_1": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_multiply_fusion_2": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_11": 0%....50%....100% - 50 passes
+==PROF== Profiling "input_concatenate_fusion_2": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_1": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_multiply_fusion": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_fusion": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_fusion_1": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_fusion_2": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_7": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_8": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_9": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_10": 0%....50%....100% - 50 passes
+==PROF== Profiling "input_concatenate_fusion_2": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_1": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_multiply_fusion_2": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_11": 0%....50%....100% - 50 passes
+==PROF== Profiling "input_concatenate_fusion_2": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_1": 0%....50%....100% - 51 passes
+==PROF== Profiling "loop_add_multiply_fusion": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_fusion": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_fusion_1": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_fusion_2": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_7": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_8": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_9": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_10": 0%....50%....100% - 50 passes
+==PROF== Profiling "input_concatenate_fusion_2": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_1": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_multiply_fusion_2": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_11": 0%....50%....100% - 50 passes
+==PROF== Profiling "input_concatenate_fusion_2": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_1": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_multiply_fusion": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_fusion": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_fusion_1": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_add_fusion_2": 0%....50%....100% - 50 passes
+==PROF== Profiling "loop_multiply_fusion_7": 0%....50%....100% - 50 passes
+NSIGHT_CAPTURE_OK lean32_u1 reps=1 calls=1 steps_per_rep=40 warm=3s
+==PROF== Disconnected from process 1075941
+==PROF== Report: /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/nsight_lean_7819082/ncu_lean32_u1_xla.ncu-rep

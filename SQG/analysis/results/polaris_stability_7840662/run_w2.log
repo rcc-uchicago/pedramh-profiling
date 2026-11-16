@@ -1,0 +1,66 @@
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A100-SXM4-40GB" (39 GiB, sm_80, mempool enabled)
+   Kernel cache:
+     /lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/stability_7840662/warp_cache_w2/1.17.0
+STAB_STATE w=2 member=3 t=300 h=8.000e-06 CFL_h(start)=0.5995
+Module kernels__locals__build_w_b5a2d1bc b5a2d1b load on device 'cuda:0' took 2199.36 ms  (compiled)
+Module kernels__locals__expand_89275604 8927560 load on device 'cuda:0' took 119.70 ms  (compiled)
+Module kernels__locals__rows_15f34186 15f3418 load on device 'cuda:0' took 3960.56 ms  (compiled)
+Module kernels__locals__update_64ac6e68 64ac6e6 load on device 'cuda:0' took 162.99 ms  (compiled)
+STAB_GATE w=2 n=1 rel(TileRows,if64)=2.502e-08 rel(if32,if64)=2.566e-08 pass=True
+STAB_GATE w=2 n=40 rel(TileRows,if64)=2.728e-07 rel(if32,if64)=2.651e-07 pass=True
+STAB_GATE w=2 edec_err=1.16e-10 pass=True
+STAB_TU w=2 tu=  1.000 SPE=29.4708 VIE=9.06457 P=7.8083 CFL_h=0.3174 max=0.6071 >=0.60:3 >=0.72:0 wall=241s
+STAB_TU w=2 tu=  2.000 SPE=31.8304 VIE=9.80901 P=16.035 CFL_h=0.3016 max=0.6071 >=0.60:3 >=0.72:0 wall=482s
+STAB_TU w=2 tu=  3.000 SPE=34.1512 VIE=10.3935 P=9.7594 CFL_h=0.3008 max=0.6071 >=0.60:3 >=0.72:0 wall=726s
+STAB_TU w=2 tu=  4.000 SPE=35.0283 VIE=10.8093 P=8.315 CFL_h=0.4126 max=0.6071 >=0.60:3 >=0.72:0 wall=966s
+STAB_TU w=2 tu=  5.000 SPE=34.8393 VIE=10.7041 P=12.295 CFL_h=0.3467 max=0.6071 >=0.60:3 >=0.72:0 wall=1210s
+STAB_TU w=2 tu=  6.000 SPE=32.2569 VIE=9.5502 P=10.649 CFL_h=0.4022 max=0.6071 >=0.60:3 >=0.72:0 wall=1450s
+STAB_TU w=2 tu=  7.000 SPE=32.0918 VIE=9.60301 P=13.013 CFL_h=0.3102 max=0.6071 >=0.60:3 >=0.72:0 wall=1691s
+STAB_TU w=2 tu=  8.000 SPE=36.8698 VIE=10.9381 P=14.914 CFL_h=0.2776 max=0.6071 >=0.60:3 >=0.72:0 wall=1931s
+STAB_TU w=2 tu=  9.000 SPE=35.778 VIE=10.3672 P=8.2941 CFL_h=0.3611 max=0.6071 >=0.60:3 >=0.72:0 wall=2172s
+STAB_TU w=2 tu= 10.000 SPE=35.9245 VIE=10.6011 P=12.798 CFL_h=0.3075 max=0.6071 >=0.60:3 >=0.72:0 wall=2412s
+STAB_TU w=2 tu= 11.000 SPE=34.9455 VIE=10.2759 P=8.5304 CFL_h=0.4283 max=0.6071 >=0.60:3 >=0.72:0 wall=2654s
+STAB_TU w=2 tu= 12.000 SPE=30.3008 VIE=9.0278 P=5.1688 CFL_h=0.4186 max=0.6071 >=0.60:3 >=0.72:0 wall=2895s
+STAB_TU w=2 tu= 13.000 SPE=24.1553 VIE=7.08977 P=6.2227 CFL_h=0.3470 max=0.6071 >=0.60:3 >=0.72:0 wall=3136s
+STAB_TU w=2 tu= 14.000 SPE=26.5549 VIE=7.77199 P=11.417 CFL_h=0.3216 max=0.6071 >=0.60:3 >=0.72:0 wall=3379s
+STAB_TU w=2 tu= 15.000 SPE=31.3158 VIE=9.46185 P=16.797 CFL_h=0.2805 max=0.6071 >=0.60:3 >=0.72:0 wall=3621s
+STAB_TU w=2 tu= 16.000 SPE=36.3224 VIE=10.8209 P=13.773 CFL_h=0.3002 max=0.6071 >=0.60:3 >=0.72:0 wall=3861s
+STAB_TU w=2 tu= 17.000 SPE=35.9733 VIE=10.6752 P=5.7775 CFL_h=0.5229 max=0.6071 >=0.60:3 >=0.72:0 wall=4101s
+STAB_TU w=2 tu= 18.000 SPE=33.0297 VIE=9.88074 P=5.8939 CFL_h=0.4762 max=0.6071 >=0.60:3 >=0.72:0 wall=4342s
+STAB_TU w=2 tu= 19.000 SPE=32.285 VIE=9.70474 P=12.844 CFL_h=0.3165 max=0.6071 >=0.60:3 >=0.72:0 wall=4583s
+STAB_TU w=2 tu= 20.000 SPE=32.8033 VIE=9.7643 P=8.8011 CFL_h=0.2774 max=0.6071 >=0.60:3 >=0.72:0 wall=4823s
+STAB_TU w=2 tu= 21.000 SPE=28.6817 VIE=8.4324 P=12.251 CFL_h=0.3159 max=0.6071 >=0.60:3 >=0.72:0 wall=5063s
+STAB_TU w=2 tu= 22.000 SPE=33.051 VIE=9.68981 P=12.326 CFL_h=0.2491 max=0.6071 >=0.60:3 >=0.72:0 wall=5303s
+STAB_TU w=2 tu= 23.000 SPE=32.879 VIE=9.66951 P=12.46 CFL_h=0.3164 max=0.6071 >=0.60:3 >=0.72:0 wall=5543s
+STAB_TU w=2 tu= 24.000 SPE=32.6774 VIE=9.61208 P=6.7246 CFL_h=0.3770 max=0.6071 >=0.60:3 >=0.72:0 wall=5783s
+STAB_TU w=2 tu= 25.000 SPE=32.41 VIE=9.51266 P=13.756 CFL_h=0.2972 max=0.6071 >=0.60:3 >=0.72:0 wall=6023s
+STAB_TU w=2 tu= 26.000 SPE=29.3597 VIE=8.4917 P=5.3031 CFL_h=0.3033 max=0.6071 >=0.60:3 >=0.72:0 wall=6263s
+STAB_TU w=2 tu= 27.000 SPE=28.34 VIE=8.38063 P=15.045 CFL_h=0.2724 max=0.6071 >=0.60:3 >=0.72:0 wall=6504s
+STAB_TU w=2 tu= 28.000 SPE=35.9869 VIE=10.6569 P=18.311 CFL_h=0.2848 max=0.6071 >=0.60:3 >=0.72:0 wall=6744s
+STAB_TU w=2 tu= 29.000 SPE=39.6987 VIE=11.6157 P=9.6738 CFL_h=0.3299 max=0.6071 >=0.60:3 >=0.72:0 wall=6984s
+STAB_TU w=2 tu= 30.000 SPE=36.7583 VIE=10.7946 P=5.5187 CFL_h=0.2709 max=0.6071 >=0.60:3 >=0.72:0 wall=7224s
+STAB_TU w=2 tu= 31.000 SPE=30.862 VIE=8.52891 P=9.4346 CFL_h=0.3937 max=0.6071 >=0.60:3 >=0.72:0 wall=7464s
+STAB_TU w=2 tu= 32.000 SPE=27.9006 VIE=7.77033 P=5.5708 CFL_h=0.3662 max=0.6071 >=0.60:3 >=0.72:0 wall=7705s
+STAB_TU w=2 tu= 33.000 SPE=24.3497 VIE=7.19384 P=8.4496 CFL_h=0.2946 max=0.6071 >=0.60:3 >=0.72:0 wall=7946s
+STAB_TU w=2 tu= 34.000 SPE=29.5481 VIE=8.88258 P=17.558 CFL_h=0.2785 max=0.6071 >=0.60:3 >=0.72:0 wall=8186s
+STAB_TU w=2 tu= 35.000 SPE=35.5129 VIE=10.5438 P=12.302 CFL_h=0.2815 max=0.6071 >=0.60:3 >=0.72:0 wall=8427s
+STAB_TU w=2 tu= 36.000 SPE=36.0875 VIE=10.8405 P=12.54 CFL_h=0.3352 max=0.6071 >=0.60:3 >=0.72:0 wall=8667s
+STAB_TU w=2 tu= 37.000 SPE=32.2022 VIE=9.65139 P=3.4425 CFL_h=0.3661 max=0.6071 >=0.60:3 >=0.72:0 wall=8907s
+STAB_TU w=2 tu= 38.000 SPE=24.7709 VIE=7.42208 P=5.941 CFL_h=0.2848 max=0.6071 >=0.60:3 >=0.72:0 wall=9147s
+STAB_TU w=2 tu= 39.000 SPE=26.2896 VIE=7.85736 P=10.972 CFL_h=0.2736 max=0.6071 >=0.60:3 >=0.72:0 wall=9387s
+STAB_TU w=2 tu= 40.000 SPE=28.8639 VIE=8.39863 P=8.6689 CFL_h=0.2944 max=0.6071 >=0.60:3 >=0.72:0 wall=9627s
+STAB_TU w=2 tu= 41.000 SPE=30.0964 VIE=8.72193 P=13.746 CFL_h=0.2682 max=0.6071 >=0.60:3 >=0.72:0 wall=9867s
+STAB_TU w=2 tu= 42.000 SPE=36.9041 VIE=10.8259 P=20.043 CFL_h=0.3959 max=0.6071 >=0.60:3 >=0.72:0 wall=10107s
+STAB_TU w=2 tu= 43.000 SPE=40.5577 VIE=12.166 P=8.2633 CFL_h=0.3935 max=0.6071 >=0.60:3 >=0.72:0 wall=10347s
+STAB_TU w=2 tu= 44.000 SPE=41.8786 VIE=12.7129 P=11.923 CFL_h=0.3635 max=0.6071 >=0.60:3 >=0.72:0 wall=10587s
+STAB_TU w=2 tu= 45.000 SPE=37.7758 VIE=11.518 P=3.8353 CFL_h=0.3632 max=0.6071 >=0.60:3 >=0.72:0 wall=10827s
+STAB_TU w=2 tu= 46.000 SPE=34.1192 VIE=10.2741 P=11.85 CFL_h=0.3465 max=0.6071 >=0.60:3 >=0.72:0 wall=11067s
+STAB_TU w=2 tu= 47.000 SPE=33.2482 VIE=9.82628 P=4.5132 CFL_h=0.4740 max=0.6071 >=0.60:3 >=0.72:0 wall=11307s
+STAB_TU w=2 tu= 48.000 SPE=31.8548 VIE=9.61915 P=12.385 CFL_h=0.3062 max=0.6071 >=0.60:3 >=0.72:0 wall=11547s
+STAB_TU w=2 tu= 49.000 SPE=32.809 VIE=9.83676 P=8.4204 CFL_h=0.4572 max=0.6071 >=0.60:3 >=0.72:0 wall=11789s
+STAB_TU w=2 tu= 50.000 SPE=31.6094 VIE=9.5214 P=9.5949 CFL_h=0.3244 max=0.6071 >=0.60:3 >=0.72:0 wall=12029s
+STAB_RUN_DONE w=2 status=COMPLETE tu=50.000 cfl_max=0.6071 >=0.60:3/20867 >=0.72:0 ms/step(wall)=1.9247 full_qh=host_copy (XlaRuntimeError: UNIMPLEMENTED: from_dlpack got array with non-default layout with minor-to-major dimensions (2,0,1), expected (2,1,0))

@@ -1,0 +1,617 @@
+{
+ "phases": {
+  "env": {
+   "torch": "2.3.1+cu121",
+   "jax": "0.4.28",
+   "warp": "1.17.0",
+   "warp_file": "/eagle/projects/lighthouse-uchicago/members/mehta5/pylibs/warp-1.17.0/warp/__init__.py",
+   "mathdx": 1,
+   "toolkit": [
+    12,
+    9
+   ],
+   "driver": [
+    13,
+    0
+   ],
+   "gpu": "NVIDIA A100-SXM4-40GB",
+   "jax_devices": [
+    "cuda:0"
+   ],
+   "xla_flags": "",
+   "jaxlib": "0.4.28"
+  },
+  "copy": {
+   "c64": {
+    "med_us": 197.42720127105713,
+    "min_us": 197.17119932174683,
+    "max_us": 197.68320322036743,
+    "GBs": 1359.6680410388449
+   },
+   "c128": {
+    "med_us": 389.5296096801758,
+    "min_us": 389.2735958099365,
+    "max_us": 389.6320104598999,
+    "GBs": 1378.2544347291062
+   }
+  },
+  "cufft": {
+   "torch_row_c64": {
+    "med_us": 206.0800075531006,
+    "min_us": 205.6704044342041,
+    "max_us": 206.5920114517212,
+    "GBs": 1302.5788342463657
+   },
+   "torch_col_c64": {
+    "med_us": 347.6480007171631,
+    "min_us": 345.95839977264404,
+    "max_us": 348.1600046157837,
+    "GBs": 772.1472738121447
+   },
+   "torch_fft2_c64": {
+    "med_us": 588.5951995849609,
+    "min_us": 587.5199794769287,
+    "max_us": 591.6160106658936,
+    "GBs": 912.1224780266073
+   },
+   "torch_row_c128": {
+    "med_us": 401.3567924499512,
+    "min_us": 401.25441551208496,
+    "max_us": 401.5615940093994,
+    "GBs": 1337.6400302654586
+   },
+   "torch_col_c128": {
+    "med_us": 676.6079902648926,
+    "min_us": 673.3823776245117,
+    "max_us": 677.9903888702393,
+    "GBs": 793.4740938986172
+   },
+   "torch_fft2_c128": {
+    "med_us": 1191.1680221557617,
+    "min_us": 1190.8096313476562,
+    "max_us": 1191.5264129638672,
+    "GBs": 901.4192826103197
+   },
+   "jax_fft2_c64": {
+    "med_us": 525.583210401237,
+    "min_us": 523.861451074481,
+    "max_us": 661.6560975089669
+   },
+   "jax_irfft2_c64": {
+    "med_us": 507.1520572528243,
+    "min_us": 506.18073437362915,
+    "max_us": 508.0192117020488
+   },
+   "jax_rfft2_c64": {
+    "med_us": 308.81576240062714,
+    "min_us": 308.1189701333642,
+    "max_us": 309.1122955083847
+   }
+  },
+  "rows": {
+   "row_f32_R1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 3.41,
+    "smem_bytes": 16384,
+    "med_us": 231.68001174926758,
+    "min_us": 231.37280941009521,
+    "max_us": 232.2432041168213,
+    "GBs": 1158.6474550532675,
+    "frac_copy": 0.852154658403246
+   },
+   "row_f32_R1_B128": {
+    "block_dim": 128,
+    "dims": [
+     4096
+    ],
+    "compile_s": 2.77,
+    "smem_bytes": 32768,
+    "med_us": 301.4656066894531,
+    "min_us": 301.05600357055664,
+    "max_us": 301.8239974975586,
+    "GBs": 890.4347628501507,
+    "frac_copy": 0.6548912940321965
+   },
+   "row_f32_R1_B512": {
+    "block_dim": 512,
+    "dims": [
+     4096
+    ],
+    "compile_s": 2.73,
+    "smem_bytes": 16384,
+    "med_us": 263.372802734375,
+    "min_us": 263.11678886413574,
+    "max_us": 263.8848066329956,
+    "GBs": 1019.2223844416119,
+    "frac_copy": 0.7496111945551667
+   },
+   "row_f32_R2_B256": {
+    "block_dim": 256,
+    "dims": [
+     2048
+    ],
+    "compile_s": 0.39,
+    "smem_bytes": 16384,
+    "med_us": 701.1839866638184,
+    "min_us": 701.0303974151611,
+    "max_us": 701.4912128448486,
+    "GBs": 382.8316976792298,
+    "frac_copy": 0.28156262126064974
+   },
+   "row_f32_R2_B512": {
+    "block_dim": 512,
+    "dims": [
+     2048
+    ],
+    "compile_s": 1.22,
+    "smem_bytes": 16384,
+    "med_us": 629.5551776885986,
+    "min_us": 629.4015884399414,
+    "max_us": 630.1695823669434,
+    "GBs": 426.3890847273409,
+    "frac_copy": 0.3135979311549908
+   },
+   "row_f32_R4_B512": {
+    "block_dim": 512,
+    "dims": [
+     1024
+    ],
+    "error": "RuntimeError: Error launching kernel: row__locals__row_fft on device cuda:0: Warp CUDA error 701: too many resources requested for launch (in function wp_cuda_launch_kernel, /builds/omniverse/warp/warp/native/warp.cu:5685)"
+   },
+   "rowT_f32_R2_B512": {
+    "block_dim": 512,
+    "dims": [
+     2048
+    ],
+    "compile_s": 1.24,
+    "smem_bytes": 81920,
+    "med_us": 1107.6607704162598,
+    "min_us": 918.3744430541992,
+    "max_us": 1111.4496231079102,
+    "GBs": 242.3444642705201,
+    "frac_copy": 0.17823796467655334
+   },
+   "rowT_f32_R4_B512": {
+    "block_dim": 512,
+    "dims": [
+     1024
+    ],
+    "error": "RuntimeError: Error launching kernel: row_tstore__locals__row_fft_tstore on device cuda:0: Warp CUDA error 701: too many resources requested for launch (in function wp_cuda_launch_kernel, /builds/omniverse/warp/warp/native/warp.cu:5685)"
+   },
+   "irow_f32_R1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 1.79,
+    "smem_bytes": 16384,
+    "med_us": 233.11359882354736,
+    "min_us": 233.11359882354736,
+    "max_us": 234.03520584106445,
+    "GBs": 1151.522079169603,
+    "frac_copy": 0.8469141322831937
+   },
+   "row_f64_R1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 1.45,
+    "smem_bytes": 65536,
+    "med_us": 563.5072231292725,
+    "min_us": 563.4560108184814,
+    "max_us": 563.6096000671387,
+    "GBs": 952.7311984017606,
+    "frac_copy": 0.691259301907502
+   },
+   "row_f64_R1_B512": {
+    "block_dim": 512,
+    "dims": [
+     4096
+    ],
+    "compile_s": 1.44,
+    "smem_bytes": 32768,
+    "med_us": 573.3376026153564,
+    "min_us": 573.1840133666992,
+    "max_us": 573.6447811126709,
+    "GBs": 936.3957806901052,
+    "frac_copy": 0.679407050755583
+   },
+   "fallback_row_f32_R1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 0.0,
+    "smem_bytes": 32768,
+    "med_us": 1058.2528114318848,
+    "min_us": 1057.9968452453613,
+    "max_us": 1058.3552360534668,
+    "GBs": 253.65910026432095,
+    "frac_copy": 0.18655958116844057
+   },
+   "fallback_rel_l2_vs_torch": 3.8351953435267205e-07
+  },
+  "cols": {
+   "col_f32_strided_K1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 1.25,
+    "smem_bytes": 81920,
+    "med_us": 1373.3375549316406,
+    "min_us": 1371.5456008911133,
+    "max_us": 1374.9247550964355,
+    "GBs": 195.46210983312233,
+    "frac_copy": 0.14375722892168655
+   },
+   "col_f32_strided_K2_B256": {
+    "block_dim": 256,
+    "dims": [
+     2048
+    ],
+    "compile_s": 1.42,
+    "smem_bytes": 147456,
+    "med_us": 941.926383972168,
+    "min_us": 940.7487869262695,
+    "max_us": 944.2303657531738,
+    "GBs": 284.9856003268423,
+    "frac_copy": 0.2095993961210569
+   },
+   "col_f32_strided_K4_B512": {
+    "block_dim": 512,
+    "dims": [
+     1024
+    ],
+    "error": "RuntimeError: Error launching kernel: col__locals__col_strided on device cuda:0: the forward kernel requests 278528 bytes of dynamic shared memory, but only 164864 bytes are available at block_dim=512 (device limit 166912 bytes, minus 2048 bytes of static shared memory this kernel reserves). Warp reserves shared memory for every tile expression in the kernel, including tiles that are no longer live. Reduce the number of tile expressions, shrink the tiles, or lower block_dim. See https://nvidia.github.io/warp/stable/user_guide/programming_model/tiles.html#tile-shared-memory-budget"
+   },
+   "col_f32_tstore_K1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 0.44,
+    "smem_bytes": 49152,
+    "med_us": 694.220781326294,
+    "min_us": 693.4016227722168,
+    "max_us": 695.4495906829834,
+    "GBs": 386.67159385110864,
+    "frac_copy": 0.28438676366598636
+   },
+   "col_f32_tstore_K2_B256": {
+    "block_dim": 256,
+    "dims": [
+     2048
+    ],
+    "compile_s": 0.43,
+    "smem_bytes": 81920,
+    "med_us": 708.8640213012695,
+    "min_us": 707.9936027526855,
+    "max_us": 709.4783782958984,
+    "GBs": 378.683990065161,
+    "frac_copy": 0.27851209165424684
+   },
+   "col_f32_tstore_K4_B512": {
+    "block_dim": 512,
+    "dims": [
+     1024
+    ],
+    "compile_s": 0.47,
+    "smem_bytes": 147456,
+    "med_us": 856.6783905029297,
+    "min_us": 854.9375534057617,
+    "max_us": 857.8559875488281,
+    "GBs": 313.3444930744778,
+    "frac_copy": 0.2304566141269814
+   },
+   "col_f32_tview_K1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 1.21,
+    "smem_bytes": 16384,
+    "med_us": 1324.23677444458,
+    "min_us": 1323.0079650878906,
+    "max_us": 1325.3120422363281,
+    "GBs": 202.7095615982942,
+    "frac_copy": 0.14908753863436797
+   },
+   "col_f32_tview_K2_B256": {
+    "block_dim": 256,
+    "dims": [
+     2048
+    ],
+    "compile_s": 1.3,
+    "smem_bytes": 16384,
+    "med_us": 1555.8655738830566,
+    "min_us": 1553.8687705993652,
+    "max_us": 1558.016014099121,
+    "GBs": 172.53126523652767,
+    "frac_copy": 0.12689219723419135
+   },
+   "col_f32_tview_K4_B256": {
+    "block_dim": 256,
+    "dims": [
+     1024
+    ],
+    "compile_s": 1.58,
+    "smem_bytes": 16384,
+    "med_us": 1706.2911987304688,
+    "min_us": 1701.9392013549805,
+    "max_us": 1707.6223373413086,
+    "GBs": 157.32101073938844,
+    "frac_copy": 0.11570545603115627
+   },
+   "col_f32_tview_K2_B128": {
+    "block_dim": 128,
+    "dims": [
+     2048
+    ],
+    "compile_s": 1.84,
+    "smem_bytes": 32768,
+    "med_us": 2139.0335083007812,
+    "min_us": 1878.0160903930664,
+    "max_us": 2141.695976257324,
+    "GBs": 125.49380594474252,
+    "frac_copy": 0.09229738594786699
+   },
+   "col_f64_strided_K1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "error": "RuntimeError: Error launching kernel: col__locals__col_strided on device cuda:0: the forward kernel requests 196608 bytes of dynamic shared memory, but only 165888 bytes are available at block_dim=256 (device limit 166912 bytes, minus 1024 bytes of static shared memory this kernel reserves). Warp reserves shared memory for every tile expression in the kernel, including tiles that are no longer live. Reduce the number of tile expressions, shrink the tiles, or lower block_dim. See https://nvidia.github.io/warp/stable/user_guide/programming_model/tiles.html#tile-shared-memory-budget"
+   },
+   "col_f64_tstore_K1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 0.39,
+    "smem_bytes": 131072,
+    "med_us": 802.0992279052734,
+    "min_us": 801.2800216674805,
+    "max_us": 802.6111602783203,
+    "GBs": 669.3322887270047,
+    "frac_copy": 0.48563768188314294
+   },
+   "col_f64_tview_K1_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 1.13,
+    "smem_bytes": 65536,
+    "med_us": 1452.9536247253418,
+    "min_us": 1452.1856307983398,
+    "max_us": 1458.2271575927734,
+    "GBs": 369.5031299443485,
+    "frac_copy": 0.268095005271631
+   },
+   "col_f64_tview_K2_B256": {
+    "block_dim": 256,
+    "dims": [
+     2048
+    ],
+    "compile_s": 1.34,
+    "smem_bytes": 65536,
+    "med_us": 2296.8320846557617,
+    "min_us": 2284.9536895751953,
+    "max_us": 2302.2592544555664,
+    "GBs": 233.74408411769625,
+    "frac_copy": 0.16959429132084622
+   },
+   "transpose_f32_T16": {
+    "block_dim": 256,
+    "dims": [
+     256,
+     256
+    ],
+    "compile_s": 0.15,
+    "smem_bytes": 2048,
+    "med_us": 320.5120086669922,
+    "min_us": 320.4607963562012,
+    "max_us": 321.0239887237549,
+    "GBs": 837.5207441256935,
+    "frac_copy": 0.6159744282036603
+   },
+   "transpose_f32_T32": {
+    "block_dim": 256,
+    "dims": [
+     128,
+     128
+    ],
+    "compile_s": 0.15,
+    "smem_bytes": 8192,
+    "med_us": 216.67840480804443,
+    "min_us": 216.5247917175293,
+    "max_us": 217.13919639587402,
+    "GBs": 1238.8657570089056,
+    "frac_copy": 0.9111531047404474
+   },
+   "transpose_f64_T16": {
+    "block_dim": 256,
+    "dims": [
+     256,
+     256
+    ],
+    "compile_s": 0.15,
+    "smem_bytes": 4096,
+    "med_us": 422.3487854003906,
+    "min_us": 422.1439838409424,
+    "max_us": 422.6560115814209,
+    "GBs": 1271.1553354913556,
+    "frac_copy": 0.9222936661482242
+   }
+  },
+  "fused": {
+   "fused3_f32_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 2.04,
+    "smem_bytes": 16384,
+    "med_us": 548.5055923461914,
+    "min_us": 548.3520030975342,
+    "max_us": 548.6591815948486,
+    "GBs": 734.0913011983729,
+    "frac_copy": 0.5399047995843864
+   },
+   "fused3_f32_B512": {
+    "block_dim": 512,
+    "dims": [
+     4096
+    ],
+    "compile_s": 3.5,
+    "smem_bytes": 16384,
+    "med_us": 733.7984085083008,
+    "min_us": 733.081579208374,
+    "max_us": 734.9760055541992,
+    "GBs": 548.7245261522602,
+    "frac_copy": 0.40357242326076226
+   },
+   "fused3_f64_B256": {
+    "block_dim": 256,
+    "dims": [
+     4096
+    ],
+    "compile_s": 3.1,
+    "smem_bytes": 65536,
+    "med_us": 1406.822395324707,
+    "min_us": 1405.6960105895996,
+    "max_us": 1407.2832107543945,
+    "GBs": 572.4293064115802,
+    "frac_copy": 0.4153291961103614
+   }
+  },
+  "accuracy": {
+   "torch_row_c64": 2.7499611460228415e-07,
+   "torch_col_c64": 2.7479309364705666e-07,
+   "torch_row_c128": 5.307382424599648e-16,
+   "torch_col_c128": 3.487592536446505e-16,
+   "row_f32_R1_B256": 1.862913105888862e-07,
+   "row_f32_R1_B128": 2.3705511328006455e-07,
+   "row_f32_R1_B512": 2.0492974702453018e-07,
+   "row_f32_R2_B256": 1.862913105888862e-07,
+   "row_f32_R2_B512": 2.0492974702453018e-07,
+   "rowT_f32_R2_B512": 2.0492974702453018e-07,
+   "irow_f32_R1_B256": 1.8588896089020425e-07,
+   "row_f64_R1_B256": 3.7070412723309255e-16,
+   "row_f64_R1_B512": 3.490210300548491e-16,
+   "col_f32_strided_K1_B256": 1.850652071382307e-07,
+   "col_f32_strided_K2_B256": 1.850652071382307e-07,
+   "col_f32_tstore_K1_B256": 1.850652071382307e-07,
+   "col_f32_tstore_K2_B256": 1.850652071382307e-07,
+   "col_f32_tstore_K4_B512": 2.0553580760647605e-07,
+   "col_f32_tview_K1_B256": 1.850652071382307e-07,
+   "col_f32_tview_K2_B256": 1.850652071382307e-07,
+   "col_f32_tview_K4_B256": 1.850652071382307e-07,
+   "col_f32_tview_K2_B128": 2.3633758760240726e-07,
+   "col_f64_tstore_K1_B256": 3.71876131986534e-16,
+   "col_f64_tview_K1_B256": 3.71876131986534e-16,
+   "col_f64_tview_K2_B256": 3.71876131986534e-16,
+   "torch_fft2_c64": 4.0204578765135425e-07,
+   "jax_fft2_c64": 4.0204578765135425e-07,
+   "warp_2d_row_colstrided_c64": 2.7727011598765824e-07,
+   "warp_2d_nvidia_3pass_c64": 2.7727011598765777e-07,
+   "fused3_f32_B256": 3.585341000916402e-07
+  },
+  "bridge": {
+   "jit_rel_l2": 1.9001295470388868e-07,
+   "stats_after_jit": {
+    "callbacks": 1,
+    "cache_builds": 1,
+    "errors": 0,
+    "last_error": ""
+   },
+   "scan_callbacks_first_call": 50,
+   "scan_rel_l2": 4.20107107856893e-06,
+   "scan_us_per_iter_warp": 446.9658713787794,
+   "scan_us_per_iter_jnp": 621.0673196862141,
+   "tiny_exact": true,
+   "tiny_callbacks_per_iter": 1.0,
+   "tiny_us_per_iter_warp": 8.628107840195298,
+   "tiny_us_per_iter_jnp": 0.023998475323120754,
+   "overhead_us_per_call": 8.604109364872178,
+   "two_kernel_rel_l2": 3.215740207451745e-07,
+   "two_kernel_us": 1597.0272477716208,
+   "torch_after_ok": true,
+   "stats": {
+    "callbacks": 22759,
+    "cache_builds": 3,
+    "errors": 0,
+    "last_error": ""
+   },
+   "BRIDGE_OK": true
+  },
+  "projection": {
+   "bytes_MB_f32": [
+    179.017048,
+    223.772672,
+    313.354936,
+    716.1446559999999
+   ],
+   "bytes_MB_f64": [
+    358.034096,
+    447.545344,
+    507.3324,
+    1312.91184
+   ],
+   "BW_col_f32": [
+    386.67159385110864,
+    "col_f32_tstore_K1_B256"
+   ],
+   "BW_fused_row_f32": [
+    734.0913011983729,
+    "fused3_f32_B256"
+   ],
+   "BW_col_f64": [
+    669.3322887270047,
+    "col_f64_tstore_K1_B256"
+   ],
+   "BW_row_f64": [
+    952.7311984017606,
+    "row_f64_R1_B256"
+   ],
+   "BW_row_f32": [
+    1158.6474550532675,
+    "row_f32_R1_B256"
+   ],
+   "t_step_ms_f32": 1.5781890778733696,
+   "t_step_ms_f64": 1.7626301056119926,
+   "acc_check_f32": {
+    "col": [
+     "col_f32_tstore_K1_B256",
+     1.850652071382307e-07,
+     2.7479309364705666e-07
+    ],
+    "row": [
+     "row_f32_R1_B256",
+     1.862913105888862e-07,
+     2.7499611460228415e-07
+    ],
+    "ok": true
+   },
+   "verdict": {
+    "f32": "GO_F32",
+    "f64": "GO_F64",
+    "inputs": {
+     "bridge_ok": true,
+     "acc_ok32": true,
+     "t32": 1.5781890778733696,
+     "t64": 1.7626301056119926
+    }
+   }
+  }
+ },
+ "errors": [],
+ "n": 4096,
+ "elapsed_s": 107.3,
+ "failures": 0
+}

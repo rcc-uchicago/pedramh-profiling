@@ -1,0 +1,1276 @@
+{
+ "seed": 1,
+ "angle": "float64, JAX level, same mathematics",
+ "thresholds": {
+  "G1_1step_rel_l2_per_field": 1e-12,
+  "G2_40step_rel_l2_per_field": 1e-09,
+  "G3": "finite after 480 steps where the reference is finite",
+  "round1b_t_rel_tol": 1e-06,
+  "round1b_meta": "tc exact, level 2, |t - t_ref| <= tol at 1/40/480 steps; exact t = info"
+ },
+ "phases_s": {
+  "import": 27.7,
+  "states": 2.0,
+  "compile": 5.8,
+  "gate": 41.0,
+  "bench": 225.0,
+  "optstep": 45.3,
+  "long": 123.4
+ },
+ "device": "NVIDIA A100-SXM4-40GB",
+ "jax": "0.4.28",
+ "N": 4096,
+ "stride": 40,
+ "calls_per_optstep": 12,
+ "asqg_py": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py",
+ "variants": {
+  "lean": {},
+  "lean_u1": {
+   "unroll1": true
+  },
+  "lean_split": {
+   "split": true
+  }
+ },
+ "preconditions": {
+  "stepper_is_AB3": true,
+  "one_layer": true,
+  "filterfac_is_0": true,
+  "filtr_all_1": true,
+  "beta_is_0": true,
+  "ikQy_all_0": true,
+  "U_is_0": true,
+  "rek_is_0": true,
+  "f0_over_Nb_is_1": true,
+  "forcing_c128_1xNxnk": true,
+  "forcing_nonzero": true,
+  "forcing_pad_bitwise": {
+   "ok": true,
+   "ncol": 5,
+   "nonzero_entries": 14
+  },
+  "decay_real_f64_Nxnk": true
+ },
+ "synthetic_ic": {
+  "seed": 20261104,
+  "spectrum": "|theta_k| ~ k^(-4/3) exp(-(k/(KMAX/2))^2), 1 <= k <= KMAX, random phases",
+  "cfl": 0.3,
+  "umax": 43.94531249999999,
+  "theta_rms": 14.449624348826347,
+  "theta_max": 61.03208501642942,
+  "ablevel": 2,
+  "energy": 104.39582191109754
+ },
+ "random_ic_energy": 1.2043158888798452e-09,
+ "elapsed_s": 539.4,
+ "compile": {
+  "ref": {
+   "aot_compile_s": 4.56,
+   "hlo_40step_call": {
+    "fft": 5,
+    "copy": 21,
+    "full_field_copy": 5,
+    "fusion": 35,
+    "while": 1,
+    "conditional": 1,
+    "cosine": 0,
+    "pad": 4,
+    "custom_call": 0
+   },
+   "xla_cost_one_step": {
+    "flops": 67978846208.0,
+    "bytes accessed": 4229726208.0
+   }
+  },
+  "lean": {
+   "aot_compile_s": 0.39,
+   "hlo_40step_call": {
+    "fft": 20,
+    "copy": 7,
+    "full_field_copy": 3,
+    "fusion": 25,
+    "while": 1,
+    "conditional": 0,
+    "cosine": 0,
+    "pad": 4,
+    "custom_call": 0
+   },
+   "xla_cost_one_step": {
+    "flops": 67836141568.0,
+    "bytes accessed": 3894018048.0
+   }
+  },
+  "lean_u1": {
+   "aot_compile_s": 0.43,
+   "hlo_40step_call": {
+    "fft": 20,
+    "copy": 7,
+    "full_field_copy": 3,
+    "fusion": 35,
+    "while": 1,
+    "conditional": 0,
+    "cosine": 8,
+    "pad": 4,
+    "custom_call": 0
+   },
+   "xla_cost_one_step": {
+    "flops": 67886497792.0,
+    "bytes accessed": 4162584576.0
+   }
+  },
+  "lean_split": {
+   "aot_compile_s": 0.39,
+   "hlo_40step_call": {
+    "fft": 20,
+    "copy": 7,
+    "full_field_copy": 3,
+    "fusion": 29,
+    "while": 1,
+    "conditional": 0,
+    "cosine": 0,
+    "pad": 4,
+    "custom_call": 0
+   },
+   "xla_cost_one_step": {
+    "flops": 67836141568.0,
+    "bytes accessed": 4028301312.0
+   }
+  }
+ },
+ "ms_per_step_estimate_one_call": {
+  "ref": 9.295,
+  "lean": 8.019,
+  "lean_u1": 6.453,
+  "lean_split": 7.131
+ },
+ "gate": {
+  "lean": {
+   "pass": true,
+   "reason": null,
+   "1step": {
+    "random": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 3.3000605019958633,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 1.4999999621068127e-05,
+     "t_ref": 1.4999999621068127e-05,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true,
+     "T0_forced_modes_max_err_over_F": 0.0
+    },
+    "synthetic": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 1.4999999621068127e-05,
+     "t_ref": 1.4999999621068127e-05,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true,
+     "T0_forced_modes_max_err_over_F": 0.0
+    }
+   },
+   "40step": {
+    "random": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 3.3000605019958633,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 0.00020999992557335645,
+     "t_ref": 0.00020999992557335645,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true
+    },
+    "synthetic": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 0.00020999992557335645,
+     "t_ref": 0.00020999992557335645,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true
+    }
+   },
+   "480step": {
+    "random": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 3.3000605019958633,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 0.0024100092705339193,
+     "t_ref": 0.0024100092705339193,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true,
+     "ref_finite": true,
+     "coarse_rel_l2": 0.0,
+     "energy_rel_diff": 0.0
+    },
+    "synthetic": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 0.0024100092705339193,
+     "t_ref": 0.0024100092705339193,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true,
+     "ref_finite": true,
+     "coarse_rel_l2": 0.0,
+     "energy_rel_diff": 0.0
+    }
+   }
+  },
+  "lean_u1": {
+   "pass": true,
+   "reason": null,
+   "1step": {
+    "random": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 3.3000605019958633,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 1.4999999621068127e-05,
+     "t_ref": 1.4999999621068127e-05,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true,
+     "T0_forced_modes_max_err_over_F": 0.0
+    },
+    "synthetic": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 1.4999999621068127e-05,
+     "t_ref": 1.4999999621068127e-05,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true,
+     "T0_forced_modes_max_err_over_F": 0.0
+    }
+   },
+   "40step": {
+    "random": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 3.3000605019958633,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 0.00020999992557335645,
+     "t_ref": 0.00020999992557335645,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true
+    },
+    "synthetic": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 0.00020999992557335645,
+     "t_ref": 0.00020999992557335645,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true
+    }
+   },
+   "480step": {
+    "random": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 3.3000605019958633,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 0.0024100092705339193,
+     "t_ref": 0.0024100092705339193,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true,
+     "ref_finite": true,
+     "coarse_rel_l2": 0.0,
+     "energy_rel_diff": 0.0
+    },
+    "synthetic": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 0.0024100092705339193,
+     "t_ref": 0.0024100092705339193,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true,
+     "ref_finite": true,
+     "coarse_rel_l2": 0.0,
+     "energy_rel_diff": 0.0
+    }
+   }
+  },
+  "lean_split": {
+   "pass": true,
+   "reason": null,
+   "1step": {
+    "random": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 3.3000605019958633,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 1.4999999621068127e-05,
+     "t_ref": 1.4999999621068127e-05,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true,
+     "T0_forced_modes_max_err_over_F": 0.0
+    },
+    "synthetic": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 1.4999999621068127e-05,
+     "t_ref": 1.4999999621068127e-05,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true,
+     "T0_forced_modes_max_err_over_F": 0.0
+    }
+   },
+   "40step": {
+    "random": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 3.3000605019958633,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 0.00020999992557335645,
+     "t_ref": 0.00020999992557335645,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true
+    },
+    "synthetic": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 0.00020999992557335645,
+     "t_ref": 0.00020999992557335645,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true
+    }
+   },
+   "480step": {
+    "random": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 3.3000605019958633,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 0.0024100092705339193,
+     "t_ref": 0.0024100092705339193,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true,
+     "ref_finite": true,
+     "coarse_rel_l2": 0.0,
+     "energy_rel_diff": 0.0
+    },
+    "synthetic": {
+     "qh": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T0": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "T1": {
+      "rel_l2": 0.0,
+      "max_abs": 0.0,
+      "where": [
+       0,
+       0,
+       0
+      ],
+      "ref_abs_there": 0.0,
+      "finite": true,
+      "values_equal": true,
+      "bits_equal": true
+     },
+     "max_rel_l2": 0.0,
+     "worst_field": "qh",
+     "combined_rel_l2": 0.0,
+     "finite": true,
+     "values_equal": true,
+     "bits_equal": true,
+     "t_equal": true,
+     "t": 0.0024100092705339193,
+     "t_ref": 0.0024100092705339193,
+     "t_rel_diff": 0.0,
+     "tc_equal": true,
+     "ablevel": 2,
+     "meta_ok": true,
+     "ref_finite": true,
+     "coarse_rel_l2": 0.0,
+     "energy_rel_diff": 0.0
+    }
+   }
+  }
+ },
+ "bench": {
+  "calls": 60,
+  "repeats": 3,
+  "init": "random",
+  "ms_per_step": {
+   "ref": 9.2882,
+   "lean": 7.9695,
+   "lean_u1": 6.4003,
+   "lean_split": 7.0779
+  },
+  "repeats_ms": {
+   "ref": [
+    9.2885,
+    9.288,
+    9.2882
+   ],
+   "lean": [
+    7.9695,
+    7.9696,
+    7.9695
+   ],
+   "lean_u1": [
+    6.4003,
+    6.4002,
+    6.4005
+   ],
+   "lean_split": [
+    7.0779,
+    7.078,
+    7.0778
+   ]
+  },
+  "speedup": {
+   "lean": 1.1655,
+   "lean_u1": 1.4512,
+   "lean_split": 1.3123
+  },
+  "ms_per_step_ref_again": 9.2885,
+  "ref_drift_pct": 0.0
+ },
+ "best_passing_variant": "lean_u1",
+ "optstep": {
+  "ref": {
+   "s_median": 4.47,
+   "s_all": [
+    4.4726,
+    4.4668,
+    4.47,
+    4.4703,
+    4.4668
+   ]
+  },
+  "lean_u1": {
+   "s_median": 3.0858,
+   "s_all": [
+    3.0859,
+    3.0836,
+    3.0865,
+    3.0858,
+    3.0836
+   ]
+  },
+  "speedup": 1.4486,
+  "variant": "lean_u1",
+  "reps": 5
+ },
+ "long": {
+  "steps": 4000,
+  "init": "synthetic",
+  "energy_t0": 104.39582191109754,
+  "variants": {
+   "lean_u1": {
+    "finite": true,
+    "coarse_rel_l2": 0.0,
+    "energy": 101.58940221977339,
+    "qh_rel_l2": 0.0,
+    "energy_rel_diff": 0.0
+   },
+   "lean_split": {
+    "finite": true,
+    "coarse_rel_l2": 0.0,
+    "energy": 101.58940221977339,
+    "qh_rel_l2": 0.0,
+    "energy_rel_diff": 0.0
+   },
+   "lean": {
+    "finite": true,
+    "coarse_rel_l2": 0.0,
+    "energy": 101.58940221977339,
+    "qh_rel_l2": 0.0,
+    "energy_rel_diff": 0.0
+   }
+  },
+  "ref_energy": 101.58940221977339,
+  "ref_energy_change_from_t0": -0.026882490505358292,
+  "ref_finite": true
+ },
+ "jax_memory_GiB": {
+  "bytes_in_use": 2.48,
+  "peak_bytes_in_use": 4.23,
+  "bytes_limit": 29.62
+ }
+}

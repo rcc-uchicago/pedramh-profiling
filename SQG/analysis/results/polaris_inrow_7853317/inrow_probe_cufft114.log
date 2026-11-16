@@ -1,0 +1,43 @@
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A100-SXM4-40GB" (39 GiB, sm_80, mempool enabled)
+   Kernel cache:
+     /lus/eagle/projects/lighthouse-uchicago/members/mehta5/tmp/warp_cache_7853317/1.17.0
+IR_ENV_OK {"torch": "2.3.1+cu121", "jax": "0.4.28", "warp": "1.17.0", "cufft_version": 11401, "gpu": "NVIDIA A100-SXM4-40GB", "ld_preload": "/soft/compilers/cudatoolkit/cuda-12.9.1/lib64/libnvJitLink.so.12:/soft/compilers/cudatoolkit/cuda-12.9.1/lib64/libcufft.so.11", "ccp": 1376}
+Module kernels__locals__build_w_b5a2d1bc b5a2d1b load on device 'cuda:0' took 4.25 ms  (cached)
+Module kernels__locals__expand_89275604 8927560 load on device 'cuda:0' took 2.54 ms  (cached)
+Module kernels__locals__rows_15f34186 15f3418 load on device 'cuda:0' took 31.60 ms  (cached)
+Module kernels__locals__update_aee95a27 aee95a2 load on device 'cuda:0' took 3.12 ms  (cached)
+IR_BUILD tilerows32 ok=True s=0.2
+Module kernels__locals__update_6a8bfe6c 6a8bfe6 load on device 'cuda:0' took 2.76 ms  (cached)
+IR_BUILD tilerows32_if ok=True s=0.2
+Module kernels__locals__build_w_18cbe088 18cbe08 load on device 'cuda:0' took 5.28 ms  (cached)
+Module kernels__locals__halve0_e849aaea e849aae load on device 'cuda:0' took 5.66 ms  (cached)
+Module kernels__locals__rows_ir_d44a2df1 d44a2df load on device 'cuda:0' took 54.24 ms  (cached)
+Module kernels__locals__update_32767eb4 32767eb load on device 'cuda:0' took 5.82 ms  (cached)
+IR_BUILD inrow32 ok=True s=0.2
+Module kernels__locals__update_d26dae7a d26dae7 load on device 'cuda:0' took 6.33 ms  (cached)
+IR_BUILD inrow32_if ok=True s=0.2
+Module kernels__locals__rows_ir_9401c9de 9401c9d load on device 'cuda:0' took 58.60 ms  (cached)
+IR_BUILD inrow32_wfirst ok=True s=0.2
+Module kernels__locals__rows_ir_d44a2df1 0b58e34 load on device 'cuda:0' took 56.10 ms  (cached)
+IR_BUILD inrow32_b512 ok=True s=0.2
+Module kernels__locals__theta_rows_a79e5217 a79e521 load on device 'cuda:0' took 47.75 ms  (cached)
+IR_THETA rms_rel_inrow=2.583e-07 rms_rel_c2r=2.731e-07 max_rel_inrow=3.421e-07 max_rel_c2r=4.002e-07 rms_rel_inrow_vs_c2r=2.084e-07 valid=True hi_preserved=True
+IR_REL n=1 fast_vs_u1=1.939e-08 if32_vs_if64=1.939e-08 inrow32_vs_u1=1.885e-08 tilerows32_vs_u1=1.912e-08 inrow32if_vs_if64=1.885e-08 tilerows32if_vs_if64=1.912e-08 inrow32_vs_tilerows32=1.374e-08 finite={'tilerows32': True, 'tilerows32_if': True, 'inrow32': True, 'inrow32_if': True}
+IR_REL n=40 fast_vs_u1=2.270e-07 if32_vs_if64=2.269e-07 inrow32_vs_u1=2.326e-07 tilerows32_vs_u1=2.331e-07 inrow32if_vs_if64=2.333e-07 tilerows32if_vs_if64=2.338e-07 inrow32_vs_tilerows32=6.608e-08 finite={'tilerows32': True, 'tilerows32_if': True, 'inrow32': True, 'inrow32_if': True}
+IR_VARIANT inrow32_wfirst {"rel_vs_inrow32": 0.0, "bitwise_vs_inrow32": true, "finite": true}
+IR_VARIANT inrow32_b512 {"rel_vs_inrow32": 2.4793943071504555e-07, "bitwise_vs_inrow32": false, "finite": true}
+IR_REL n=4000 fast_vs_u1=1.460e-06 if32_vs_if64=1.461e-06 inrow32_vs_u1=1.544e-06 tilerows32_vs_u1=1.545e-06 inrow32if_vs_if64=1.544e-06 tilerows32if_vs_if64=1.546e-06 inrow32_vs_tilerows32=2.619e-07 finite={'tilerows32': True, 'tilerows32_if': True, 'inrow32': True, 'inrow32_if': True}
+IR_GATE32 pass=True ([True, True]) tilerows32 [True, True]
+IR_GATEIF pass=True ([True, True]) tilerows32_if [True, True]
+IR_BANDS         inrow32_vs_lean_u1 sub 7.34e-06 7.52e-06 4.72e-06 4.18e-06 4.71e-06 6.50e-06 1.14e-05 1.55e-05 | af 1.62e-06 1.36e-06 2.34e-06 2.35e-06 1.81e-06 2.14e-06 3.58e-06 6.66e-06
+IR_BANDS      tilerows32_vs_lean_u1 sub 6.75e-06 7.18e-06 4.82e-06 4.28e-06 4.72e-06 6.51e-06 1.14e-05 1.55e-05 | af 1.62e-06 1.18e-06 2.30e-06 2.41e-06 1.84e-06 2.13e-06 3.60e-06 6.67e-06
+IR_BANDS   lean32ek_fast_vs_lean_u1 sub 6.62e-06 6.76e-06 4.47e-06 4.42e-06 4.71e-06 6.36e-06 1.02e-05 1.29e-05 | af 1.62e-06 8.77e-07 1.72e-06 1.96e-06 1.81e-06 2.06e-06 3.31e-06 6.04e-06
+IR_BANDS         inrow32_if_vs_if64 sub 6.73e-06 7.51e-06 4.82e-06 4.19e-06 4.69e-06 6.50e-06 1.14e-05 1.55e-05 | af 1.62e-06 1.36e-06 2.34e-06 2.36e-06 1.81e-06 2.14e-06 3.58e-06 6.65e-06
+IR_BANDS               if32_vs_if64 sub 7.31e-06 6.60e-06 4.45e-06 4.42e-06 4.72e-06 6.36e-06 1.02e-05 1.30e-05 | af 1.62e-06 8.76e-07 1.72e-06 1.96e-06 1.81e-06 2.06e-06 3.31e-06 6.04e-06
+IR_BENCH {"tilerows32_eager": 1.5789, "tilerows32_if_eager": 1.5792, "inrow32_eager": 1.4643, "inrow32_if_eager": 1.4594, "inrow32_wfirst_eager": 1.5962, "inrow32_b512_eager": 1.6141, "tilerows32_graph": 1.5616, "tilerows32_graph_finite": true, "tilerows32_split_ms": {"build_w": 0.14745600521564484, "cufft_cols_w": 0.27750399708747864, "expand": 0.07884799689054489, "cufft_c2r": 0.2969599962234497, "tile_rows": 0.3020800054073334, "cufft_cols_z": 0.27852800488471985, "update": 0.21503999829292297}, "inrow32_graph": 1.4505, "inrow32_graph_finite": true, "inrow32_split_ms": {"build_w": 0.14745600521564484, "cufft_cols_w": 0.27750399708747864, "cufft_cols_th": 0.130048006772995, "halve0": 0.008191999979317188, "tile_rows_ir": 0.4177919924259186, "cufft_cols_z": 0.28569599986076355, "update": 0.2170879989862442}, "lean32ek_fast": 2.7104, "if32": 2.7608, "lean_u1": 6.4033}
+IR_VERDICT tag=cufft114 valid=True G32=[True, True] GIF=[True, True] ratio=0.9274 worth=True
+IR_PROBE_DONE failures=0

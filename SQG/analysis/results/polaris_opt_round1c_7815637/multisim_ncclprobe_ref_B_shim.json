@@ -1,0 +1,112 @@
+{
+ "mode": "ncclprobe",
+ "solver": "ref",
+ "world_size": 8,
+ "hosts": [
+  "x3206c0s25b1n0",
+  "x3206c0s31b0n0"
+ ],
+ "ref_ms_1gpu": 9.2911,
+ "ranks": [
+  {
+   "rank": 0,
+   "host": "x3206c0s25b1n0",
+   "local_rank": 0,
+   "cuda_visible_devices": "0",
+   "role": "probe",
+   "probe_ok": true,
+   "allreduce_MB": 67.108864,
+   "allreduce_ms_median": 3.692,
+   "busbw_GBps": 31.812,
+   "nccl_version": "2.20.5"
+  },
+  {
+   "rank": 1,
+   "host": "x3206c0s25b1n0",
+   "local_rank": 1,
+   "cuda_visible_devices": "1",
+   "role": "probe",
+   "probe_ok": true,
+   "allreduce_MB": 67.108864,
+   "allreduce_ms_median": 3.679,
+   "busbw_GBps": 31.919,
+   "nccl_version": "2.20.5"
+  },
+  {
+   "rank": 2,
+   "host": "x3206c0s25b1n0",
+   "local_rank": 2,
+   "cuda_visible_devices": "2",
+   "role": "probe",
+   "probe_ok": true,
+   "allreduce_MB": 67.108864,
+   "allreduce_ms_median": 3.537,
+   "busbw_GBps": 33.206,
+   "nccl_version": "2.20.5"
+  },
+  {
+   "rank": 3,
+   "host": "x3206c0s25b1n0",
+   "local_rank": 3,
+   "cuda_visible_devices": "3",
+   "role": "probe",
+   "probe_ok": true,
+   "allreduce_MB": 67.108864,
+   "allreduce_ms_median": 3.521,
+   "busbw_GBps": 33.357,
+   "nccl_version": "2.20.5"
+  },
+  {
+   "rank": 4,
+   "host": "x3206c0s31b0n0",
+   "local_rank": 0,
+   "cuda_visible_devices": "0",
+   "role": "probe",
+   "probe_ok": true,
+   "allreduce_MB": 67.108864,
+   "allreduce_ms_median": 3.584,
+   "busbw_GBps": 32.769,
+   "nccl_version": "2.20.5"
+  },
+  {
+   "rank": 5,
+   "host": "x3206c0s31b0n0",
+   "local_rank": 1,
+   "cuda_visible_devices": "1",
+   "role": "probe",
+   "probe_ok": true,
+   "allreduce_MB": 67.108864,
+   "allreduce_ms_median": 3.723,
+   "busbw_GBps": 31.544,
+   "nccl_version": "2.20.5"
+  },
+  {
+   "rank": 6,
+   "host": "x3206c0s31b0n0",
+   "local_rank": 2,
+   "cuda_visible_devices": "2",
+   "role": "probe",
+   "probe_ok": true,
+   "allreduce_MB": 67.108864,
+   "allreduce_ms_median": 3.642,
+   "busbw_GBps": 32.25,
+   "nccl_version": "2.20.5"
+  },
+  {
+   "rank": 7,
+   "host": "x3206c0s31b0n0",
+   "local_rank": 3,
+   "cuda_visible_devices": "3",
+   "role": "probe",
+   "probe_ok": true,
+   "allreduce_MB": 67.108864,
+   "allreduce_ms_median": 3.618,
+   "busbw_GBps": 32.456,
+   "nccl_version": "2.20.5"
+  }
+ ],
+ "errors": [],
+ "probe_ok_all": true,
+ "busbw_GBps_min": 31.544,
+ "nccl_version": "2.20.5"
+}

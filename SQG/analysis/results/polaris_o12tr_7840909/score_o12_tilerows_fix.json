@@ -1,0 +1,41 @@
+{
+ "predictions": {
+  "F1": "CONFIRMED",
+  "F2": "CONFIRMED",
+  "F3": "CONFIRMED",
+  "F4": "CONFIRMED",
+  "F5": "CONFIRMED",
+  "F6": "CONFIRMED",
+  "F7": "CONFIRMED"
+ },
+ "s_step": {
+  "if32_25": 1.2395,
+  "tilerows_if25": 0.9261,
+  "tilerows_if25_scatter_t": 1.232,
+  "tilerows_if25_concat_t": 0.9288
+ },
+ "timing_scatter": {
+  "entry_sync_ms": 1.01,
+  "start_ms": 0.0,
+  "run_ms": 39.97,
+  "handoff_expand_ms": 25.66,
+  "outside_ms": 0.15
+ },
+ "timing_concat": {
+  "entry_sync_ms": 1.04,
+  "start_ms": 0.0,
+  "run_ms": 39.96,
+  "handoff_expand_ms": 0.54,
+  "outside_ms": 0.1
+ },
+ "expand_checks": [
+  true,
+  true,
+  true
+ ],
+ "gates": {
+  "tilerows_if25": true,
+  "tilerows_if25_scatter_t": true,
+  "tilerows_if25_concat_t": true
+ }
+}

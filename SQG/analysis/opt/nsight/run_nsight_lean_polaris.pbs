@@ -1,0 +1,175 @@
+#!/bin/bash -l
+#PBS -N sqg_nsight_lean
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# run_nsight_lean_polaris.pbs -- Nsight analysis of seed 2's float32 solver step `lean32` on one Polaris A100 (GPU 0),
+# and where the solver can still improve. Predictions: SQG/analysis/opt/nsight/PREDICTIONS_nsight.md (written first).
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ SQG/analysis/opt/nsight/run_nsight_lean_polaris.pbs
+# Phase 0  parser tests: NSYS_OPS_TEST_OK, NCU_WINDOW_TEST_OK, NCU_TEST_OK.
+# Phase 1  profile_lean_nsight.py --mode bench: the probes (lean32_r2 / _u1 / _ring3 / _u1_ring3) checked against
+#          lean32 (NSIGHT_CHECK_OK x4), then ms/step of ref, lean_u1, lean32 and the probes, the FFT micro-table, and
+#          coarse frames saved for phase 3 (NSIGHT_BENCH_OK).
+# Phase 2  nsys of lean32 and lean_u1 (2 ranges x 12 calls = 960 steps each), SQLite export, summarize_nsys_ops.py:
+#          GPU time per XLA op per step (NSYS_OPS_OK x2).
+# Phase 3  cuFFT 11.4.1 (CUDA 12.9.1's libcufft.so.11 via LD_PRELOAD; XLA dlopens libcufft.so.11 by soname): bench of
+#          ref / lean_u1 / lean32 + FFT micro-table + coarse frames vs phase 1's. Report only (NSIGHT_BENCH_OK).
+# Phase 4  ncu --set full on EVERY kernel of a 120-launch window of one lean32 call, summarize_ncu_window.py: the loop
+#          period in order, with DRAM bytes, GB/s, sector efficiency (NCU_WINDOW_OK).
+# Phase 5  ncu --set full on the XLA kernels only (loop/input/wrapped fusions) of lean32_u1 (if it passed its check)
+#          and lean_u1: does the cos trigger give 1 element per thread and remove the over-fetch? (NCU_WINDOW_OK x2)
+# End token: NSIGHT_DONE failures=N. Text summaries -> SQG/analysis/results/polaris_nsight_lean_<jobid>/; the
+# .nsys-rep / .sqlite / .ncu-rep binaries stay in $MEMBER_ROOT/sqg_profile/nsight_lean_<jobid>/.
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+export SQG_INIT="${SQG_INIT:-random}"
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+OUT="${MEMBER_ROOT}/sqg_profile/nsight_lean_${JOB}"
+RES="SQG/analysis/results/polaris_nsight_lean_${JOB}"
+H=SQG/analysis/opt/nsight/profile_lean_nsight.py
+CUFFT_NEW="${CUFFT_NEW:-/soft/compilers/cudatoolkit/cuda-12.9.1/lib64/libcufft.so.11}"
+BUDGET_S="${BUDGET_S:-2700}"                           # optional phases are skipped past 45 min of the 55
+WINDOW="${WINDOW:-120}"                                 # phase-4 launches
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+T0=$(date +%s)
+FAILURES=0
+fail() { echo "ERROR $*"; FAILURES=$((FAILURES + 1)); }
+over_budget() { [ $(( $(date +%s) - T0 )) -gt "$BUDGET_S" ]; }
+echo "=== run_nsight_lean on $(hostname) job $JOB: $(date '+%F %T') ==="
+echo "host=$(hostname) job=$JOB py=$PY init=$SQG_INIT out=$OUT window=$WINDOW budget=${BUDGET_S}s"
+echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}"
+echo "modules: $(module -t list 2>&1 | tr '\n' ' ')"
+nvidia-smi --query-gpu=name,driver_version,memory.total,clocks.max.sm,clocks.max.mem,power.limit --format=csv | tee "$OUT/gpu.csv"
+NSYS="$(command -v nsys 2>/dev/null || ls -1 /soft/compilers/cudatoolkit/cuda-*/bin/nsys 2>/dev/null | sort -V | tail -1 || true)"
+NCU="$(command -v ncu 2>/dev/null || true)"
+[ -n "$NCU" ] || { [ -x /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin/ncu ] && NCU=/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin/ncu; } || true
+[ -n "$NCU" ] || NCU="$(ls -1 /soft/compilers/cudatoolkit/cuda-*/bin/ncu 2>/dev/null | sort -V | tail -1 || true)"
+echo "nsys=${NSYS:-<none>} $([ -n "$NSYS" ] && "$NSYS" --version 2>&1 | head -1)"
+echo "ncu=${NCU:-<none>} $([ -n "$NCU" ] && "$NCU" --version 2>&1 | tail -1)"
+
+# ---- phase 0: the parsers, on synthetic inputs ----
+echo "--- phase 0 $(date '+%T')"
+"$PY" SQG/analysis/test_summarize_nsys_ops.py || fail NSYS_OPS_TEST
+"$PY" SQG/analysis/test_summarize_ncu_window.py || fail NCU_WINDOW_TEST
+"$PY" SQG/analysis/test_summarize_ncu.py || fail NCU_TEST
+
+# ---- phase 1: checks + bench, default cuFFT (the env's wheel) ----
+echo "--- phase 1 $(date '+%T')"
+"$PY" "$H" --mode bench --fft-micro --save-frames "$OUT/frames_default" --out "$OUT/bench_default" 2>&1 \
+    | tee "$OUT/bench_default.log" || fail NSIGHT_BENCH_DEFAULT_RC
+grep -q "NSIGHT_BENCH_OK" "$OUT/bench_default.log" || fail NSIGHT_BENCH_DEFAULT_NO_TOKEN
+U1_OK=0
+grep -q "NSIGHT_CHECK_OK lean32_u1 " "$OUT/bench_default.log" && U1_OK=1
+
+# ---- phase 2: nsys, GPU time per XLA op ----
+echo "--- phase 2 $(date '+%T')"
+if [ -z "$NSYS" ]; then
+    fail NSYS_NOT_FOUND
+else
+    for V in lean32 lean_u1; do
+        "$NSYS" profile -t cuda,nvtx,osrt --cuda-graph-trace=node \
+            --capture-range=cudaProfilerApi --capture-range-end=stop --force-overwrite=true -o "$OUT/nsys_$V" \
+            "$PY" "$H" --mode capture --variant "$V" --reps 2 --calls 12 --out "$OUT" > "$OUT/nsys_$V.log" 2>&1 \
+            || { fail "NSYS_PROFILE_FAILED $V"; tail -20 "$OUT/nsys_$V.log"; continue; }
+        grep -q "NSIGHT_CAPTURE_OK" "$OUT/nsys_$V.log" || { fail "NSYS_NO_CAPTURE $V"; continue; }
+        # nsys stats writes $OUT/nsys_$V.sqlite next to the report (as in jobs A and D) + the kernel table to cross-check
+        "$NSYS" stats --report cuda_gpu_kern_sum,cuda_api_sum --format csv --force-export=true \
+            --output "$OUT/nsys_$V" "$OUT/nsys_$V.nsys-rep" > /dev/null || { fail "NSYS_STATS_FAILED $V"; continue; }
+        "$PY" SQG/analysis/summarize_nsys_ops.py "$OUT/nsys_$V.sqlite" --range-regex "^${V}_rep_" \
+            --steps-per-range 480 --out "$OUT/nsys_ops_$V.json" || fail "NSYS_OPS_FAILED $V"
+    done
+fi
+
+# ---- phase 3: the same bench under cuFFT 11.4.1 (report only) ----
+echo "--- phase 3 $(date '+%T')"
+if [ ! -r "$CUFFT_NEW" ]; then
+    echo "WARN NSIGHT_CUFFT_NEW_MISSING $CUFFT_NEW: phase 3 skipped"
+elif over_budget; then
+    echo "WARN NSIGHT_BUDGET: phase 3 skipped"
+else
+    LD_PRELOAD="$CUFFT_NEW" "$PY" "$H" --mode bench --variants ref,lean_u1,lean32 --fft-micro \
+        --compare-frames "$OUT/frames_default" --out "$OUT/bench_cufft114" 2>&1 | tee "$OUT/bench_cufft114.log" \
+        || fail NSIGHT_BENCH_CUFFT114_RC
+    grep -q "NSIGHT_BENCH_OK" "$OUT/bench_cufft114.log" || fail NSIGHT_BENCH_CUFFT114_NO_TOKEN
+    grep -q "NSIGHT_LIBS .*libcufft.so.11.4" "$OUT/bench_cufft114.log" \
+        || echo "WARN NSIGHT_CUFFT_NOT_SWAPPED: the preloaded libcufft is not the one mapped (see NSIGHT_LIBS)"
+fi
+
+# ---- ncu helper: one --set full run of profile_lean_nsight.py --mode capture (1 call), export, window summary ----
+ncu_window() {   # tag variant count [kernel-name regex] [solver steps per loop period, default 2]
+    local TAG="$1" V="$2" COUNT="$3" RX="${4:-}" LOG="$OUT/ncu_$1.log" RC=0
+    local FILTER=()
+    [ -n "$RX" ] && FILTER=(--kernel-name "regex:$RX")
+    echo "--- ncu $TAG: variant $V, $COUNT launches ${RX:+matching $RX} $(date '+%T')"
+    timeout 1200 "$NCU" --profile-from-start off --graph-profiling node "${FILTER[@]}" --launch-count "$COUNT" \
+        --set full --import-source no --clock-control none -f -o "$OUT/ncu_$TAG" \
+        "$PY" "$H" --mode capture --variant "$V" --reps 1 --calls 1 --out "$OUT" > "$LOG" 2>&1 || RC=$?
+    if grep -qE 'ERR_NVGPUCTRPERM|does not have permission to access NVIDIA GPU Performance Counters' "$LOG"; then
+        fail "NCU_NO_PERMISSION $TAG"; return 0
+    fi
+    grep -q "NSIGHT_CAPTURE_OK" "$LOG" || { fail "NCU_HARNESS_FAILED $TAG (rc $RC)"; tail -20 "$LOG"; return 0; }
+    [ "$RC" -eq 0 ] && [ -s "$OUT/ncu_$TAG.ncu-rep" ] || { fail "NCU_PROFILE_FAILED $TAG (rc $RC)"; return 0; }
+    "$NCU" --import "$OUT/ncu_$TAG.ncu-rep" --csv --page raw --print-units base > "$OUT/ncu_${TAG}_raw.csv" \
+        || { fail "NCU_EXPORT_FAILED $TAG"; return 0; }
+    "$NCU" --import "$OUT/ncu_$TAG.ncu-rep" --page details --print-units base > "$OUT/ncu_${TAG}_details.txt" \
+        || echo "WARN NCU_DETAILS_EXPORT_FAILED $TAG"
+    "$PY" SQG/analysis/summarize_ncu_window.py "$OUT/ncu_${TAG}_raw.csv" --steps-per-period "${5:-2}" \
+        --out "$OUT/ncu_window_$TAG.json" || fail "NCU_WINDOW_FAILED $TAG"
+}
+
+# ---- phase 4: every kernel of lean32's loop ----
+echo "--- phase 4 $(date '+%T')"
+if [ -z "$NCU" ]; then
+    fail NCU_NOT_FOUND
+else
+    ncu_window lean32_window lean32 "$WINDOW"
+    # ---- phase 5: the XLA kernels of the cos-trigger variants (period: 2 steps for lean32_u1, 3 for lean_u1) ----
+    echo "--- phase 5 $(date '+%T')"
+    if over_budget; then
+        echo "WARN NSIGHT_BUDGET: phase 5 skipped"
+    else
+        if [ "$U1_OK" -eq 1 ]; then
+            ncu_window lean32_u1_xla lean32_u1 60 '^(loop|input|wrapped)_' 2
+        else
+            echo "WARN NSIGHT_U1_NOT_CHECKED: lean32_u1 did not pass its check; its ncu run is skipped"
+        fi
+        over_budget && echo "WARN NSIGHT_BUDGET: lean_u1 ncu skipped" \
+            || ncu_window lean_u1_xla lean_u1 60 '^(loop|input|wrapped)_' 3
+    fi
+fi
+
+# ---- text summaries into the repo (the reports, SQLite files and frames stay in $OUT) ----
+for f in "$OUT"/gpu.csv "$OUT"/*.log "$OUT"/nsys_ops_*.json "$OUT"/nsys_*_cuda_gpu_kern_sum.csv \
+         "$OUT"/nsys_*_cuda_api_sum.csv "$OUT"/ncu_window_*.json "$OUT"/capture_*.json; do
+    [ -e "$f" ] && cp "$f" "$RES"/
+done
+for d in bench_default bench_cufft114; do
+    [ -e "$OUT/$d/nsight_bench.json" ] && cp "$OUT/$d/nsight_bench.json" "$RES/${d}.json"
+done
+for f in "$OUT"/bench_default/hlo_*.txt "$OUT"/ncu_*_raw.csv "$OUT"/ncu_*_details.txt; do   # only while small
+    [ -e "$f" ] && [ "$(stat -c %s "$f")" -lt 3000000 ] && cp "$f" "$RES"/
+done
+echo "=== end $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+echo "NSIGHT_DONE failures=$FAILURES"

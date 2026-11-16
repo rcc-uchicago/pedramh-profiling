@@ -1,0 +1,62 @@
+#!/bin/bash -l
+#PBS -N sqg_prof_overlap
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# profile_overlap_polaris.pbs -- Job B on one Polaris A100 (sibling of profile_overlap_midway.sh, which is unchanged):
+# does the JAX solver overlap the PyTorch UViT step? (ml_only, solver_only, serial = production order, background-
+# thread solver; pyqg_jax AB3 and the fixed-level AB3), from the random IC at AB3 level 2 (SQG_INIT=random).
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ [-v SQG_BATCH=16,SQG_BUF=4096] \
+#        SQG/analysis/profile_overlap_polaris.pbs                                 (from the repo root)
+#   -v NUMA=1: the optional arm, the same run under numactl --cpunodebind=3 --membind=3 (GPU 0 sits on NUMA 3 on
+#   Polaris); results go to a separate *_numa3 dir. Skipped (WARN NUMACTL_NOT_FOUND) if numactl is absent.
+# PASS = "OVERLAP_OK" in the .o file. Output: SQG/analysis/results/polaris_overlap[_numa3]_<jobid>/profile_overlap.json
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+export SQG_INIT="${SQG_INIT:-random}"
+JOB="${PBS_JOBID%%.*}"
+ARM=""
+LAUNCH=()
+if [ "${NUMA:-0}" = 1 ]; then
+    if command -v numactl >/dev/null 2>&1; then ARM="_numa3"; LAUNCH=(numactl --cpunodebind=3 --membind=3)
+    else echo "WARN NUMACTL_NOT_FOUND: optional NUMA arm skipped"; exit 0; fi
+fi
+OUT="${MEMBER_ROOT}/sqg_profile/profile_overlap${ARM}_${JOB}"
+RES="SQG/analysis/results/polaris_overlap${ARM}_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+echo "=== profile_overlap${ARM} on $(hostname) job $JOB: $(date '+%F %T') ==="
+echo "host=$(hostname) job=$JOB py=$PY init=$SQG_INIT batch=${SQG_BATCH:-32} buf=${SQG_BUF:-8192} launch=${LAUNCH[*]:-<unbound>}"
+echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}"
+echo "modules: $(module -t list 2>&1 | tr '\n' ' ')"
+nvidia-smi --query-gpu=name,driver_version,memory.total,power.limit --format=csv | tee "$OUT/gpu.csv"
+# ------------------------------------------------------------------------------------------------------------------
+nvidia-smi topo -m > "$OUT/topo.txt" 2>&1 || true        # records the GPU <-> NUMA affinity the NUMA arm assumes
+
+nvidia-smi dmon -s pucvm -d 1 -i 0 > "$OUT/dmon.txt" 2>&1 &
+DMON=$!
+trap 'kill "$DMON" 2>/dev/null || true' EXIT
+"${LAUNCH[@]}" "$PY" SQG/analysis/profile_overlap.py --steps 20 --warmup 4 --out "$OUT"   # args as the _midway.sh
+kill "$DMON" 2>/dev/null || true
+cp "$OUT"/profile_overlap.json "$OUT"/gpu.csv "$OUT"/topo.txt "$OUT"/dmon.txt "$RES"/
+echo "=== end $(date '+%F %T') ==="

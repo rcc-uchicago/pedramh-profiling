@@ -1,0 +1,48 @@
+O12_KNOB BUF=16384 (o1.2: 262144)
+O12_KNOB BATCH=16 (o1.2: 32)
+O12_KNOB N_EPOCH=4 (o1.2: 250)
+O12_KNOB N_VAL=64 (o1.2: 200)
+strict fp32 check passed: conv 2.2e-06, matmul 4.1e-07, attention 1.9e-06
+UViT_m16_dt0.02_tendency_online3: 4 GPU(s), NVIDIA A100-SXM4-40GB
+O12_SOLVER if32_25
+O12_TR_SCHEME if32_25 kind=if32 if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_KNOB STEPS_PER_EPOCH=30 (o1.2: 2734)
+O12_SEGMENTS 4 staged checkpoints per rank, 6 needed by the full schedule -> o1.2 reuses them (wrap-around): fine for timing, not for science
+solver A-SQG_data.py: 16 checkpoints of 7 members (t_c + 1 <= 1120); 4 per rank, ~6 needed -> each used at most once
+online: segment 1 = 200000 steps = 5000 frames (stride 40 steps), S = 480 steps = 12 pairs per ML step, ring 101 frames (pair lag 4000 steps = 0.02), 4901 pairs per segment, host buffer 16384 pairs (3 segments), training starts at 4 segments
+O12_KNOB START_PAIRS=600 (o1.2: 19604)
+O12_TR_GATE if32_25 frame=1 steps=23 rel_arm_ref64=3.413e-07 rel_twin32_ref64=3.413e-07 pass=True (if32 is the twin: info) (1.3 s)
+O12_TR_GATE if32_25 frame=4 steps=98 rel_arm_ref64=7.640e-07 rel_twin32_ref64=7.645e-07 pass=True (if32 is the twin: info) (2.0 s)
+O12_TR_GATE_VERDICT if32_25 pass=True
+O12_FILL pairs=621 frames=721 seconds=58.1 load_s=2.4 s_per_frame_steady=0.07004 solver=if32_25
+O12_BITWISE solver=if32_25 frames_per_rank=4 max_abs_diff=2.177e-01 INFO
+buffer filled: 621 pairs from 1 segments in 58 s; first segment checked against the taxonomy production frames (4 frames each; O12_BITWISE)
+sample: x (1, 256, 256) torch.float32, x std 1.095, (y - x) std 0.2519
+val: 64 random pairs of 64 (per trajectory: [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]); per epoch: 30 steps x 16 x 4 GPUs (as offline)
+ConvNextUViT 40.81M params, tendency (big skip), circular padding
+wandb: (no wandb on Polaris: /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/o12tr_7840909/if32_25/wandb_shim.jsonl)
+training from scratch: epochs 0..3 x 30 steps -> /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/o12tr_7840909/if32_25/model_ckpt/UViT_m16_dt0.02_tendency_online3_best.pt
+peak GPU memory (PyTorch) 20.4 GiB
+epoch 0: train 0.0861  val 0.0590 (persistence 0.0776)  lr 4.63e-04  1.338 s/step  (41 s)
+  val per trajectory: traj 0 0.0422  traj 1 0.0408  traj 2 0.1039  traj 3 0.0572  traj 4 0.0592  traj 5 0.0460  traj 6 0.0552  traj 7 0.0594  traj 8 0.0776  traj 9 0.0838  traj 10 0.0706  traj 11 0.0258  traj 12 0.0504  traj 13 0.0526  traj 14 0.0476  traj 15 0.0714
+  online: 0 segments this epoch (1 used per rank, 4.0 time units on all ranks), buffer 981 pairs, checkpoint loads 0 s
+O12_EPOCH epoch=0 steps=30 step_median=1.2399 step_p10=1.2387 step_p90=1.2405 train_s=40.1 val_s=0.70 save_last_s=0.76 solver=if32_25
+O12_SAVE best seconds=0.70
+  best val 0.0590 -> UViT_m16_dt0.02_tendency_online3_best.pt
+epoch 1: train 0.0635  val 0.0576 (persistence 0.0776)  lr 2.86e-04  1.240 s/step  (37 s)
+  val per trajectory: traj 0 0.0427  traj 1 0.0414  traj 2 0.0917  traj 3 0.0522  traj 4 0.0576  traj 5 0.0497  traj 6 0.0575  traj 7 0.0570  traj 8 0.0788  traj 9 0.0826  traj 10 0.0693  traj 11 0.0269  traj 12 0.0508  traj 13 0.0541  traj 14 0.0423  traj 15 0.0669
+  online: 0 segments this epoch (1 used per rank, 4.0 time units on all ranks), buffer 1341 pairs, checkpoint loads 0 s
+O12_EPOCH epoch=1 steps=30 step_median=1.2395 step_p10=1.2382 step_p90=1.2406 train_s=37.2 val_s=0.25 save_last_s=0.84 solver=if32_25
+O12_SAVE best seconds=0.71
+  best val 0.0576 -> UViT_m16_dt0.02_tendency_online3_best.pt
+epoch 2: train 0.0571  val 0.0587 (persistence 0.0776)  lr 8.38e-05  1.240 s/step  (37 s)
+  val per trajectory: traj 0 0.0456  traj 1 0.0438  traj 2 0.0832  traj 3 0.0484  traj 4 0.0605  traj 5 0.0570  traj 6 0.0588  traj 7 0.0586  traj 8 0.0823  traj 9 0.0823  traj 10 0.0704  traj 11 0.0287  traj 12 0.0540  traj 13 0.0614  traj 14 0.0398  traj 15 0.0640
+  online: 0 segments this epoch (1 used per rank, 4.0 time units on all ranks), buffer 1701 pairs, checkpoint loads 0 s
+O12_EPOCH epoch=2 steps=30 step_median=1.2395 step_p10=1.2389 step_p90=1.2406 train_s=37.2 val_s=0.26 save_last_s=0.74 solver=if32_25
+epoch 3: train 0.0549  val 0.0582 (persistence 0.0776)  lr 2.00e-09  1.240 s/step  (37 s)
+  val per trajectory: traj 0 0.0457  traj 1 0.0438  traj 2 0.0817  traj 3 0.0478  traj 4 0.0605  traj 5 0.0551  traj 6 0.0588  traj 7 0.0583  traj 8 0.0816  traj 9 0.0819  traj 10 0.0701  traj 11 0.0287  traj 12 0.0539  traj 13 0.0611  traj 14 0.0392  traj 15 0.0635
+  online: 0 segments this epoch (1 used per rank, 4.0 time units on all ranks), buffer 2061 pairs, checkpoint loads 0 s
+O12_EPOCH epoch=3 steps=30 step_median=1.2393 step_p10=1.2386 step_p90=1.2408 train_s=37.2 val_s=0.26 save_last_s=0.74 solver=if32_25
+done: best val 0.0576
+O12_PHASES solver=if32_25 startup_to_fill_done_s=84.5 total_s=243.0
+O12_RUN_DONE solver=if32_25

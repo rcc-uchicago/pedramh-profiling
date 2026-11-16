@@ -1,0 +1,25 @@
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A100-SXM4-40GB" (39 GiB, sm_80, mempool enabled)
+   Kernel cache:
+     /lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/tre_7841269/warp_cache_w3/1.17.0
+O12_TR_SCHEME tilerows_if25 kind=tr if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_if25 mode=concat timing=0
+O12_TR_SCHEME if32_25 kind=if32 if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+ENERGY_IC w=3 member=4 t=400.00 SPE=32.9233 VIE=9.79438 P_S=13.41 eps_S=10.1 P_V=4.081 eps_V=2.807 CFL=0.199 diag_rel=1.3e-16
+ENERGY_STATIC w=3 rIF S/V -8.553e-06/-5.271e-07 rbal -6.650e-06/-3.903e-07 sA -8.760e-03/-9.480e-03 sE -4.154e-09/-5.032e-09 (instantaneous, at the IC)
+ENERGY_ARM w=3 arm=lean_u1 calls=2500 seconds=645 ms/step=6.447 finite=True CFLmax=0.237 diag_rel=2.5e-16
+O12_TR_PATH tilerows_if25 jax_to_torch=dlpack
+Module kernels__locals__build_w_b5a2d1bc b5a2d1b load on device 'cuda:0' took 1147.87 ms  (compiled)
+Module kernels__locals__expand_89275604 8927560 load on device 'cuda:0' took 138.15 ms  (compiled)
+Module kernels__locals__rows_15f34186 15f3418 load on device 'cuda:0' took 3886.53 ms  (compiled)
+Module kernels__locals__update_64ac6e68 64ac6e6 load on device 'cuda:0' took 207.59 ms  (compiled)
+O12_TR_PATH tilerows_if25 torch_to_jax=dlpack
+ENERGY_ARM w=3 arm=tilerows_if25 calls=2500 seconds=117 ms/step=1.780 finite=True CFLmax=0.378 diag_rel=2.8e-16
+ENERGY_ARM w=3 arm=f64ic32 calls=2500 seconds=644 ms/step=6.445 finite=True CFLmax=0.237 diag_rel=2.5e-16
+ENERGY_ARM w=3 arm=dquant calls=2500 seconds=645 ms/step=6.446 finite=True CFLmax=0.237 diag_rel=3.0e-16
+ENERGY_ARM w=3 arm=if32_25 calls=2500 seconds=182 ms/step=2.838 finite=True CFLmax=0.378 diag_rel=2.5e-16
+ENERGY_BITWISE w=3 lean_u1 vs gate D frames {'0': True, '1': True, '10': True, '100': True, '1000': True, '2500': True}
+ENERGY_WORKER_DONE w=3 arms=5/5 failures=0 wall=2298s

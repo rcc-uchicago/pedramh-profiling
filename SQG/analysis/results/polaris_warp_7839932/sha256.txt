@@ -1,0 +1,4 @@
+cf9d2aa985a23f571c9b3b63b2be25dfa05957b7d07d84a3e36f4bf63f7b1fd9  SQG/analysis/opt/warp/warp_fft_probe.py
+83caacdc00250d473f7d12bcb791149513fef3252a668fd44784ec4777ef16d5  SQG/analysis/opt/warp/warp_kernels.py
+ad8232113f12b6a3592aeaec1919dfbb992c466ea444bfc7e5b58b1912e1ad68  SQG/analysis/opt/warp/warp_xla.py
+642d4c13ae3ea66ed24a2e74da72ae280af92b8116494f52a625b8d6cf416c74  SQG/analysis/opt/warp/PREDICTIONS_warp.md

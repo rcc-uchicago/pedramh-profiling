@@ -1,0 +1,499 @@
+HloModule jit__lambda_, is_scheduled=true, entry_computation_layout={(c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], c128[1,4096,2049]{2,1,0}, /*index=5*/c128[1,4096,2049]{2,1,0})->(c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], c128[1,4096,2049]{2,1,0}, /*index=5*/c128[1,4096,2049]{2,1,0})}, allow_spmd_sharding_propagation_to_parameters={true,true,true,true,true,true}, allow_spmd_sharding_propagation_to_output={true,true,true,true,true,true}, frontend_attributes={fingerprint_before_lhs="1e51537da4c530adc24bbe1c3d017e6f"}
+
+%wrapped_copy_computation.4 (param_0.122: u8[]) -> u8[] {
+  %param_0.122 = u8[] parameter(0)
+  ROOT %copy.76 = u8[] copy(u8[] %param_0.122)
+}
+
+%wrapped_copy_computation.5 (param_0.123: f64[]) -> f64[] {
+  %param_0.123 = f64[] parameter(0)
+  ROOT %copy.77 = f64[] copy(f64[] %param_0.123)
+}
+
+%wrapped_copy_computation.6 (param_0.124: f64[]) -> f64[] {
+  %param_0.124 = f64[] parameter(0)
+  ROOT %copy.78 = f64[] copy(f64[] %param_0.124)
+}
+
+%wrapped_copy_computation.7 (param_0.125: f64[]) -> f64[] {
+  %param_0.125 = f64[] parameter(0)
+  ROOT %copy.79 = f64[] copy(f64[] %param_0.125)
+}
+
+%region_11.79 (arg_empty_tuple.80.0: ()) -> (u8[], f64[], f64[], f64[]) {
+  %constant_83_0 = u8[] constant(1)
+  %constant_82_0 = f64[] constant(5e-06)
+  %constant_81_0 = f64[] constant(0)
+  %arg_empty_tuple.80.0 = () parameter(0)
+  %wrapped_copy.4 = u8[] fusion(u8[] %constant_83_0), kind=kLoop, calls=%wrapped_copy_computation.4
+  %wrapped_copy.5 = f64[] fusion(f64[] %constant_82_0), kind=kLoop, calls=%wrapped_copy_computation.5
+  %wrapped_copy.6 = f64[] fusion(f64[] %constant_81_0), kind=kLoop, calls=%wrapped_copy_computation.6
+  %wrapped_copy.7 = f64[] fusion(f64[] %wrapped_copy.6), kind=kLoop, calls=%wrapped_copy_computation.7
+  ROOT %tuple.63 = (u8[], f64[], f64[], f64[]) tuple(u8[] %wrapped_copy.4, f64[] %wrapped_copy.5, f64[] %wrapped_copy.6, f64[] %wrapped_copy.7)
+}
+
+%wrapped_copy_computation.8 (param_0.126: u8[]) -> u8[] {
+  %param_0.126 = u8[] parameter(0)
+  ROOT %copy.80 = u8[] copy(u8[] %param_0.126)
+}
+
+%wrapped_copy_computation.9 (param_0.127: f64[]) -> f64[] {
+  %param_0.127 = f64[] parameter(0)
+  ROOT %copy.81 = f64[] copy(f64[] %param_0.127)
+}
+
+%wrapped_copy_computation.10 (param_0.128: f64[]) -> f64[] {
+  %param_0.128 = f64[] parameter(0)
+  ROOT %copy.82 = f64[] copy(f64[] %param_0.128)
+}
+
+%wrapped_copy_computation.11 (param_0.129: f64[]) -> f64[] {
+  %param_0.129 = f64[] parameter(0)
+  ROOT %copy.83 = f64[] copy(f64[] %param_0.129)
+}
+
+%region_12.85 (arg_empty_tuple.86.0: ()) -> (u8[], f64[], f64[], f64[]) {
+  %constant_90_0 = u8[] constant(2)
+  %constant_89_0 = f64[] constant(7.500000000000001e-06)
+  %constant_88_0 = f64[] constant(-2.5e-06)
+  %constant_87_0 = f64[] constant(0)
+  %arg_empty_tuple.86.0 = () parameter(0)
+  %wrapped_copy.8 = u8[] fusion(u8[] %constant_90_0), kind=kLoop, calls=%wrapped_copy_computation.8
+  %wrapped_copy.9 = f64[] fusion(f64[] %constant_89_0), kind=kLoop, calls=%wrapped_copy_computation.9
+  %wrapped_copy.10 = f64[] fusion(f64[] %constant_88_0), kind=kLoop, calls=%wrapped_copy_computation.10
+  %wrapped_copy.11 = f64[] fusion(f64[] %constant_87_0), kind=kLoop, calls=%wrapped_copy_computation.11
+  ROOT %tuple.64 = (u8[], f64[], f64[], f64[]) tuple(u8[] %wrapped_copy.8, f64[] %wrapped_copy.9, f64[] %wrapped_copy.10, f64[] %wrapped_copy.11)
+}
+
+%wrapped_copy_computation.12 (param_0.130: u8[]) -> u8[] {
+  %param_0.130 = u8[] parameter(0)
+  ROOT %copy.84 = u8[] copy(u8[] %param_0.130)
+}
+
+%wrapped_copy_computation.13 (param_0.131: f64[]) -> f64[] {
+  %param_0.131 = f64[] parameter(0)
+  ROOT %copy.85 = f64[] copy(f64[] %param_0.131)
+}
+
+%wrapped_copy_computation.14 (param_0.132: f64[]) -> f64[] {
+  %param_0.132 = f64[] parameter(0)
+  ROOT %copy.86 = f64[] copy(f64[] %param_0.132)
+}
+
+%wrapped_copy_computation.15 (param_0.133: f64[]) -> f64[] {
+  %param_0.133 = f64[] parameter(0)
+  ROOT %copy.87 = f64[] copy(f64[] %param_0.133)
+}
+
+%region_13.92 (arg_empty_tuple.93.0: ()) -> (u8[], f64[], f64[], f64[]) {
+  %constant_97_0 = u8[] constant(2)
+  %constant_96_0 = f64[] constant(9.5833333333333353e-06)
+  %constant_95_0 = f64[] constant(-6.6666666666666666e-06)
+  %constant_94_0 = f64[] constant(2.0833333333333334e-06)
+  %arg_empty_tuple.93.0 = () parameter(0)
+  %wrapped_copy.12 = u8[] fusion(u8[] %constant_97_0), kind=kLoop, calls=%wrapped_copy_computation.12
+  %wrapped_copy.13 = f64[] fusion(f64[] %constant_96_0), kind=kLoop, calls=%wrapped_copy_computation.13
+  %wrapped_copy.14 = f64[] fusion(f64[] %constant_95_0), kind=kLoop, calls=%wrapped_copy_computation.14
+  %wrapped_copy.15 = f64[] fusion(f64[] %constant_94_0), kind=kLoop, calls=%wrapped_copy_computation.15
+  ROOT %tuple.65 = (u8[], f64[], f64[], f64[]) tuple(u8[] %wrapped_copy.12, f64[] %wrapped_copy.13, f64[] %wrapped_copy.14, f64[] %wrapped_copy.15)
+}
+
+%fused_clamp (param_0.110: u8[]) -> s32[] {
+  %constant_136_1 = s32[] constant(0)
+  %param_0.110 = u8[] parameter(0)
+  %convert.18.1 = s32[] convert(u8[] %param_0.110), metadata={op_name="jit(<lambda>)/jit(main)/while/body/convert_element_type[new_dtype=int32 weak_type=False]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %constant_135_1 = s32[] constant(2)
+  ROOT %clamp.1.1 = s32[] clamp(s32[] %constant_136_1, s32[] %convert.18.1, s32[] %constant_135_1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/clamp" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+}
+
+%wrapped_multiply_computation (param_0.134: f64[1,4096,4096], param_1.122: f64[1,4096,4096]) -> f64[1,4096,4096] {
+  %param_0.134 = f64[1,4096,4096]{2,1,0} parameter(0)
+  %param_1.122 = f64[1,4096,4096]{2,1,0} parameter(1)
+  ROOT %multiply.56.1 = f64[1,4096,4096]{2,1,0} multiply(f64[1,4096,4096]{2,1,0} %param_0.134, f64[1,4096,4096]{2,1,0} %param_1.122), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+}
+
+%wrapped_multiply_computation.1 (param_0.135: f64[1,4096,4096], param_1.123: f64[1,4096,4096]) -> f64[1,4096,4096] {
+  %param_0.135 = f64[1,4096,4096]{2,1,0} parameter(0)
+  %param_1.123 = f64[1,4096,4096]{2,1,0} parameter(1)
+  ROOT %multiply.53.1 = f64[1,4096,4096]{2,1,0} multiply(f64[1,4096,4096]{2,1,0} %param_0.135, f64[1,4096,4096]{2,1,0} %param_1.123), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+}
+
+%fused_multiply.1 (param_0.97: f64[2048]) -> f64[4096] {
+  %iota.14.2 = f64[2048]{0} iota(), iota_dimension=0, metadata={op_name="jit(<lambda>)/jit(main)/while/body/iota[dtype=float64 shape=(2048,) dimension=0]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %constant_140_4 = f64[] constant(0)
+  %pad.14.1 = f64[4096]{0} pad(f64[2048]{0} %iota.14.2, f64[] %constant_140_4), padding=0_2048, metadata={op_name="jit(<lambda>)/jit(main)/while/body/scatter[update_jaxpr=None update_consts=() dimension_numbers=ScatterDimensionNumbers(update_window_dims=(0,), inserted_window_dims=(), scatter_dims_to_operand_dims=(0,)) indices_are_sorted=True unique_indices=True mode=GatherScatterMode.FILL_OR_DROP]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %param_0.97 = f64[2048]{0} parameter(0)
+  %constant_330_1 = s32[] constant(2048)
+  %dynamic-update-slice.25.3 = f64[4096]{0} dynamic-update-slice(f64[4096]{0} %pad.14.1, f64[2048]{0} %param_0.97, s32[] %constant_330_1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/scatter[update_jaxpr=None update_consts=() dimension_numbers=ScatterDimensionNumbers(update_window_dims=(0,), inserted_window_dims=(), scatter_dims_to_operand_dims=(0,)) indices_are_sorted=True unique_indices=True mode=GatherScatterMode.FILL_OR_DROP]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  ROOT %multiply.49.1 = f64[4096]{0} multiply(f64[4096]{0} %dynamic-update-slice.25.3, f64[4096]{0} %dynamic-update-slice.25.3), metadata={op_name="jit(<lambda>)/jit(main)/while/body/integer_pow[y=2]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+}
+
+%fused_multiply.5 () -> f64[2049] {
+  %iota.16.1 = f64[2049]{0} iota(), iota_dimension=0, metadata={op_name="jit(<lambda>)/jit(main)/while/body/iota[dtype=float64 shape=(2049,) dimension=0]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  ROOT %multiply.48.1 = f64[2049]{0} multiply(f64[2049]{0} %iota.16.1, f64[2049]{0} %iota.16.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/integer_pow[y=2]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+}
+
+%fused_select (param_0.113: f64[4096], param_1.120: f64[2049]) -> f64[4096,2049] {
+  %param_1.120 = f64[2049]{0} parameter(1)
+  %broadcast.240.3 = f64[4096,2049]{1,0} broadcast(f64[2049]{0} %param_1.120), dimensions={1}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/broadcast_in_dim[shape=(4096, 2049) broadcast_dimensions=(1,)]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %param_0.113 = f64[4096]{0} parameter(0)
+  %broadcast.241.3 = f64[4096,2049]{1,0} broadcast(f64[4096]{0} %param_0.113), dimensions={0}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/broadcast_in_dim[shape=(4096, 2049) broadcast_dimensions=(0,)]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %add.40.3 = f64[4096,2049]{1,0} add(f64[4096,2049]{1,0} %broadcast.240.3, f64[4096,2049]{1,0} %broadcast.241.3), metadata={op_name="jit(<lambda>)/jit(main)/while/body/add" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %sqrt.4.3 = f64[4096,2049]{1,0} sqrt(f64[4096,2049]{1,0} %add.40.3), metadata={op_name="jit(<lambda>)/jit(main)/while/body/sqrt" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %multiply.50.4 = f64[4096,2049]{1,0} multiply(f64[4096,2049]{1,0} %sqrt.4.3, f64[4096,2049]{1,0} %sqrt.4.3), metadata={op_name="jit(<lambda>)/jit(main)/while/body/integer_pow[y=2]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %constant_140_1 = f64[] constant(0)
+  %broadcast.243.1 = f64[4096,2049]{1,0} broadcast(f64[] %constant_140_1), dimensions={}
+  %compare.64.3 = pred[4096,2049]{1,0} compare(f64[4096,2049]{1,0} %multiply.50.4, f64[4096,2049]{1,0} %broadcast.243.1), direction=NE, metadata={op_name="jit(<lambda>)/jit(main)/while/body/ne" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %constant_0_1 = f64[] constant(1)
+  %broadcast.232.clone.3 = f64[4096,2049]{1,0} broadcast(f64[] %constant_0_1), dimensions={}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/jit(_where)/broadcast_in_dim[shape=(4096, 2049) broadcast_dimensions=()]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %divide.2.1 = f64[4096,2049]{1,0} divide(f64[4096,2049]{1,0} %broadcast.232.clone.3, f64[4096,2049]{1,0} %multiply.50.4), metadata={op_name="jit(<lambda>)/jit(main)/while/body/div" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  ROOT %select.29.1 = f64[4096,2049]{1,0} select(pred[4096,2049]{1,0} %compare.64.3, f64[4096,2049]{1,0} %divide.2.1, f64[4096,2049]{1,0} %multiply.50.4), metadata={op_name="jit(<lambda>)/jit(main)/while/body/jit(_where)/select_n" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+}
+
+%fused_multiply.4 () -> c128[2049] {
+  %iota.15.1 = f64[2049]{0} iota(), iota_dimension=0, metadata={op_name="jit(<lambda>)/jit(main)/while/body/iota[dtype=float64 shape=(2049,) dimension=0]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %convert.20.1 = c128[2049]{0} convert(f64[2049]{0} %iota.15.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/convert_element_type[new_dtype=complex128 weak_type=False]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %constant_138_2 = c128[] constant((0, 1))
+  %broadcast.236.1 = c128[2049]{0} broadcast(c128[] %constant_138_2), dimensions={}
+  ROOT %multiply.46.1 = c128[2049]{0} multiply(c128[2049]{0} %convert.20.1, c128[2049]{0} %broadcast.236.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+}
+
+%fused_negate (param_0.111: f64[2048]) -> c128[4096] {
+  %iota.14.7 = f64[2048]{0} iota(), iota_dimension=0, metadata={op_name="jit(<lambda>)/jit(main)/while/body/iota[dtype=float64 shape=(2048,) dimension=0]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %constant_140_5 = f64[] constant(0)
+  %pad.14.7 = f64[4096]{0} pad(f64[2048]{0} %iota.14.7, f64[] %constant_140_5), padding=0_2048, metadata={op_name="jit(<lambda>)/jit(main)/while/body/scatter[update_jaxpr=None update_consts=() dimension_numbers=ScatterDimensionNumbers(update_window_dims=(0,), inserted_window_dims=(), scatter_dims_to_operand_dims=(0,)) indices_are_sorted=True unique_indices=True mode=GatherScatterMode.FILL_OR_DROP]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %param_0.111 = f64[2048]{0} parameter(0)
+  %constant_330_2 = s32[] constant(2048)
+  %dynamic-update-slice.25.11 = f64[4096]{0} dynamic-update-slice(f64[4096]{0} %pad.14.7, f64[2048]{0} %param_0.111, s32[] %constant_330_2), metadata={op_name="jit(<lambda>)/jit(main)/while/body/scatter[update_jaxpr=None update_consts=() dimension_numbers=ScatterDimensionNumbers(update_window_dims=(0,), inserted_window_dims=(), scatter_dims_to_operand_dims=(0,)) indices_are_sorted=True unique_indices=True mode=GatherScatterMode.FILL_OR_DROP]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %convert.21.7 = c128[4096]{0} convert(f64[4096]{0} %dynamic-update-slice.25.11), metadata={op_name="jit(<lambda>)/jit(main)/while/body/convert_element_type[new_dtype=complex128 weak_type=False]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %constant_138_1 = c128[] constant((0, 1))
+  %broadcast.238.5 = c128[4096]{0} broadcast(c128[] %constant_138_1), dimensions={}
+  %multiply.47.5 = c128[4096]{0} multiply(c128[4096]{0} %convert.21.7, c128[4096]{0} %broadcast.238.5), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  ROOT %negate.4.1 = c128[4096]{0} negate(c128[4096]{0} %multiply.47.5), metadata={op_name="jit(<lambda>)/jit(main)/while/body/neg" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+}
+
+%fused_multiply (param_0.64: c128[2049], param_1.71: c128[1,4096,2049], param_2.35: f64[4096,2049], param_3.40: c128[4096]) -> (c128[1,4096,2049], c128[1,4096,2049]) {
+  %param_0.64 = c128[2049]{0} parameter(0)
+  %broadcast.237.1 = c128[1,4096,2049]{2,1,0} broadcast(c128[2049]{0} %param_0.64), dimensions={2}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %param_2.35 = f64[4096,2049]{1,0} parameter(2)
+  %sqrt.5.3 = f64[4096,2049]{1,0} sqrt(f64[4096,2049]{1,0} %param_2.35), metadata={op_name="jit(<lambda>)/jit(main)/while/body/sqrt" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %bitcast.326.5 = f64[1,4096,2049]{2,1,0} bitcast(f64[4096,2049]{1,0} %sqrt.5.3)
+  %convert.22.5 = c128[1,4096,2049]{2,1,0} convert(f64[1,4096,2049]{2,1,0} %bitcast.326.5), metadata={op_name="jit(<lambda>)/jit(main)/while/body/broadcast_in_dim[shape=(1, 4096, 2049) broadcast_dimensions=(1, 2)]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %param_1.71 = c128[1,4096,2049]{2,1,0} parameter(1)
+  %multiply.51.3 = c128[1,4096,2049]{2,1,0} multiply(c128[1,4096,2049]{2,1,0} %convert.22.5, c128[1,4096,2049]{2,1,0} %param_1.71), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %multiply.55.1 = c128[1,4096,2049]{2,1,0} multiply(c128[1,4096,2049]{2,1,0} %broadcast.237.1, c128[1,4096,2049]{2,1,0} %multiply.51.3), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %param_3.40 = c128[4096]{0} parameter(3)
+  %broadcast.239.1.clone.1 = c128[1,4096,2049]{2,1,0} broadcast(c128[4096]{0} %param_3.40), dimensions={1}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %multiply.52.1.clone.1 = c128[1,4096,2049]{2,1,0} multiply(c128[1,4096,2049]{2,1,0} %broadcast.239.1.clone.1, c128[1,4096,2049]{2,1,0} %multiply.51.3), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  ROOT %tuple.62 = (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) tuple(c128[1,4096,2049]{2,1,0} %multiply.55.1, c128[1,4096,2049]{2,1,0} %multiply.52.1.clone.1)
+}
+
+%command_buffer.1 (p0.1: f64[2048], p1.1: c128[1,4096,2049]) -> (f64[4096,2049], c128[2049], (c128[1,4096,2049], c128[1,4096,2049])) {
+  %p0.1 = f64[2048]{0} parameter(0)
+  %p1.1 = c128[1,4096,2049]{2,1,0} parameter(1)
+  %loop_multiply_fusion.6 = f64[4096]{0} fusion(f64[2048]{0} %p0.1), kind=kLoop, calls=%fused_multiply.1, metadata={op_name="jit(<lambda>)/jit(main)/while/body/integer_pow[y=2]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %loop_multiply_fusion.7 = f64[2049]{0} fusion(), kind=kLoop, calls=%fused_multiply.5, metadata={op_name="jit(<lambda>)/jit(main)/while/body/integer_pow[y=2]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %loop_select_fusion.1 = f64[4096,2049]{1,0} fusion(f64[4096]{0} %loop_multiply_fusion.6, f64[2049]{0} %loop_multiply_fusion.7), kind=kLoop, calls=%fused_select, metadata={op_name="jit(<lambda>)/jit(main)/while/body/jit(_where)/select_n" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %loop_multiply_fusion.8 = c128[2049]{0} fusion(), kind=kLoop, calls=%fused_multiply.4, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %loop_negate_fusion.1 = c128[4096]{0} fusion(f64[2048]{0} %p0.1), kind=kLoop, calls=%fused_negate, metadata={op_name="jit(<lambda>)/jit(main)/while/body/neg" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %loop_multiply_fusion.9 = (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) fusion(c128[2049]{0} %loop_multiply_fusion.8, c128[1,4096,2049]{2,1,0} %p1.1, f64[4096,2049]{1,0} %loop_select_fusion.1, c128[4096]{0} %loop_negate_fusion.1), kind=kLoop, calls=%fused_multiply, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  ROOT %tuple.71 = (f64[4096,2049]{1,0}, c128[2049]{0}, (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0})) tuple(f64[4096,2049]{1,0} %loop_select_fusion.1, c128[2049]{0} %loop_multiply_fusion.8, (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %loop_multiply_fusion.9)
+}
+
+%fused_multiply.3 () -> c128[1,2049] {
+  %iota.17.3 = f64[1,2049]{1,0} iota(), iota_dimension=1, metadata={op_name="jit(<lambda>)/jit(main)/while/body/iota[dtype=float64 shape=(2049,) dimension=0]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %constant_140_2 = f64[] constant(0)
+  %broadcast.246.1 = f64[1,2049]{1,0} broadcast(f64[] %constant_140_2), dimensions={}
+  %multiply.58.3 = f64[1,2049]{1,0} multiply(f64[1,2049]{1,0} %iota.17.3, f64[1,2049]{1,0} %broadcast.246.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %convert.23.1 = c128[1,2049]{1,0} convert(f64[1,2049]{1,0} %multiply.58.3), metadata={op_name="jit(<lambda>)/jit(main)/while/body/convert_element_type[new_dtype=complex128 weak_type=False]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %constant_138_3 = c128[] constant((0, 1))
+  %broadcast.247.1 = c128[1,2049]{1,0} broadcast(c128[] %constant_138_3), dimensions={}
+  ROOT %multiply.59.1 = c128[1,2049]{1,0} multiply(c128[1,2049]{1,0} %convert.23.1, c128[1,2049]{1,0} %broadcast.247.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+}
+
+%fused_multiply.2 (param_0.99: f64[2048]) -> f64[4096] {
+  %iota.14.1 = f64[2048]{0} iota(), iota_dimension=0, metadata={op_name="jit(<lambda>)/jit(main)/while/body/iota[dtype=float64 shape=(2048,) dimension=0]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %constant_140_3 = f64[] constant(0)
+  %pad.14.3 = f64[4096]{0} pad(f64[2048]{0} %iota.14.1, f64[] %constant_140_3), padding=0_2048, metadata={op_name="jit(<lambda>)/jit(main)/while/body/scatter[update_jaxpr=None update_consts=() dimension_numbers=ScatterDimensionNumbers(update_window_dims=(0,), inserted_window_dims=(), scatter_dims_to_operand_dims=(0,)) indices_are_sorted=True unique_indices=True mode=GatherScatterMode.FILL_OR_DROP]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %param_0.99 = f64[2048]{0} parameter(0)
+  %constant_330_3 = s32[] constant(2048)
+  %dynamic-update-slice.25.7 = f64[4096]{0} dynamic-update-slice(f64[4096]{0} %pad.14.3, f64[2048]{0} %param_0.99, s32[] %constant_330_3), metadata={op_name="jit(<lambda>)/jit(main)/while/body/scatter[update_jaxpr=None update_consts=() dimension_numbers=ScatterDimensionNumbers(update_window_dims=(0,), inserted_window_dims=(), scatter_dims_to_operand_dims=(0,)) indices_are_sorted=True unique_indices=True mode=GatherScatterMode.FILL_OR_DROP]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %constant_131_1 = f64[] constant(0.0015339807878856412)
+  %broadcast.229.1 = f64[4096]{0} broadcast(f64[] %constant_131_1), dimensions={}
+  %multiply.41.3 = f64[4096]{0} multiply(f64[4096]{0} %dynamic-update-slice.25.7, f64[4096]{0} %broadcast.229.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  ROOT %multiply.42.1 = f64[4096]{0} multiply(f64[4096]{0} %multiply.41.3, f64[4096]{0} %multiply.41.3), metadata={op_name="jit(<lambda>)/jit(main)/while/body/integer_pow[y=2]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+}
+
+%fused_add_multiply (param_0.28: c128[1,4096,2049], param_1.54: c128[1,4096,2049], param_2.43: c128[1,4096,2049], param_3.22: c128[1,4096,2049], param_4.16: f64[4096], param_5.17: f64[], param_6.15: f64[], param_7.18: f64[], param_8.18: c128[1,4096,2049], param_9.16: f64[4096,2049], param_10.21: c128[1,2049], param_11.22: c128[1,4096,2049], param_12.15: f64[2048], param_13.16: c128[1,4096,2049], param_14.7: c128[2049]) -> (c128[1,4096,2049], c128[1,4096,2049]) {
+  %iota.13.3 = f64[2049]{0} iota(), iota_dimension=0, metadata={op_name="jit(<lambda>)/jit(main)/while/body/iota[dtype=float64 shape=(2049,) dimension=0]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %constant_131_2 = f64[] constant(0.0015339807878856412)
+  %broadcast.227.3 = f64[2049]{0} broadcast(f64[] %constant_131_2), dimensions={}
+  %multiply.39.3 = f64[2049]{0} multiply(f64[2049]{0} %iota.13.3, f64[2049]{0} %broadcast.227.3), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %multiply.40.3 = f64[2049]{0} multiply(f64[2049]{0} %multiply.39.3, f64[2049]{0} %multiply.39.3), metadata={op_name="jit(<lambda>)/jit(main)/while/body/integer_pow[y=2]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %broadcast.228.1 = f64[4096,2049]{1,0} broadcast(f64[2049]{0} %multiply.40.3), dimensions={1}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/broadcast_in_dim[shape=(4096, 2049) broadcast_dimensions=(1,)]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %param_4.16 = f64[4096]{0} parameter(4)
+  %broadcast.230.1 = f64[4096,2049]{1,0} broadcast(f64[4096]{0} %param_4.16), dimensions={0}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/broadcast_in_dim[shape=(4096, 2049) broadcast_dimensions=(0,)]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %add.38.3 = f64[4096,2049]{1,0} add(f64[4096,2049]{1,0} %broadcast.228.1, f64[4096,2049]{1,0} %broadcast.230.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/add" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %sqrt.3.3 = f64[4096,2049]{1,0} sqrt(f64[4096,2049]{1,0} %add.38.3), metadata={op_name="jit(<lambda>)/jit(main)/while/body/sqrt" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %constant_129_1 = f64[] constant(2.0420352248333655)
+  %broadcast.231.3 = f64[4096,2049]{1,0} broadcast(f64[] %constant_129_1), dimensions={}
+  %compare.63.3 = pred[4096,2049]{1,0} compare(f64[4096,2049]{1,0} %sqrt.3.3, f64[4096,2049]{1,0} %broadcast.231.3), direction=LE, metadata={op_name="jit(<lambda>)/jit(main)/while/body/le" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %constant_0_2 = f64[] constant(1)
+  %broadcast.232.clone.5 = f64[4096,2049]{1,0} broadcast(f64[] %constant_0_2), dimensions={}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/jit(_where)/broadcast_in_dim[shape=(4096, 2049) broadcast_dimensions=()]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %constant_294_1 = f64[] constant(-2.0420352248333655)
+  %broadcast.233.1 = f64[4096,2049]{1,0} broadcast(f64[] %constant_294_1), dimensions={}
+  %add.39.1 = f64[4096,2049]{1,0} add(f64[4096,2049]{1,0} %sqrt.3.3, f64[4096,2049]{1,0} %broadcast.233.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/sub" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %multiply.43.7 = f64[4096,2049]{1,0} multiply(f64[4096,2049]{1,0} %add.39.1, f64[4096,2049]{1,0} %add.39.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %multiply.44.7 = f64[4096,2049]{1,0} multiply(f64[4096,2049]{1,0} %multiply.43.7, f64[4096,2049]{1,0} %multiply.43.7), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %constant_127_1 = f64[] constant(-0)
+  %broadcast.234.1 = f64[4096,2049]{1,0} broadcast(f64[] %constant_127_1), dimensions={}
+  %multiply.45.5 = f64[4096,2049]{1,0} multiply(f64[4096,2049]{1,0} %multiply.44.7, f64[4096,2049]{1,0} %broadcast.234.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %exponential.1.3 = f64[4096,2049]{1,0} exponential(f64[4096,2049]{1,0} %multiply.45.5), metadata={op_name="jit(<lambda>)/jit(main)/while/body/exp" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %select.28.3 = f64[4096,2049]{1,0} select(pred[4096,2049]{1,0} %compare.63.3, f64[4096,2049]{1,0} %broadcast.232.clone.5, f64[4096,2049]{1,0} %exponential.1.3), metadata={op_name="jit(<lambda>)/jit(main)/while/body/jit(_where)/select_n" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %bitcast.275.5 = f64[1,4096,2049]{2,1,0} bitcast(f64[4096,2049]{1,0} %select.28.3)
+  %convert.17.5 = c128[1,4096,2049]{2,1,0} convert(f64[1,4096,2049]{2,1,0} %bitcast.275.5), metadata={op_name="jit(<lambda>)/jit(main)/while/body/convert_element_type[new_dtype=complex128 weak_type=False]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %param_3.22 = c128[1,4096,2049]{2,1,0} parameter(3)
+  %param_7.18 = f64[] parameter(7)
+  %convert.19.1 = c128[] convert(f64[] %param_7.18), metadata={op_name="jit(<lambda>)/jit(main)/while/body/convert_element_type[new_dtype=complex128 weak_type=False]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %broadcast.235.1 = c128[1,4096,2049]{2,1,0} broadcast(c128[] %convert.19.1), dimensions={}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %param_14.7 = c128[2049]{0} parameter(14)
+  %broadcast.237.10.clone.1 = c128[1,4096,2049]{2,1,0} broadcast(c128[2049]{0} %param_14.7), dimensions={2}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %param_13.16 = c128[1,4096,2049]{2,1,0} parameter(13)
+  %multiply.54.9.clone.1 = c128[1,4096,2049]{2,1,0} multiply(c128[1,4096,2049]{2,1,0} %broadcast.237.10.clone.1, c128[1,4096,2049]{2,1,0} %param_13.16), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %iota.14.5.clone.1 = f64[2048]{0} iota(), iota_dimension=0, metadata={op_name="jit(<lambda>)/jit(main)/while/body/iota[dtype=float64 shape=(2048,) dimension=0]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %constant_140_6_clone_1 = f64[] constant(0)
+  %pad.14.5.clone.1 = f64[4096]{0} pad(f64[2048]{0} %iota.14.5.clone.1, f64[] %constant_140_6_clone_1), padding=0_2048, metadata={op_name="jit(<lambda>)/jit(main)/while/body/scatter[update_jaxpr=None update_consts=() dimension_numbers=ScatterDimensionNumbers(update_window_dims=(0,), inserted_window_dims=(), scatter_dims_to_operand_dims=(0,)) indices_are_sorted=True unique_indices=True mode=GatherScatterMode.FILL_OR_DROP]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %param_12.15 = f64[2048]{0} parameter(12)
+  %constant_330_4_clone_1 = s32[] constant(2048)
+  %dynamic-update-slice.25.9.clone.1 = f64[4096]{0} dynamic-update-slice(f64[4096]{0} %pad.14.5.clone.1, f64[2048]{0} %param_12.15, s32[] %constant_330_4_clone_1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/scatter[update_jaxpr=None update_consts=() dimension_numbers=ScatterDimensionNumbers(update_window_dims=(0,), inserted_window_dims=(), scatter_dims_to_operand_dims=(0,)) indices_are_sorted=True unique_indices=True mode=GatherScatterMode.FILL_OR_DROP]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %convert.21.5.clone.1 = c128[4096]{0} convert(f64[4096]{0} %dynamic-update-slice.25.9.clone.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/convert_element_type[new_dtype=complex128 weak_type=False]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %constant_138_4_clone_1 = c128[] constant((0, 1))
+  %broadcast.238.3.clone.1 = c128[4096]{0} broadcast(c128[] %constant_138_4_clone_1), dimensions={}
+  %multiply.47.3.clone.1 = c128[4096]{0} multiply(c128[4096]{0} %convert.21.5.clone.1, c128[4096]{0} %broadcast.238.3.clone.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %broadcast.245.1.clone.1 = c128[1,4096,2049]{2,1,0} broadcast(c128[4096]{0} %multiply.47.3.clone.1), dimensions={1}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %param_11.22 = c128[1,4096,2049]{2,1,0} parameter(11)
+  %multiply.57.1.clone.1 = c128[1,4096,2049]{2,1,0} multiply(c128[1,4096,2049]{2,1,0} %broadcast.245.1.clone.1, c128[1,4096,2049]{2,1,0} %param_11.22), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %add.41.7.clone.1 = c128[1,4096,2049]{2,1,0} add(c128[1,4096,2049]{2,1,0} %multiply.54.9.clone.1, c128[1,4096,2049]{2,1,0} %multiply.57.1.clone.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/add" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %param_10.21 = c128[1,2049]{1,0} parameter(10)
+  %bitcast.370.5.clone.1 = c128[2049]{0} bitcast(c128[1,2049]{1,0} %param_10.21)
+  %broadcast.248.5.clone.1 = c128[1,4096,2049]{2,1,0} broadcast(c128[2049]{0} %bitcast.370.5.clone.1), dimensions={2}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %param_9.16 = f64[4096,2049]{1,0} parameter(9)
+  %sqrt.5.7.clone.1 = f64[4096,2049]{1,0} sqrt(f64[4096,2049]{1,0} %param_9.16), metadata={op_name="jit(<lambda>)/jit(main)/while/body/sqrt" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %bitcast.326.9.clone.1 = f64[1,4096,2049]{2,1,0} bitcast(f64[4096,2049]{1,0} %sqrt.5.7.clone.1)
+  %convert.22.9.clone.1 = c128[1,4096,2049]{2,1,0} convert(f64[1,4096,2049]{2,1,0} %bitcast.326.9.clone.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/broadcast_in_dim[shape=(1, 4096, 2049) broadcast_dimensions=(1, 2)]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %multiply.51.7.clone.1 = c128[1,4096,2049]{2,1,0} multiply(c128[1,4096,2049]{2,1,0} %convert.22.9.clone.1, c128[1,4096,2049]{2,1,0} %param_3.22), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %multiply.60.3.clone.1 = c128[1,4096,2049]{2,1,0} multiply(c128[1,4096,2049]{2,1,0} %broadcast.248.5.clone.1, c128[1,4096,2049]{2,1,0} %multiply.51.7.clone.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %add.42.5.clone.1 = c128[1,4096,2049]{2,1,0} add(c128[1,4096,2049]{2,1,0} %add.41.7.clone.1, c128[1,4096,2049]{2,1,0} %multiply.60.3.clone.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/add" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %negate.5.3.clone.1 = c128[1,4096,2049]{2,1,0} negate(c128[1,4096,2049]{2,1,0} %add.42.5.clone.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/neg" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %param_8.18 = c128[1,4096,2049]{2,1,0} parameter(8)
+  %add.43.1.clone.1 = c128[1,4096,2049]{2,1,0} add(c128[1,4096,2049]{2,1,0} %negate.5.3.clone.1, c128[1,4096,2049]{2,1,0} %param_8.18), metadata={op_name="jit(<lambda>)/jit(main)/while/body/add" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=398}
+  %multiply.61.1 = c128[1,4096,2049]{2,1,0} multiply(c128[1,4096,2049]{2,1,0} %broadcast.235.1, c128[1,4096,2049]{2,1,0} %add.43.1.clone.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %add.44.1 = c128[1,4096,2049]{2,1,0} add(c128[1,4096,2049]{2,1,0} %param_3.22, c128[1,4096,2049]{2,1,0} %multiply.61.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/add" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %param_6.15 = f64[] parameter(6)
+  %convert.24.1 = c128[] convert(f64[] %param_6.15), metadata={op_name="jit(<lambda>)/jit(main)/while/body/convert_element_type[new_dtype=complex128 weak_type=False]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %broadcast.249.1 = c128[1,4096,2049]{2,1,0} broadcast(c128[] %convert.24.1), dimensions={}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %param_2.43 = c128[1,4096,2049]{2,1,0} parameter(2)
+  %multiply.62.1 = c128[1,4096,2049]{2,1,0} multiply(c128[1,4096,2049]{2,1,0} %broadcast.249.1, c128[1,4096,2049]{2,1,0} %param_2.43), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %add.45.1 = c128[1,4096,2049]{2,1,0} add(c128[1,4096,2049]{2,1,0} %add.44.1, c128[1,4096,2049]{2,1,0} %multiply.62.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/add" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %param_5.17 = f64[] parameter(5)
+  %convert.25.1 = c128[] convert(f64[] %param_5.17), metadata={op_name="jit(<lambda>)/jit(main)/while/body/convert_element_type[new_dtype=complex128 weak_type=False]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %broadcast.250.1 = c128[1,4096,2049]{2,1,0} broadcast(c128[] %convert.25.1), dimensions={}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %param_1.54 = c128[1,4096,2049]{2,1,0} parameter(1)
+  %multiply.63.1 = c128[1,4096,2049]{2,1,0} multiply(c128[1,4096,2049]{2,1,0} %broadcast.250.1, c128[1,4096,2049]{2,1,0} %param_1.54), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %add.46.1 = c128[1,4096,2049]{2,1,0} add(c128[1,4096,2049]{2,1,0} %add.45.1, c128[1,4096,2049]{2,1,0} %multiply.63.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/add" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %multiply.64.3 = c128[1,4096,2049]{2,1,0} multiply(c128[1,4096,2049]{2,1,0} %convert.17.5, c128[1,4096,2049]{2,1,0} %add.46.1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %param_0.28 = c128[1,4096,2049]{2,1,0} parameter(0)
+  %multiply.65.1 = c128[1,4096,2049]{2,1,0} multiply(c128[1,4096,2049]{2,1,0} %multiply.64.3, c128[1,4096,2049]{2,1,0} %param_0.28), metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  ROOT %tuple.61 = (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) tuple(c128[1,4096,2049]{2,1,0} %multiply.65.1, c128[1,4096,2049]{2,1,0} %add.43.1.clone.1)
+}
+
+%wrapped_copy_computation.16 (param_0.136: c128[1,4096,2049]) -> c128[1,4096,2049] {
+  %param_0.136 = c128[1,4096,2049]{2,1,0} parameter(0)
+  ROOT %copy.88 = c128[1,4096,2049]{2,1,0} copy(c128[1,4096,2049]{2,1,0} %param_0.136)
+}
+
+%wrapped_copy_computation.17 (param_0.137: c128[1,4096,2049]) -> c128[1,4096,2049] {
+  %param_0.137 = c128[1,4096,2049]{2,1,0} parameter(0)
+  ROOT %copy.89 = c128[1,4096,2049]{2,1,0} copy(c128[1,4096,2049]{2,1,0} %param_0.137)
+}
+
+%fused_add (param_0.107: s64[]) -> s64[] {
+  %param_0.107 = s64[] parameter(0)
+  %constant_126_1 = s64[] constant(1)
+  ROOT %add.37.1 = s64[] add(s64[] %param_0.107, s64[] %constant_126_1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/add" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/nsight/profile_lean_nsight.py" source_line=73}
+}
+
+%fused_add.1 (param_0.108: u32[]) -> u32[] {
+  %param_0.108 = u32[] parameter(0)
+  %constant_133_1 = u32[] constant(1)
+  ROOT %add.48.1 = u32[] add(u32[] %param_0.108, u32[] %constant_133_1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/add" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+}
+
+%fused_add.2 (param_0.109: f32[]) -> f32[] {
+  %param_0.109 = f32[] parameter(0)
+  %constant_134_1 = f32[] constant(5e-06)
+  ROOT %add.47.1 = f32[] add(f32[] %param_0.109, f32[] %constant_134_1), metadata={op_name="jit(<lambda>)/jit(main)/while/body/add" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+}
+
+%command_buffer.2 (p0.2: f64[2048], p1.2: (s64[], c128[1,4096,2049], f32[], u32[], u8[], /*index=5*/c128[1,4096,2049], c128[1,4096,2049]), p2.1: c128[1,4096,2049], p3.1: c128[1,4096,2049], p4.1: c128[1,4096,2049], p5.1: f64[], p6.1: f64[], p7: f64[], p8: c128[1,4096,2049], p9: f64[4096,2049], p10: c128[1,4096,2049], p11: c128[1,4096,2049], p12: c128[2049], p13: (u8[], f64[], f64[], f64[])) -> (c128[1,4096,2049], c128[1,4096,2049], c128[1,4096,2049], u8[], s64[], /*index=5*/u32[], f32[]) {
+  %p0.2 = f64[2048]{0} parameter(0)
+  %p1.2 = (s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) parameter(1)
+  %p2.1 = c128[1,4096,2049]{2,1,0} parameter(2)
+  %p3.1 = c128[1,4096,2049]{2,1,0} parameter(3)
+  %p4.1 = c128[1,4096,2049]{2,1,0} parameter(4)
+  %p5.1 = f64[] parameter(5)
+  %p6.1 = f64[] parameter(6)
+  %p7 = f64[] parameter(7)
+  %p8 = c128[1,4096,2049]{2,1,0} parameter(8)
+  %p9 = f64[4096,2049]{1,0} parameter(9)
+  %p10 = c128[1,4096,2049]{2,1,0} parameter(10)
+  %p11 = c128[1,4096,2049]{2,1,0} parameter(11)
+  %p12 = c128[2049]{0} parameter(12)
+  %p13 = (u8[], f64[], f64[], f64[]) parameter(13)
+  %loop_multiply_fusion.10 = c128[1,2049]{1,0} fusion(), kind=kLoop, calls=%fused_multiply.3, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %loop_multiply_fusion.11 = f64[4096]{0} fusion(f64[2048]{0} %p0.2), kind=kLoop, calls=%fused_multiply.2, metadata={op_name="jit(<lambda>)/jit(main)/while/body/integer_pow[y=2]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %get-tuple-element.199 = c128[1,4096,2049]{2,1,0} get-tuple-element((s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %p1.2), index=6
+  %loop_add_multiply_fusion.1 = (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) fusion(c128[1,4096,2049]{2,1,0} %p2.1, c128[1,4096,2049]{2,1,0} %get-tuple-element.199, c128[1,4096,2049]{2,1,0} %p3.1, c128[1,4096,2049]{2,1,0} %p4.1, f64[4096]{0} %loop_multiply_fusion.11, /*index=5*/f64[] %p5.1, f64[] %p6.1, f64[] %p7, c128[1,4096,2049]{2,1,0} %p8, f64[4096,2049]{1,0} %p9, /*index=10*/c128[1,2049]{1,0} %loop_multiply_fusion.10, c128[1,4096,2049]{2,1,0} %p10, f64[2048]{0} %p0.2, c128[1,4096,2049]{2,1,0} %p11, c128[2049]{0} %p12), kind=kLoop, calls=%fused_add_multiply, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %get-tuple-element.200 = c128[1,4096,2049]{2,1,0} get-tuple-element((c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %loop_add_multiply_fusion.1), index=1, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %wrapped_copy.22 = c128[1,4096,2049]{2,1,0} fusion(c128[1,4096,2049]{2,1,0} %p3.1), kind=kLoop, calls=%wrapped_copy_computation.16, control-predecessors={%loop_add_multiply_fusion.1}
+  %wrapped_copy.23 = c128[1,4096,2049]{2,1,0} fusion(c128[1,4096,2049]{2,1,0} %get-tuple-element.200), kind=kLoop, calls=%wrapped_copy_computation.17, control-predecessors={%wrapped_copy.22}
+  %get-tuple-element.201 = c128[1,4096,2049]{2,1,0} get-tuple-element((c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %loop_add_multiply_fusion.1), index=0, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %get-tuple-element.202 = u8[] get-tuple-element((u8[], f64[], f64[], f64[]) %p13), index=0, metadata={op_name="jit(<lambda>)/jit(main)/while/body/cond[linear=()]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %get-tuple-element.203 = s64[] get-tuple-element((s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %p1.2), index=0
+  %loop_add_fusion.3 = s64[] fusion(s64[] %get-tuple-element.203), kind=kLoop, calls=%fused_add, metadata={op_name="jit(<lambda>)/jit(main)/while/body/add" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/nsight/profile_lean_nsight.py" source_line=73}
+  %get-tuple-element.204 = u32[] get-tuple-element((s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %p1.2), index=3
+  %loop_add_fusion.4 = u32[] fusion(u32[] %get-tuple-element.204), kind=kLoop, calls=%fused_add.1, metadata={op_name="jit(<lambda>)/jit(main)/while/body/add" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %get-tuple-element.205 = f32[] get-tuple-element((s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %p1.2), index=2
+  %loop_add_fusion.5 = f32[] fusion(f32[] %get-tuple-element.205), kind=kLoop, calls=%fused_add.2, metadata={op_name="jit(<lambda>)/jit(main)/while/body/add" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  ROOT %tuple.72 = (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, u8[], s64[], /*index=5*/u32[], f32[]) tuple(c128[1,4096,2049]{2,1,0} %wrapped_copy.22, c128[1,4096,2049]{2,1,0} %wrapped_copy.23, c128[1,4096,2049]{2,1,0} %get-tuple-element.201, u8[] %get-tuple-element.202, s64[] %loop_add_fusion.3, /*index=5*/u32[] %loop_add_fusion.4, f32[] %loop_add_fusion.5)
+}
+
+%region_0.116 (arg_tuple.117.0: (s64[], c128[1,4096,2049], f32[], u32[], u8[], /*index=5*/c128[1,4096,2049], c128[1,4096,2049])) -> (s64[], c128[1,4096,2049], f32[], u32[], u8[], /*index=5*/c128[1,4096,2049], c128[1,4096,2049]) {
+  %arg_tuple.117.0 = (s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) parameter(0)
+  %constant_329_0 = f64[2048]{0} constant({...})
+  %constant_137_0 = c128[1,4096,2049]{2,1,0} constant({...})
+  %constant_321_0 = c128[1,4096,2049]{2,1,0} constant({...}), metadata={op_name="jit(<lambda>)/jit(main)/while/body/broadcast_in_dim[shape=(1, 4096, 2049) broadcast_dimensions=(1, 2)]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=401}
+  %get-tuple-element.175 = c128[1,4096,2049]{2,1,0} get-tuple-element((s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %arg_tuple.117.0), index=1
+  %call.13 = (f64[4096,2049]{1,0}, c128[2049]{0}, (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0})) call(f64[2048]{0} %constant_329_0, c128[1,4096,2049]{2,1,0} %get-tuple-element.175), to_apply=%command_buffer.1
+  %get-tuple-element.196 = f64[4096,2049]{1,0} get-tuple-element((f64[4096,2049]{1,0}, c128[2049]{0}, (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0})) %call.13), index=0
+  %get-tuple-element.197 = c128[2049]{0} get-tuple-element((f64[4096,2049]{1,0}, c128[2049]{0}, (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0})) %call.13), index=1
+  %get-tuple-element.198 = (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) get-tuple-element((f64[4096,2049]{1,0}, c128[2049]{0}, (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0})) %call.13), index=2
+  %get-tuple-element.154 = c128[1,4096,2049]{2,1,0} get-tuple-element((c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %get-tuple-element.198), index=1, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %fft.0.0 = f64[1,4096,4096]{2,1,0} fft(c128[1,4096,2049]{2,1,0} %get-tuple-element.154), fft_type=IRFFT, fft_length={4096,4096}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/jit(fft)/fft[fft_type=jaxlib.xla_extension.FftType.IRFFT fft_lengths=(4096, 4096)]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %fft.1.0 = f64[1,4096,4096]{2,1,0} fft(c128[1,4096,2049]{2,1,0} %get-tuple-element.175), fft_type=IRFFT, fft_length={4096,4096}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/jit(fft)/fft[fft_type=jaxlib.xla_extension.FftType.IRFFT fft_lengths=(4096, 4096)]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %wrapped_multiply.1 = f64[1,4096,4096]{2,1,0} fusion(f64[1,4096,4096]{2,1,0} %fft.0.0, f64[1,4096,4096]{2,1,0} %fft.1.0), kind=kLoop, calls=%wrapped_multiply_computation.1, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %fft.2.0 = c128[1,4096,2049]{2,1,0} fft(f64[1,4096,4096]{2,1,0} %wrapped_multiply.1), fft_type=RFFT, fft_length={4096,4096}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/jit(fft)/fft[fft_type=jaxlib.xla_extension.FftType.RFFT fft_lengths=(4096, 4096)]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/sqg.py" source_line=154}
+  %get-tuple-element.153 = c128[1,4096,2049]{2,1,0} get-tuple-element((c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %get-tuple-element.198), index=0, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %fft.3.0 = f64[1,4096,4096]{2,1,0} fft(c128[1,4096,2049]{2,1,0} %get-tuple-element.153), fft_type=IRFFT, fft_length={4096,4096}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/jit(fft)/fft[fft_type=jaxlib.xla_extension.FftType.IRFFT fft_lengths=(4096, 4096)]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %wrapped_multiply = f64[1,4096,4096]{2,1,0} fusion(f64[1,4096,4096]{2,1,0} %fft.3.0, f64[1,4096,4096]{2,1,0} %fft.1.0), kind=kLoop, calls=%wrapped_multiply_computation, metadata={op_name="jit(<lambda>)/jit(main)/while/body/mul" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=397}
+  %fft.5.0 = c128[1,4096,2049]{2,1,0} fft(f64[1,4096,4096]{2,1,0} %wrapped_multiply), fft_type=RFFT, fft_length={4096,4096}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/jit(fft)/fft[fft_type=jaxlib.xla_extension.FftType.RFFT fft_lengths=(4096, 4096)]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/sqg.py" source_line=154}
+  %get-tuple-element.178 = u8[] get-tuple-element((s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %arg_tuple.117.0), index=4
+  %loop_clamp_fusion = s32[] fusion(u8[] %get-tuple-element.178), kind=kLoop, calls=%fused_clamp, metadata={op_name="jit(<lambda>)/jit(main)/while/body/clamp" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %tuple.274.0 = () tuple(), metadata={op_name="jit(<lambda>)/jit(main)/while/body/cond[linear=()]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %tuple.275.0 = () tuple(), metadata={op_name="jit(<lambda>)/jit(main)/while/body/cond[linear=()]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %tuple.276.0 = () tuple(), metadata={op_name="jit(<lambda>)/jit(main)/while/body/cond[linear=()]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %conditional.277.0 = (u8[], f64[], f64[], f64[]) conditional(s32[] %loop_clamp_fusion, () %tuple.274.0, () %tuple.275.0, () %tuple.276.0), branch_computations={%region_11.79, %region_12.85, %region_13.92}, control-predecessors={%loop_clamp_fusion}, metadata={op_name="jit(<lambda>)/jit(main)/while/body/cond[linear=()]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %get-tuple-element.279.0 = f64[] get-tuple-element((u8[], f64[], f64[], f64[]) %conditional.277.0), index=1, metadata={op_name="jit(<lambda>)/jit(main)/while/body/cond[linear=()]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %get-tuple-element.280.0 = f64[] get-tuple-element((u8[], f64[], f64[], f64[]) %conditional.277.0), index=2, metadata={op_name="jit(<lambda>)/jit(main)/while/body/cond[linear=()]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %get-tuple-element.281.0 = f64[] get-tuple-element((u8[], f64[], f64[], f64[]) %conditional.277.0), index=3, metadata={op_name="jit(<lambda>)/jit(main)/while/body/cond[linear=()]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/fixed_ring/A-SQG_data.py" source_line=400}
+  %get-tuple-element.179 = c128[1,4096,2049]{2,1,0} get-tuple-element((s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %arg_tuple.117.0), index=5
+  %call.14 = (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, u8[], s64[], /*index=5*/u32[], f32[]) call(f64[2048]{0} %constant_329_0, (s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %arg_tuple.117.0, c128[1,4096,2049]{2,1,0} %constant_321_0, c128[1,4096,2049]{2,1,0} %get-tuple-element.179, c128[1,4096,2049]{2,1,0} %get-tuple-element.175, /*index=5*/f64[] %get-tuple-element.281.0, f64[] %get-tuple-element.280.0, f64[] %get-tuple-element.279.0, c128[1,4096,2049]{2,1,0} %constant_137_0, f64[4096,2049]{1,0} %get-tuple-element.196, /*index=10*/c128[1,4096,2049]{2,1,0} %fft.5.0, c128[1,4096,2049]{2,1,0} %fft.2.0, c128[2049]{0} %get-tuple-element.197, (u8[], f64[], f64[], f64[]) %conditional.277.0), to_apply=%command_buffer.2, control-predecessors={%fft.1.0, %call.13}
+  %get-tuple-element.206 = c128[1,4096,2049]{2,1,0} get-tuple-element((c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, u8[], s64[], /*index=5*/u32[], f32[]) %call.14), index=0
+  %get-tuple-element.207 = c128[1,4096,2049]{2,1,0} get-tuple-element((c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, u8[], s64[], /*index=5*/u32[], f32[]) %call.14), index=1
+  %get-tuple-element.208 = c128[1,4096,2049]{2,1,0} get-tuple-element((c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, u8[], s64[], /*index=5*/u32[], f32[]) %call.14), index=2
+  %get-tuple-element.209 = u8[] get-tuple-element((c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, u8[], s64[], /*index=5*/u32[], f32[]) %call.14), index=3
+  %get-tuple-element.210 = s64[] get-tuple-element((c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, u8[], s64[], /*index=5*/u32[], f32[]) %call.14), index=4
+  %get-tuple-element.211 = u32[] get-tuple-element((c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, u8[], s64[], /*index=5*/u32[], f32[]) %call.14), index=5
+  %get-tuple-element.212 = f32[] get-tuple-element((c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, u8[], s64[], /*index=5*/u32[], f32[]) %call.14), index=6
+  ROOT %tuple.68 = (s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) tuple(s64[] %get-tuple-element.210, c128[1,4096,2049]{2,1,0} %get-tuple-element.208, f32[] %get-tuple-element.212, u32[] %get-tuple-element.211, u8[] %get-tuple-element.209, /*index=5*/c128[1,4096,2049]{2,1,0} %get-tuple-element.207, c128[1,4096,2049]{2,1,0} %get-tuple-element.206)
+}
+
+%fused_compare (param_0.114: s64[]) -> pred[] {
+  %param_0.114 = s64[] parameter(0)
+  %constant_333_1 = s64[] constant(40)
+  ROOT %compare.65.1 = pred[] compare(s64[] %param_0.114, s64[] %constant_333_1), direction=LT, metadata={op_name="jit(<lambda>)/jit(main)/while/cond/lt" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/nsight/profile_lean_nsight.py" source_line=73}
+}
+
+%region_16.324 (arg_tuple.325.0: (s64[], c128[1,4096,2049], f32[], u32[], u8[], /*index=5*/c128[1,4096,2049], c128[1,4096,2049])) -> pred[] {
+  %arg_tuple.325.0 = (s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) parameter(0)
+  %get-tuple-element.326.0 = s64[] get-tuple-element((s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %arg_tuple.325.0), index=0
+  ROOT %loop_compare_fusion = pred[] fusion(s64[] %get-tuple-element.326.0), kind=kLoop, calls=%fused_compare, metadata={op_name="jit(<lambda>)/jit(main)/while/cond/lt" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/nsight/profile_lean_nsight.py" source_line=73}
+}
+
+%wrapped_copy_computation (param_0.118: s64[]) -> s64[] {
+  %param_0.118 = s64[] parameter(0)
+  ROOT %copy.72 = s64[] copy(s64[] %param_0.118)
+}
+
+%wrapped_copy_computation.3 (param_0.121: u8[]) -> u8[] {
+  %param_0.121 = u8[] parameter(0)
+  ROOT %copy.75 = u8[] copy(u8[] %param_0.121)
+}
+
+%wrapped_copy_computation.2 (param_0.120: u32[]) -> u32[] {
+  %param_0.120 = u32[] parameter(0)
+  ROOT %copy.74 = u32[] copy(u32[] %param_0.120)
+}
+
+%wrapped_copy_computation.1 (param_0.119: f32[]) -> f32[] {
+  %param_0.119 = f32[] parameter(0)
+  ROOT %copy.73 = f32[] copy(f32[] %param_0.119)
+}
+
+%copy_horizontally_fused_computation (param_0_0: c128[1,4096,2049], param_1_0: c128[1,4096,2049], param_2_0: c128[1,4096,2049]) -> (c128[1,4096,2049], c128[1,4096,2049], c128[1,4096,2049]) {
+  %param_0_0 = c128[1,4096,2049]{2,1,0} parameter(0)
+  %copy.54 = c128[1,4096,2049]{2,1,0} copy(c128[1,4096,2049]{2,1,0} %param_0_0)
+  %param_1_0 = c128[1,4096,2049]{2,1,0} parameter(1)
+  %copy.55 = c128[1,4096,2049]{2,1,0} copy(c128[1,4096,2049]{2,1,0} %param_1_0)
+  %param_2_0 = c128[1,4096,2049]{2,1,0} parameter(2)
+  %copy.56 = c128[1,4096,2049]{2,1,0} copy(c128[1,4096,2049]{2,1,0} %param_2_0)
+  ROOT %tuple.69 = (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) tuple(c128[1,4096,2049]{2,1,0} %copy.54, c128[1,4096,2049]{2,1,0} %copy.55, c128[1,4096,2049]{2,1,0} %copy.56)
+}
+
+%command_buffer (p0: s64[], p1: u8[], p2: u32[], p3: f32[], p4: c128[1,4096,2049], p5: c128[1,4096,2049], p6: c128[1,4096,2049]) -> (s64[], u8[], u32[], f32[], (c128[1,4096,2049], c128[1,4096,2049], c128[1,4096,2049])) {
+  %p0 = s64[] parameter(0)
+  %p1 = u8[] parameter(1)
+  %p2 = u32[] parameter(2)
+  %p3 = f32[] parameter(3)
+  %p4 = c128[1,4096,2049]{2,1,0} parameter(4)
+  %p5 = c128[1,4096,2049]{2,1,0} parameter(5)
+  %p6 = c128[1,4096,2049]{2,1,0} parameter(6)
+  %wrapped_copy.18 = s64[] fusion(s64[] %p0), kind=kLoop, calls=%wrapped_copy_computation
+  %wrapped_copy.19 = u8[] fusion(u8[] %p1), kind=kLoop, calls=%wrapped_copy_computation.3
+  %wrapped_copy.20 = u32[] fusion(u32[] %p2), kind=kLoop, calls=%wrapped_copy_computation.2
+  %wrapped_copy.21 = f32[] fusion(f32[] %p3), kind=kLoop, calls=%wrapped_copy_computation.1
+  %copy_fusion.1 = (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) fusion(c128[1,4096,2049]{2,1,0} %p4, c128[1,4096,2049]{2,1,0} %p5, c128[1,4096,2049]{2,1,0} %p6), kind=kLoop, calls=%copy_horizontally_fused_computation
+  ROOT %tuple.70 = (s64[], u8[], u32[], f32[], (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0})) tuple(s64[] %wrapped_copy.18, u8[] %wrapped_copy.19, u32[] %wrapped_copy.20, f32[] %wrapped_copy.21, (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %copy_fusion.1)
+}
+
+ENTRY %main.344 (Arg_0.1.0: c128[1,4096,2049], Arg_1.2.0: f32[], Arg_2.3.0: u32[], Arg_3.4.0: u8[], Arg_4.5.0: c128[1,4096,2049], Arg_5.6.0: c128[1,4096,2049]) -> (c128[1,4096,2049], f32[], u32[], u8[], c128[1,4096,2049], /*index=5*/c128[1,4096,2049]) {
+  %constant_7_0 = s64[] constant(0)
+  %Arg_3.4.0 = u8[] parameter(3)
+  %Arg_2.3.0 = u32[] parameter(2)
+  %Arg_1.2.0 = f32[] parameter(1)
+  %Arg_5.6.0 = c128[1,4096,2049]{2,1,0} parameter(5)
+  %Arg_4.5.0 = c128[1,4096,2049]{2,1,0} parameter(4)
+  %Arg_0.1.0 = c128[1,4096,2049]{2,1,0} parameter(0)
+  %call.12 = (s64[], u8[], u32[], f32[], (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0})) call(s64[] %constant_7_0, u8[] %Arg_3.4.0, u32[] %Arg_2.3.0, f32[] %Arg_1.2.0, c128[1,4096,2049]{2,1,0} %Arg_0.1.0, /*index=5*/c128[1,4096,2049]{2,1,0} %Arg_4.5.0, c128[1,4096,2049]{2,1,0} %Arg_5.6.0), to_apply=%command_buffer
+  %get-tuple-element.191 = s64[] get-tuple-element((s64[], u8[], u32[], f32[], (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0})) %call.12), index=0
+  %get-tuple-element.192 = u8[] get-tuple-element((s64[], u8[], u32[], f32[], (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0})) %call.12), index=1
+  %get-tuple-element.193 = u32[] get-tuple-element((s64[], u8[], u32[], f32[], (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0})) %call.12), index=2
+  %get-tuple-element.194 = f32[] get-tuple-element((s64[], u8[], u32[], f32[], (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0})) %call.12), index=3
+  %get-tuple-element.195 = (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) get-tuple-element((s64[], u8[], u32[], f32[], (c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0})) %call.12), index=4
+  %get-tuple-element.190 = c128[1,4096,2049]{2,1,0} get-tuple-element((c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %get-tuple-element.195), index=2
+  %bitcast.445 = c128[1,4096,2049]{2,1,0} bitcast(c128[1,4096,2049]{2,1,0} %get-tuple-element.190)
+  %get-tuple-element.189 = c128[1,4096,2049]{2,1,0} get-tuple-element((c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %get-tuple-element.195), index=1
+  %get-tuple-element.188 = c128[1,4096,2049]{2,1,0} get-tuple-element((c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %get-tuple-element.195), index=0
+  %bitcast.443 = c128[1,4096,2049]{2,1,0} bitcast(c128[1,4096,2049]{2,1,0} %get-tuple-element.188)
+  %bitcast.444 = c128[1,4096,2049]{2,1,0} bitcast(c128[1,4096,2049]{2,1,0} %get-tuple-element.189)
+  %tuple.66 = (s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) tuple(s64[] %get-tuple-element.191, c128[1,4096,2049]{2,1,0} %bitcast.443, f32[] %get-tuple-element.194, u32[] %get-tuple-element.193, u8[] %get-tuple-element.192, /*index=5*/c128[1,4096,2049]{2,1,0} %bitcast.444, c128[1,4096,2049]{2,1,0} %bitcast.445)
+  %while.335.0 = (s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) while((s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %tuple.66), condition=%region_16.324, body=%region_0.116, metadata={op_name="jit(<lambda>)/jit(main)/while[cond_nconsts=0 body_nconsts=9]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/nsight/profile_lean_nsight.py" source_line=73}, backend_config={"known_trip_count":{"n":"40"}}
+  %get-tuple-element.340.0 = u8[] get-tuple-element((s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %while.335.0), index=4, metadata={op_name="jit(<lambda>)/jit(main)/while[cond_nconsts=0 body_nconsts=9]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/nsight/profile_lean_nsight.py" source_line=73}
+  %get-tuple-element.339.0 = u32[] get-tuple-element((s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %while.335.0), index=3, metadata={op_name="jit(<lambda>)/jit(main)/while[cond_nconsts=0 body_nconsts=9]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/nsight/profile_lean_nsight.py" source_line=73}
+  %get-tuple-element.338.0 = f32[] get-tuple-element((s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %while.335.0), index=2, metadata={op_name="jit(<lambda>)/jit(main)/while[cond_nconsts=0 body_nconsts=9]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/nsight/profile_lean_nsight.py" source_line=73}
+  %get-tuple-element.341.0 = c128[1,4096,2049]{2,1,0} get-tuple-element((s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %while.335.0), index=5, metadata={op_name="jit(<lambda>)/jit(main)/while[cond_nconsts=0 body_nconsts=9]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/nsight/profile_lean_nsight.py" source_line=73}
+  %get-tuple-element.337.0 = c128[1,4096,2049]{2,1,0} get-tuple-element((s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %while.335.0), index=1, metadata={op_name="jit(<lambda>)/jit(main)/while[cond_nconsts=0 body_nconsts=9]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/nsight/profile_lean_nsight.py" source_line=73}
+  %get-tuple-element.342.0 = c128[1,4096,2049]{2,1,0} get-tuple-element((s64[], c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], /*index=5*/c128[1,4096,2049]{2,1,0}, c128[1,4096,2049]{2,1,0}) %while.335.0), index=6, metadata={op_name="jit(<lambda>)/jit(main)/while[cond_nconsts=0 body_nconsts=9]" source_file="/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/opt/nsight/profile_lean_nsight.py" source_line=73}
+  ROOT %tuple.343.0 = (c128[1,4096,2049]{2,1,0}, f32[], u32[], u8[], c128[1,4096,2049]{2,1,0}, /*index=5*/c128[1,4096,2049]{2,1,0}) tuple(c128[1,4096,2049]{2,1,0} %get-tuple-element.337.0, f32[] %get-tuple-element.338.0, u32[] %get-tuple-element.339.0, u8[] %get-tuple-element.340.0, c128[1,4096,2049]{2,1,0} %get-tuple-element.341.0, /*index=5*/c128[1,4096,2049]{2,1,0} %get-tuple-element.342.0)
+}
+

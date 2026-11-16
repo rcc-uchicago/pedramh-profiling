@@ -1,0 +1,9 @@
+ok p_is_u_minus_iv 3.5e-16
+ok prolog_w_equals_build_w 1.3e-16
+ok prolog_q_equals_theta 
+ok split_A_is_rfft2_u_theta 4.4e-16
+ok split_B_is_rfft2_v_theta 3.2e-16
+ok component_form_A 
+ok component_form_B 
+ok tendency 1.4e-15
+HYBRID_MATH_TEST_OK

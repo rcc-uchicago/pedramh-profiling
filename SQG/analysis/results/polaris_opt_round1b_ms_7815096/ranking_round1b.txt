@@ -1,0 +1,13 @@
+Round 1 ranking: tolerance-gated (FAIL never wins); bitwise is information only; 4,000-step columns are
+ungated (chaotic flow, synthetic start state), speedup is vs the same seed's production reference.
+
+#  variant  seed  precision             gate  err1(thr)        bitwise480  coarse4000  dE4000     ms/step  ref ms  speedup  optstep s  note
+-  -------  ----  --------------------  ----  ---------------  ----------  ----------  ---------  -------  ------  -------  ---------  ----
+1  lean32   2     f32                   PASS  2.30e-05(5e-05)  no          4.36e-04    -8.36e-05  3.189    9.290   2.913x   1.546
+2  mixed    2     f32-nonlin/f64-state  PASS  2.30e-05(5e-05)  no          6.37e-06    -2.59e-08  4.714    9.290   1.971x   2.278
+3  lean64   2     f64                   PASS  2.90e-14(1e-12)  no          0.00e+00    +0.00e+00  7.051    9.290   1.318x   3.396
+
+WARN OPT_RANK_MISSING_INPUT ['seed1:None']
+OPT_RANK_WINNER lean32 (seed 2, f32): 3.189 ms/step, 2.913x vs ref 9.290, 1-step rel L2 2.30e-05 <= 5e-05, bitwise480=False
+OPT_RANK_BEST_F64 lean64 (seed 2): 7.051 ms/step, 1.318x (float64-only: no science sign-off needed for precision)
+OPT_RANK_OK

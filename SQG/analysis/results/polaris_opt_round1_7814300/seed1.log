@@ -1,0 +1,12 @@
+seed1: NVIDIA A100-SXM4-40GB, jax 0.4.28; preconditions OK (forcing in k_x columns < 5); synthetic IC: CFL 0.30, theta_rms 14.4
+ERROR SEED1_GATE_FAIL lean 40step_t_tc_or_ablevel_differ_random
+ERROR SEED1_GATE_FAIL lean_u1 40step_t_tc_or_ablevel_differ_random
+ERROR SEED1_GATE_FAIL lean_split 40step_t_tc_or_ablevel_differ_random
+SEED1_BENCH lean ms_ref=9.2897 ms_cand=8.0019 speedup=1.161 gate=FAIL
+SEED1_BENCH lean_u1 ms_ref=9.2897 ms_cand=6.4017 speedup=1.451 gate=FAIL
+SEED1_BENCH lean_split ms_ref=9.2897 ms_cand=7.0661 speedup=1.315 gate=FAIL
+WARN SEED1_NO_PASSING_VARIANT: optimizer-step timing skipped
+SEED1_LONG lean_u1 steps=4000 coarse_rel_l2=0.000e+00 energy_rel_diff=+0.000e+00 qh_rel_l2=0.000e+00 finite=True
+SEED1_LONG lean_split steps=4000 coarse_rel_l2=0.000e+00 energy_rel_diff=+0.000e+00 qh_rel_l2=0.000e+00 finite=True
+SEED1_LONG lean steps=4000 coarse_rel_l2=0.000e+00 energy_rel_diff=+0.000e+00 qh_rel_l2=0.000e+00 finite=True
+SEED1_DONE -> /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/opt_round1_7814300/seed1/seed1.json (8.2 min)

@@ -1,0 +1,18 @@
+=== run_tr_gateD on x3005c0s25b1n0 job 7841338: 2026-11-13 15:12:07 smoke=0 run=/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/gateD_tr_v1 frames=/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/gateD_frames ===
+pattern=/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/trab_7841299/bias_pattern_tilerows_if25.json doses=860/8600 src=/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_trgateD_b60744a9
+index, name, driver_version, memory.total [MiB]
+0, NVIDIA A100-SXM4-40GB, 580.65.06, 40960 MiB
+1, NVIDIA A100-SXM4-40GB, 580.65.06, 40960 MiB
+2, NVIDIA A100-SXM4-40GB, 580.65.06, 40960 MiB
+3, NVIDIA A100-SXM4-40GB, 580.65.06, 40960 MiB
+Traceback (most recent call last):
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_trgateD_b60744a9/SQG/analysis/opt/gateD/test_gateD.py", line 166, in <module>
+    main()
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_trgateD_b60744a9/SQG/analysis/opt/gateD/test_gateD.py", line 159, in main
+    v = test_analysis(G, cx, cd)
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_trgateD_b60744a9/SQG/analysis/opt/gateD/test_gateD.py", line 128, in test_analysis
+    assert verdicts == {"pass": "PASS_D", "fail": "FAIL_D", "nopower": "INCONCLUSIVE_NO_POWER"}, verdicts
+AssertionError: {'pass': 'INCONCLUSIVE_NO_POWER', 'fail': 'INCONCLUSIVE_NO_POWER', 'nopower': 'INCONCLUSIVE_NO_POWER'}
+ERROR GATED_TEST
+ERROR GATED_TEST_NO_TOKEN
+DOSE_JOB_DONE failures=2

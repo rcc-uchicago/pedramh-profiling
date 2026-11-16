@@ -1,0 +1,26 @@
+TS_CFL member=1 t=100.00 CFL=0.2372
+TS_CFL member=1 t=200.00 CFL=0.2079
+TS_CFL member=1 t=300.00 CFL=0.2243
+TS_CFL member=1 t=400.00 CFL=0.2494
+TS_CFL member=2 t=100.00 CFL=0.2639
+TS_CFL member=2 t=200.00 CFL=0.2355
+TS_CFL member=2 t=300.00 CFL=0.2164
+TS_CFL member=2 t=400.00 CFL=0.1819
+TS_CFL member=3 t=100.00 CFL=0.2449
+TS_CFL member=3 t=200.00 CFL=0.2515
+TS_CFL member=3 t=300.00 CFL=0.3747
+TS_CFL member=3 t=400.00 CFL=0.2132
+TS_CFL member=4 t=100.00 CFL=0.2571
+TS_CFL member=4 t=200.00 CFL=0.2584
+TS_CFL member=4 t=300.00 CFL=0.1840
+TS_CFL member=4 t=400.00 CFL=0.1991
+TS_ACC_ARM lean_u1 26 s finite=True
+TS_ACC_ARM if_rt 28 s finite=True
+TS_ACC_ARM lean32ek_fast 11 s finite=True
+TS_ACC_ARM if32 12 s finite=True
+TS_F32   if32_vs_if64 sub 2.41e-05 7.05e-06 4.30e-06 4.36e-06 4.21e-06 6.88e-06 1.16e-05 1.51e-05 | af 1.03e-06 1.27e-06 1.28e-06 1.62e-06 1.61e-06 2.18e-06 3.90e-06 6.18e-06
+TS_F32     fast_vs_u1 sub 2.43e-05 6.99e-06 4.26e-06 4.34e-06 4.21e-06 6.89e-06 1.16e-05 1.51e-05 | af 1.04e-06 1.27e-06 1.28e-06 1.62e-06 1.61e-06 2.18e-06 3.90e-06 6.18e-06
+TS_BENCH lean_u1=6.3991 prod_rt=6.4390 if_rt=6.9219 lean32ek_fast=2.7027 if32=2.7519
+TS_RFFT f32 batched 578.6 us ops ['c64[2,4096,2049]{2,1,0}'] | separate 819.9 us ops ['c64[4096,2049]{1,0}', 'c64[4096,2049]{1,0}'] | bitwise True
+TS_RFFT f64 batched 1203.1 us ops ['c128[2,4096,2049]{2,1,0}'] | separate 1641.6 us ops ['c128[4096,2049]{1,0}', 'c128[4096,2049]{1,0}'] | bitwise True
+TS_WORKER_DONE w=3 wall=217s

@@ -1,0 +1,123 @@
+#!/bin/bash -l
+#PBS -N sqg_prof_ab3_ncu
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:45:00
+#PBS -j oe
+# profile_ab3_ncu_polaris.pbs -- Nsight Compute on the SQG solver's largest kernel, one Polaris A100 (GPU 0).
+# `loop_add_multiply_fusion_1` (the whole AB3 update, 3.27 ms = 39.5% of solver kernel time) moves ~1.27 GB per step
+# at ~390 GB/s while the cuFFT kernels next to it reach ~1.3 TB/s (polaris_sqg_notes.md Part IV, addendum 2026-11-04).
+# One `ncu --set full` pass per target kernel, each a fresh run of profile_ab3_ncu.py (compile + warm-up outside the
+# profiled range, then NCU_CALLS x 40 steps inside it), then the raw metrics are exported to CSV and summarize_ncu.py
+# reports DRAM throughput vs peak, occupancy and its limiter, registers, spills, FP64 pipe, L1/L2 hit rates, stalls.
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ [-v VARIANT=fixed,KERNELS="ab3 fft"] \
+#        SQG/analysis/profile_ab3_ncu_polaris.pbs                                   (from the repo root)
+# Knobs (-v): VARIANT=ref|fixed (default ref); KERNELS = tags from the table below (default all four);
+#   NCU_CLOCK=none|base (default none: production clocks, so durations compare with job A's nsys numbers; ncu's own
+#   default `base` locks the clocks for reproducibility); NCU_SET=full|detailed|basic; NCU_CALLS (default 2).
+# PASS = "NCU_TEST_OK", one "NCU_HARNESS_OK" per tag and "NCU_SUMMARY_OK" in the .o file. CSV/JSON/txt summaries ->
+# SQG/analysis/results/polaris_ab3_ncu_<jobid>/; the .ncu-rep binaries stay in $MEMBER_ROOT/sqg_profile/profile_ab3_ncu_<jobid>/.
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+export SQG_INIT="${SQG_INIT:-random}"
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+VARIANT="${VARIANT:-ref}"
+KERNELS="${KERNELS:-ab3 mul_u_theta uv_build fft}"
+NCU_CLOCK="${NCU_CLOCK:-none}"
+NCU_SET="${NCU_SET:-full}"
+NCU_CALLS="${NCU_CALLS:-2}"
+OUT="${MEMBER_ROOT}/sqg_profile/profile_ab3_ncu_${JOB}"
+RES="SQG/analysis/results/polaris_ab3_ncu_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+case "$VARIANT" in ref|fixed) ;; *) echo "ERROR SQG_BAD_VARIANT: $VARIANT (ref|fixed)"; exit 5 ;; esac
+echo "=== profile_ab3_ncu on $(hostname) job $JOB: $(date '+%F %T') ==="
+echo "host=$(hostname) job=$JOB py=$PY init=$SQG_INIT variant=$VARIANT kernels=\"$KERNELS\" clock=$NCU_CLOCK set=$NCU_SET calls=$NCU_CALLS"
+echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}"
+echo "modules: $(module -t list 2>&1 | tr '\n' ' ')"
+nvidia-smi --query-gpu=name,driver_version,memory.total,clocks.max.sm,clocks.max.mem,power.limit --format=csv | tee "$OUT/gpu.csv"
+# No nsight module on Polaris: the login-shell nvidia/25.9 module may put ncu on PATH (as nsys in job A), else the
+# HPC SDK's own copy, else the newest cudatoolkit's.
+NCU="$(command -v ncu 2>/dev/null || true)"
+[ -n "$NCU" ] || { [ -x /opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin/ncu ] && NCU=/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin/ncu; } || true
+[ -n "$NCU" ] || NCU="$(ls -1 /soft/compilers/cudatoolkit/cuda-*/bin/ncu 2>/dev/null | sort -V | tail -1 || true)"
+[ -n "$NCU" ] || { echo "ERROR SQG_NCU_NOT_FOUND"; exit 6; }
+echo "ncu=$NCU $("$NCU" --version 2>&1 | tr '\n' ' ')"
+
+"$PY" SQG/analysis/test_summarize_ncu.py             # the parser, on synthetic exports: NCU_TEST_OK
+
+# ---- target kernels: tag -> kernel-name regex, matching launches to skip, launches to profile -------------------
+# Names from job A's nsys kernel summary (results/polaris_solver_7809412/nsys_ref_cuda_gpu_kern_sum.csv; the same
+# fusion names in hlo_fixed.txt). XLA kernels are unmangled, so with ncu's default --kernel-name-base function the
+# anchored patterns match exactly one kernel each; the cuFFT template kernel is matched by its template name.
+# Instances per solver step: ab3 1, mul_u_theta 2, uv_build 1, fft ~10; NCU_CALLS x 40 steps are in the range.
+declare -A PATTERN SKIP COUNT
+PATTERN[ab3]='^loop_add_multiply_fusion_1';   SKIP[ab3]=3;          COUNT[ab3]=3          # the AB3 update, 3.27 ms
+PATTERN[mul_u_theta]='^wrapped_multiply_1';   SKIP[mul_u_theta]=4;  COUNT[mul_u_theta]=3  # u*theta, f64, ~1.3 TB/s
+PATTERN[uv_build]='^loop_multiply_fusion_9';  SKIP[uv_build]=3;     COUNT[uv_build]=3     # 642 us fusion, ~0.73 TB/s
+PATTERN[fft]='regular_fft_factor';            SKIP[fft]=10;         COUNT[fft]=3          # cuFFT, 201 us, ~1.3 TB/s
+
+# ab3 and uv_build run inside XLA command buffers (CUDA graphs; hlo_ref.txt %command_buffer.1/.2; nsys saw 2
+# cuGraphLaunch per step). ncu's default --graph-profiling node profiles each kernel node as its own launch, so the
+# name filter and --launch-skip/--launch-count apply to them as to plain launches. Kernel replay (the default) saves
+# and restores the ~4.5 GiB the process holds on the device before each of the ~40 passes of a --set full collection.
+for TAG in $KERNELS; do
+    [ -n "${PATTERN[$TAG]:-}" ] || { echo "ERROR SQG_NCU_BAD_KERNEL_TAG $TAG (ab3|mul_u_theta|uv_build|fft)"; continue; }
+    echo "--- $TAG  regex:${PATTERN[$TAG]}  skip ${SKIP[$TAG]} count ${COUNT[$TAG]}  $(date '+%T')"
+    LOG="$OUT/ncu_${TAG}.log"
+    RC=0
+    timeout 480 "$NCU" --profile-from-start off --graph-profiling node \
+        --kernel-name "regex:${PATTERN[$TAG]}" --launch-skip "${SKIP[$TAG]}" --launch-count "${COUNT[$TAG]}" \
+        --set "$NCU_SET" --import-source no --clock-control "$NCU_CLOCK" -f -o "$OUT/ncu_${TAG}" \
+        "$PY" SQG/analysis/profile_ab3_ncu.py --variant "$VARIANT" --calls "$NCU_CALLS" --out "$OUT" 2>&1 \
+        | tee "$LOG" || RC=$?
+    if grep -qE 'ERR_NVGPUCTRPERM|does not have permission to access NVIDIA GPU Performance Counters|insufficient permission' "$LOG"; then
+        echo "ERROR SQG_NCU_NO_PERMISSION: GPU performance counters are restricted to admin users on $(hostname)"
+        exit 7
+    fi
+    grep -q "NCU_HARNESS_OK" "$LOG" || { echo "ERROR SQG_NCU_HARNESS_FAILED $TAG (rc $RC)"; continue; }
+    [ "$RC" -eq 0 ] || { echo "ERROR SQG_NCU_PROFILE_FAILED $TAG (rc $RC)"; continue; }
+    if grep -q "No kernels were profiled" "$LOG" || [ ! -s "$OUT/ncu_${TAG}.ncu-rep" ]; then
+        echo "ERROR SQG_NCU_NO_MATCH $TAG: regex:${PATTERN[$TAG]} selected no launch in the profiled range"; continue
+    fi
+    # raw page = every collected metric, one row per profiled launch (what summarize_ncu.py reads); details = ncu's
+    # own sections with rules, for humans
+    "$NCU" --import "$OUT/ncu_${TAG}.ncu-rep" --csv --page raw --print-units base > "$OUT/ncu_${TAG}_raw.csv" \
+        || { echo "ERROR SQG_NCU_EXPORT_FAILED $TAG"; continue; }
+    "$NCU" --import "$OUT/ncu_${TAG}.ncu-rep" --page details --print-units base > "$OUT/ncu_${TAG}_details.txt" \
+        || echo "WARN NCU_DETAILS_EXPORT_FAILED $TAG"
+    [ "$(wc -l < "$OUT/ncu_${TAG}_raw.csv")" -ge 3 ] || echo "ERROR SQG_NCU_EMPTY_EXPORT $TAG"   # header, units, a row
+done
+
+# ---- one summary over every export, then text into the repo (the .ncu-rep binaries stay in $OUT) ----
+RAW=("$OUT"/ncu_*_raw.csv)
+if [ -e "${RAW[0]}" ]; then
+    "$PY" SQG/analysis/summarize_ncu.py "${RAW[@]}" --out "$OUT/ncu_summary_${VARIANT}.json" \
+        || echo "ERROR SQG_NCU_SUMMARY_FAILED"
+else
+    echo "ERROR SQG_NCU_NO_EXPORTS"
+fi
+for f in "$OUT"/*.json "$OUT"/gpu.csv "$OUT"/ncu_*_raw.csv "$OUT"/ncu_*_details.txt "$OUT"/ncu_*.log; do
+    [ -e "$f" ] && cp "$f" "$RES"/
+done
+echo "=== end $(date '+%F %T') ==="

@@ -1,0 +1,17 @@
+DOSE_CLIM frames=12 E_low=7.1374e-01 bands=2.265e-02 6.911e-01 3.787e-01 6.473e-02 2.784e-02 1.420e-02 7.984e-03 1.174e-03
+DOSE_OVERFIT a0_sA dose=0: val_clean min 0.07710 at step 100, final 0.09808 (x1.272), train final 0.01475, val/train 6.65 -> OVERFIT
+DOSE_OVERFIT a0_sB dose=0: val_clean min 0.07230 at step 100, final 0.10719 (x1.483), train final 0.01707, val/train 6.28 -> OVERFIT
+DOSE_OVERFIT a1000_sA dose=1000: val_clean min 0.07582 at step 100, final 0.09982 (x1.317), train final 0.01507, val/train 6.62 -> OVERFIT
+DOSE_OVERFIT a10000_sA dose=10000: val_clean min 0.07545 at step 100, final 0.09641 (x1.278), train final 0.01489, val/train 6.47 -> OVERFIT
+DOSE_ABSORB kappa: a0_sB(noise ref)={"per_dose_1000": 47.9799, "per_dose_10000": 4.798} a1000_sA=-1.421 a10000_sA=-3.297
+DOSE_STABILITY usable_steps=500 windows=2 (of 2) a0_sA: blown 0/4 first -1 a0_sB: blown 0/4 first -1 a1000_sA: blown 0/4 first -1 a10000_sA: blown 1/4 first 500
+DOSE_DRIFT E_low: 0-5TU ref +5.656 noise 5.865 d1e3 +2.5264 d1e4 +5.9679 real 2.5e-03 | 5-10TU ref +37.236 noise 37.373 d1e3 +7.5927 d1e4 +18.3802 real 7.6e-03
+DOSE_DRIFT k1-2: 0-5TU ref +34.269 noise 32.636 d1e3 -8.6034 d1e4 +46.7313 real 8.6e-03 | 5-10TU ref +261.705 noise 259.034 d1e3 -103.1726 d1e4 +148.4074 real 1.0e-01
+DOSE_DRIFT k2-4: 0-5TU ref +4.718 noise 4.987 d1e3 +2.8911 d1e4 +4.6320 real 2.9e-03 | 5-10TU ref +29.880 noise 30.109 d1e3 +11.2227 d1e4 +14.1189 real 1.1e-02
+DOSE_DRIFT k4-8: 0-5TU ref +16.089 noise 13.771 d1e3 +0.3938 d1e4 +6.5374 real 3.9e-04 | 5-10TU ref +92.882 noise 90.547 d1e3 -1.2841 d1e4 +12.6903 real 1.3e-03
+DOSE_DRIFT k8-16: 0-5TU ref +13.112 noise 9.569 d1e3 +2.4422 d1e4 +10.4259 real 2.4e-03 | 5-10TU ref +297.704 noise 293.815 d1e3 +26.9310 d1e4 +31.6452 real 2.7e-02
+DOSE_DRIFT k16-32: 0-5TU ref +3.899 noise 3.320 d1e3 +3.1737 d1e4 +3.5359 real 3.2e-03 | 5-10TU ref +106.572 noise 106.066 d1e3 +63.3251 d1e4 +33.8150 real 6.3e-02
+DOSE_DRIFT k32-64: 0-5TU ref +0.496 noise 1.046 d1e3 +0.6242 d1e4 +1.2433 real 6.2e-04 | 5-10TU ref +32.087 noise 32.678 d1e3 +11.0243 d1e4 +15.5687 real 1.1e-02
+DOSE_DRIFT k64-128: 0-5TU ref -0.697 noise 0.254 d1e3 +0.1269 d1e4 +0.3212 real 1.3e-04 | 5-10TU ref +10.481 noise 11.437 d1e3 -0.4594 d1e4 +3.8088 real 4.6e-04
+DOSE_DRIFT k128-182: 0-5TU ref +1.742 noise 2.707 d1e3 +1.6591 d1e4 +3.0937 real 1.7e-03 | 5-10TU ref +122.959 noise 123.927 d1e3 +24.3547 d1e4 +39.1075 real 2.4e-02
+DOSE_ANALYSIS_DONE verdict=PASS_D power_absorb=False power_drift=True windows=2

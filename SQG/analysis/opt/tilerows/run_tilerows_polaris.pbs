@@ -1,0 +1,75 @@
+#!/bin/bash -l
+#PBS -N sqg_tilerows
+#PBS -A lighthouse-uchicago
+#PBS -q debug-scaling
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -j oe
+# run_tilerows_polaris.pbs -- the tile-row step (Warp tile FFT rows + cuFFT kept-column passes + Warp SIMT kernels)
+# vs the JAX steps, one A100 (GPU 0). Predictions + gates: SQG/analysis/opt/tilerows/PREDICTIONS_tilerows.md (first).
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ \
+#        SQG/analysis/opt/tilerows/run_tilerows_polaris.pbs                     (from the repo root; -q debug ok)
+# Needs $MEMBER_ROOT/pylibs/warp-1.17.0 and $MEMBER_ROOT/pylibs/nvmath-1.0.0 (raw cuFFT bindings; no callbacks).
+# cuFFT 11.4.1 (CUDA 12.9.1) preloaded as in the hybrid job, so every arm uses the same cuFFT.
+# 0. test_tilerows_math.py (TILEROWS_MATH_TEST_OK).  1. tilerows_probe.py (TR_* tokens).
+# End token: TR_JOB_DONE failures=N. Results -> SQG/analysis/results/polaris_tilerows_<jobid>/.
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+export PYTHONUNBUFFERED=1
+WARP_PATH="${WARP_PATH:-${MEMBER_ROOT}/pylibs/warp-1.17.0}"
+NVMATH_PATH="${NVMATH_PATH:-${MEMBER_ROOT}/pylibs/nvmath-1.0.0}"
+TK=/soft/compilers/cudatoolkit/cuda-12.9.1/lib64
+export WARP_CACHE_PATH="${MEMBER_ROOT}/tmp/warp_cache_${JOB}"
+T0=$(date +%s)
+DEADLINE=$(( T0 + 46 * 60 ))
+OUT="${MEMBER_ROOT}/sqg_profile/tilerows_${JOB}"
+RES="SQG/analysis/results/polaris_tilerows_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT" "$WARP_CACHE_PATH"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+FAILURES=0
+fail() { echo "ERROR $*"; FAILURES=$((FAILURES + 1)); }
+HERE=SQG/analysis/opt/tilerows
+echo "=== run_tilerows on $(hostname) job $JOB: $(date '+%F %T') ==="
+nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee "$OUT/gpu.csv"
+sha256sum "$HERE"/*.py "$HERE"/PREDICTIONS_tilerows.md | tee "$OUT/sha256.txt"
+for d in "$WARP_PATH/warp" "$NVMATH_PATH/nvmath"; do
+    [ -d "$d" ] || { echo "ERROR TR_LIB_MISSING $d"; echo "TR_JOB_DONE failures=1"; exit 5; }
+done
+LABEL_TAIL="_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02"
+CKPT="${SQG_TRAINING_ROOT}/trainingdata_m01${LABEL_TAIL}/checkpoint/ckpt_t0100.00.npz"
+[ -s "$CKPT" ] || { echo "ERROR TR_CKPT_NOT_STAGED $CKPT"; echo "TR_JOB_DONE failures=1"; exit 5; }
+
+"$PY" "$HERE/test_tilerows_math.py" 2>&1 | tee "$OUT/test_tilerows_math.log" || fail TILEROWS_MATH_TEST
+grep -q "TILEROWS_MATH_TEST_OK" "$OUT/test_tilerows_math.log" || fail TILEROWS_MATH_TEST_NO_TOKEN
+
+LD_PRELOAD="$TK/libnvJitLink.so.12:$TK/libcufft.so.11" "$PY" "$HERE/tilerows_probe.py" --out "$OUT" \
+    --ckpt "1:${CKPT}" --warp-path "$WARP_PATH" --nvmath-path "$NVMATH_PATH" --deadline "$DEADLINE" 2>&1 \
+    | tee "$OUT/tilerows_probe.log" || fail TR_PROBE_RC
+grep -q "TR_PROBE_DONE failures=0" "$OUT/tilerows_probe.log" || fail TR_PROBE_NOT_CLEAN
+grep -E "^(TR_|ERROR)" "$OUT/tilerows_probe.log" || true
+
+for f in "$OUT"/tilerows_probe.json "$OUT"/*.log "$OUT"/gpu.csv "$OUT"/sha256.txt; do
+    [ -e "$f" ] && cp "$f" "$RES"/
+done
+echo "=== end $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+echo "TR_JOB_DONE failures=$FAILURES"

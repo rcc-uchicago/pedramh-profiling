@@ -1,0 +1,37 @@
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A100-SXM4-40GB" (39 GiB, sm_80, mempool enabled)
+   Kernel cache:
+     /lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/trab_7841299/warp_cache_w3/1.17.0
+O12_TR_SCHEME tilerows_if25 kind=tr if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_if25 mode=concat timing=0
+O12_TR_SCHEME if32_25 kind=if32 if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+TRAB_STATE w=3 s=0 member=4 t=100.00 SPE=23.9838 CFL_DT=0.257
+O12_TR_PATH tilerows_if25 jax_to_torch=dlpack
+Module kernels__locals__build_w_b5a2d1bc b5a2d1b load on device 'cuda:0' took 1672.11 ms  (compiled)
+Module kernels__locals__expand_89275604 8927560 load on device 'cuda:0' took 117.34 ms  (compiled)
+Module kernels__locals__rows_15f34186 15f3418 load on device 'cuda:0' took 3337.47 ms  (compiled)
+Module kernels__locals__update_64ac6e68 64ac6e6 load on device 'cuda:0' took 141.89 ms  (compiled)
+O12_TR_PATH tilerows_if25 torch_to_jax=dlpack
+TRAB_PAIR w=3 s=0 p=0 lean_u1==7824121 True arms_s={'tilerows_if25': 9.86, 'if32_25': 8.08, 'ref160': 111.46} (156 s)
+TRAB_PAIR w=3 s=0 p=1 lean_u1==7824121 True arms_s={'tilerows_if25': 4.09, 'if32_25': 6.91} (37 s)
+TRAB_PAIR w=3 s=0 p=2 lean_u1==7824121 True arms_s={'tilerows_if25': 4.09, 'if32_25': 6.92} (37 s)
+TRAB_PAIR w=3 s=0 p=3 lean_u1==7824121 True arms_s={'tilerows_if25': 4.09, 'if32_25': 6.91} (37 s)
+TRAB_STATE w=3 s=1 member=1 t=200.00 SPE=33.8761 CFL_DT=0.208
+TRAB_PAIR w=3 s=1 p=0 lean_u1==7824121 True arms_s={'tilerows_if25': 4.09, 'if32_25': 6.91, 'ref160': 110.74} (148 s)
+TRAB_PAIR w=3 s=1 p=1 lean_u1==7824121 True arms_s={'tilerows_if25': 4.09, 'if32_25': 6.9} (37 s)
+TRAB_PAIR w=3 s=1 p=2 lean_u1==7824121 True arms_s={'tilerows_if25': 4.09, 'if32_25': 6.92} (37 s)
+TRAB_PAIR w=3 s=1 p=3 lean_u1==7824121 True arms_s={'tilerows_if25': 4.09, 'if32_25': 6.9} (37 s)
+TRAB_STATE w=3 s=2 member=2 t=300.00 SPE=38.3584 CFL_DT=0.216
+TRAB_PAIR w=3 s=2 p=0 lean_u1==7824121 True arms_s={'tilerows_if25': 4.09, 'if32_25': 6.91, 'ref160': 110.71} (147 s)
+TRAB_PAIR w=3 s=2 p=1 lean_u1==7824121 True arms_s={'tilerows_if25': 4.09, 'if32_25': 6.91} (37 s)
+TRAB_PAIR w=3 s=2 p=2 lean_u1==7824121 True arms_s={'tilerows_if25': 4.09, 'if32_25': 6.9} (37 s)
+TRAB_PAIR w=3 s=2 p=3 lean_u1==7824121 True arms_s={'tilerows_if25': 4.09, 'if32_25': 6.9} (37 s)
+TRAB_STATE w=3 s=3 member=3 t=400.00 SPE=34.9527 CFL_DT=0.213
+TRAB_PAIR w=3 s=3 p=0 lean_u1==7824121 True arms_s={'tilerows_if25': 4.09, 'if32_25': 6.9, 'ref160': 110.72} (148 s)
+TRAB_PAIR w=3 s=3 p=1 lean_u1==7824121 True arms_s={'tilerows_if25': 4.09, 'if32_25': 6.91} (37 s)
+TRAB_PAIR w=3 s=3 p=2 lean_u1==7824121 True arms_s={'tilerows_if25': 4.09, 'if32_25': 6.9} (37 s)
+TRAB_PAIR w=3 s=3 p=3 lean_u1==7824121 True arms_s={'tilerows_if25': 4.09, 'if32_25': 6.91} (37 s)
+TRAB_WORKER_DONE w=3 pairs=16 lean_u1_bitwise_all=True wall=1112s

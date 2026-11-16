@@ -1,0 +1,10 @@
+nsight bench: NVIDIA A100-SXM4-40GB, jax 0.4.28, import 4 s; built ref (compile 2.4 s, full-size copies 5), lean_u1 (compile 0.3 s, full-size copies 3), lean32 (compile 0.2 s, full-size copies 2)
+NSIGHT_BENCH ref ms=9.2837 vs_ref=1.0 vs_lean32=0.345 check=-
+NSIGHT_BENCH lean_u1 ms=6.4032 vs_ref=1.45 vs_lean32=0.5 check=-
+NSIGHT_BENCH lean32 ms=3.1998 vs_ref=2.901 vs_lean32=1.0 check=-
+NSIGHT_FRAMES ref vs /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/nsight_lean_7819082/frames_default: f40 rel=0.00e+00 bitwise=True f480 rel=0.00e+00 bitwise=True
+NSIGHT_FRAMES lean_u1 vs /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/nsight_lean_7819082/frames_default: f40 rel=0.00e+00 bitwise=True f480 rel=0.00e+00 bitwise=True
+NSIGHT_FRAMES lean32 vs /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/nsight_lean_7819082/frames_default: f40 rel=1.69e-10 bitwise=False f480 rel=6.66e-09 bitwise=False
+NSIGHT_FFT_MICRO fft2_c2c_c128=1.2004 irfft2_c2r_c128=1.0145 rfft2_r2c_f64=0.6185 fft2_c2c_c64=0.5297 irfft2_c2r_c64=0.5078 rfft2_r2c_f32=0.3142
+NSIGHT_LIBS libcublas.so.12@/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cublas/lib libcudart.so.12@/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cuda_runtime/lib libcufft.so.11.4.1.4@/soft/compilers/cudatoolkit/cuda-12.9.1/targets/x86_64-linux/lib
+NSIGHT_BENCH_OK /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/nsight_lean_7819082/bench_cufft114/nsight_bench.json check_failures=0 wall=157s

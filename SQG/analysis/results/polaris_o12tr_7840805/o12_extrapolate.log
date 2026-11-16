@@ -1,0 +1,21 @@
+O12_PIECES lean32ek_fast: s_step=1.7076 s_frame=0.10906 t_init=25.10000000000001 t_load=2.2 t_val=0.25 t_save_last=0.73 t_save_best=0.7 peak=20.4 GiB params=40.81M bitwise=INFO run_done=True
+O12_PROJECTION lean32ek_fast [1 node, 4 GPUs, batch 16]: 683500 steps, 326.0 h (326 node-h, 1304 GPU-h); init=0.01h fill=0.60h steps=324.21h epoch_overhead=0.17h segment_loads=1.00h
+O12_PROJECTION lean32ek_fast [4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)]: 195250 steps, 93.9 h (376 node-h, 1314 GPU-h); init=0.01h fill=0.60h steps=92.88h epoch_overhead=0.12h segment_loads=0.29h
+O12_PROJECTION lean32ek_fast [4 nodes, 16 GPUs, batch 16]: 170750 steps, 82.2 h (329 node-h, 1315 GPU-h); init=0.01h fill=0.60h steps=81.23h epoch_overhead=0.12h segment_loads=0.25h
+O12_PIECES if32_25: s_step=1.2404 s_frame=0.07006 t_init=11.899999999999999 t_load=0.7 t_val=0.26 t_save_last=0.74 t_save_best=0.7 peak=20.4 GiB params=40.81M bitwise=INFO run_done=True
+O12_PROJECTION if32_25 [1 node, 4 GPUs, batch 16]: 683500 steps, 236.4 h (236 node-h, 946 GPU-h); init=0.00h fill=0.38h steps=235.50h epoch_overhead=0.17h segment_loads=0.32h
+O12_PROJECTION if32_25 [4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)]: 195250 steps, 68.1 h (273 node-h, 954 GPU-h); init=0.00h fill=0.38h steps=67.55h epoch_overhead=0.12h segment_loads=0.09h
+O12_PROJECTION if32_25 [4 nodes, 16 GPUs, batch 16]: 170750 steps, 59.7 h (239 node-h, 954 GPU-h); init=0.00h fill=0.38h steps=59.07h epoch_overhead=0.12h segment_loads=0.08h
+O12_PIECES tilerows40: s_step=1.5102 s_frame=0.08921 t_init=31.89999999999999 t_load=0.9 t_val=0.28 t_save_last=0.74 t_save_best=0.7749999999999999 peak=21.0 GiB params=40.81M bitwise=INFO run_done=True
+O12_PROJECTION tilerows40 [1 node, 4 GPUs, batch 16]: 683500 steps, 287.8 h (288 node-h, 1151 GPU-h); init=0.01h fill=0.49h steps=286.73h epoch_overhead=0.18h segment_loads=0.41h
+O12_PROJECTION tilerows40 [4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)]: 195250 steps, 82.9 h (332 node-h, 1161 GPU-h); init=0.01h fill=0.49h steps=82.18h epoch_overhead=0.12h segment_loads=0.12h
+O12_PROJECTION tilerows40 [4 nodes, 16 GPUs, batch 16]: 170750 steps, 72.6 h (290 node-h, 1161 GPU-h); init=0.01h fill=0.49h steps=71.87h epoch_overhead=0.12h segment_loads=0.10h
+O12_PIECES tilerows_if25: s_step=1.2222 s_frame=0.06551 t_init=11.899999999999991 t_load=0.7 t_val=0.27 t_save_last=0.75 t_save_best=0.76 peak=21.0 GiB params=40.81M bitwise=INFO run_done=True
+O12_PROJECTION tilerows_if25 [1 node, 4 GPUs, batch 16]: 683500 steps, 232.9 h (233 node-h, 932 GPU-h); init=0.00h fill=0.36h steps=232.05h epoch_overhead=0.18h segment_loads=0.32h
+O12_PROJECTION tilerows_if25 [4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)]: 195250 steps, 67.1 h (269 node-h, 940 GPU-h); init=0.00h fill=0.36h steps=66.56h epoch_overhead=0.12h segment_loads=0.09h
+O12_PROJECTION tilerows_if25 [4 nodes, 16 GPUs, batch 16]: 170750 steps, 58.8 h (235 node-h, 940 GPU-h); init=0.00h fill=0.36h steps=58.21h epoch_overhead=0.12h segment_loads=0.08h
+O12_PIECES tilerows_if25_cufft114: s_step=1.217 s_frame=0.06616 t_init=12.600000000000001 t_load=0.7 t_val=0.27 t_save_last=0.74 t_save_best=0.71 peak=21.0 GiB params=40.81M bitwise=INFO run_done=True
+O12_PROJECTION tilerows_if25_cufft114 [1 node, 4 GPUs, batch 16]: 683500 steps, 231.9 h (232 node-h, 928 GPU-h); init=0.00h fill=0.36h steps=231.06h epoch_overhead=0.18h segment_loads=0.32h
+O12_PROJECTION tilerows_if25_cufft114 [4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)]: 195250 steps, 66.9 h (267 node-h, 936 GPU-h); init=0.00h fill=0.36h steps=66.28h epoch_overhead=0.12h segment_loads=0.09h
+O12_PROJECTION tilerows_if25_cufft114 [4 nodes, 16 GPUs, batch 16]: 170750 steps, 58.5 h (234 node-h, 936 GPU-h); init=0.00h fill=0.36h steps=57.96h epoch_overhead=0.12h segment_loads=0.08h
+O12_EXTRAPOLATE_OK solvers=5 -> /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/results/polaris_o12tr_7840805/o12_extrapolation.json
