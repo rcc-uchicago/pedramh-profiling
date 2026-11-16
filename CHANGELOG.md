@@ -114,6 +114,33 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-16 (in progress)** — **SQG: mixed-precision probes with `tilerows_inrow_if25`. Probe 1 (16-bit storage
+  in the solver) = debug 7854381; probe 2 (the network's precision in o1.2) = debug-scaling 7854382. Snapshot
+  `sqg_profile/src_mixprec_ee51c7f4`.**
+  - **Ask:** the user asked about "adaptive mixed precision … applied in cholesky factorization". My reading: the
+    solver step is memory-bound, FFT rounding spreads to every mode, and the gate B margin is ~100×. So it is likely
+    no use for the solver, but the ML step has real headroom. Then: "yes do both probes, use tilerows_inrow_if25 as
+    the solves for these probes".
+  - **Prereg:** `SQG/analysis/opt/mixprec/PREDICTIONS_mixprec.md`, 16 predictions, committed first at ee51c7f4.
+    Scorer: `score_mixprec.py --p1 SQG/analysis/results/polaris_mpab_7854381 --p2
+    SQG/analysis/results/polaris_o12tr_7854382`.
+  - **Probe 1** (`mixprec.py`, `run_mixprec_ab_polaris.pbs`):
+    - The in-row step, with each intermediate written to memory rounded to 16 bits on its kept columns:
+      "16-bit storage, fp32 compute". The state stays float32 with its compensation.
+    - Arms `@none` / `bf16_all` / `fp16_all` / `fp16_kx128` / `ad1` / `ad32` / `ad1024`. The adaptive arms give each
+      column the lowest of bf16 / fp16 / fp32 that keeps the added error ≤ τ × float32's own.
+    - fp16 is block floating point (a power-of-two scale per column).
+    - Judged by the unchanged A/B pipeline, one run per arm: PASS / BIAS_UP / FAIL_AB against `@none`.
+    - V_wrap: `@none` must reproduce job 7854208's frames.
+    - Prize ≤ 0.5 × mean 16-bit fraction × 1.470 ms.
+  - **Probe 2:** `O12_PREC` = ieee (default) | tf32 | bf16 in `o12_polaris.py`, through two line-count-keeping
+    patches; arms `tilerows_inrow_if25` / `_tf32` / `_bf16`. A change here alters the trained model, so the probe only
+    measures time. o1.2 pins strict FP32 on purpose.
+  - **Harness changes** (defaults unchanged):
+    - `tilerows_advance.make` takes `@<policy>` (in-row only), and `tr_pairs.py` records `mixprec.summary()`.
+    - Login checks: `test_mixprec.py` (numpy part), `test_o12run.py` (36 patches), `test_tilerows_advance.py`, and
+      `analyze_mixprec.py` on job 7854208 (64/64 V_wrap against itself, PASS).
+
 - **2026-11-16 (in progress)** — **SQG: gates A, B, E and D for `tilerows_inrow_if25`. Jobs: A/B 7854208
   (capacity), D 7854209 (capacity, held on A/B), E 7854210 (debug-scaling). Snapshot
   `sqg_profile/src_trgates_inrow_29eeca11`.** The user asked: "okay run it on capacity for gates A-D".
