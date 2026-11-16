@@ -1,0 +1,9 @@
+O12_PIECES tilerows_if25: s_step=0.9251 s_frame=0.04194 t_init=47.99999999999999 t_load=1.3 t_val=0.28 t_save_last=0.75 t_save_best=0.7 peak=21.0 GiB params=40.81M bitwise=INFO run_done=True
+O12_PROJECTION tilerows_if25 [1 node, 4 GPUs, batch 16]: 683500 steps, 176.7 h (177 node-h, 707 GPU-h); init=0.01h fill=0.23h steps=175.64h epoch_overhead=0.18h segment_loads=0.59h
+O12_PROJECTION tilerows_if25 [4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)]: 195250 steps, 51.0 h (204 node-h, 714 GPU-h); init=0.01h fill=0.23h steps=50.45h epoch_overhead=0.12h segment_loads=0.17h
+O12_PROJECTION tilerows_if25 [4 nodes, 16 GPUs, batch 16]: 170750 steps, 44.6 h (179 node-h, 714 GPU-h); init=0.01h fill=0.23h steps=44.12h epoch_overhead=0.12h segment_loads=0.15h
+O12_PIECES tilerows_inrow_if25: s_step=0.8885 s_frame=0.03865 t_init=12.399999999999999 t_load=0.7 t_val=0.28 t_save_last=0.75 t_save_best=0.7 peak=20.9 GiB params=40.81M bitwise=INFO run_done=True
+O12_PROJECTION tilerows_inrow_if25 [1 node, 4 GPUs, batch 16]: 683500 steps, 169.4 h (169 node-h, 678 GPU-h); init=0.00h fill=0.21h steps=168.69h epoch_overhead=0.18h segment_loads=0.32h
+O12_PROJECTION tilerows_inrow_if25 [4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)]: 195250 steps, 48.9 h (196 node-h, 684 GPU-h); init=0.00h fill=0.21h steps=48.46h epoch_overhead=0.12h segment_loads=0.09h
+O12_PROJECTION tilerows_inrow_if25 [4 nodes, 16 GPUs, batch 16]: 170750 steps, 42.8 h (171 node-h, 685 GPU-h); init=0.00h fill=0.21h steps=42.38h epoch_overhead=0.12h segment_loads=0.08h
+O12_EXTRAPOLATE_OK solvers=2 -> /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/results/polaris_o12tr_7853365/o12_extrapolation.json

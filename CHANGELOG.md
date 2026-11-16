@@ -114,17 +114,25 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
-- **2026-11-16 (in progress)** — **SQG: `tilerows_inrow_if25` inside o1.2, debug job 7853365.** It runs 2 arms
-  (`tilerows_if25` as the same-job baseline, and `tilerows_inrow_if25`) from snapshot
-  `sqg_profile/src_o12inrow_0f9fdd9d`. The user asked for "the resulting wall-clock time for tilerows_inrow_if25".
-  - The current answer is the projection: 0.890 s/step, 48.9 h on 14 A100s. This job replaces it with a
-    measurement.
-  - Prereg `o12run/PREDICTIONS_o12_inrow.md` (committed first at 0f9fdd9d).
-  - **Code:** `tilerows_advance.py` gets the scheme `tilerows_inrow_if<n>` with an FFT-row `hi` hand-off. It is
-    unchanged for the existing schemes.
-  - **Score:** `score_o12_inrow.py --res SQG/analysis/results/polaris_o12tr_7853365`, then update
-    `table_o12_solvers.py` with the measured row.
-  - Table of every arm: `python3 SQG/analysis/opt/o12run/table_o12_solvers.py`.
+- **2026-11-16** — **SQG: `tilerows_inrow_if25` measured inside o1.2, debug job 7853365
+  (`O12TR_JOB_DONE failures=0`): 0.8885 s per optimizer step, 48.9 h on 14 A100s (196 node-h). 6/6 predictions
+  confirmed. Notes Part XVII I.** The user asked for "the resulting wall-clock time for tilerows_inrow_if25".
+  - **Result:** `tilerows_if25`, re-measured in the same job, ran 0.9251 s (51.0 h), so the ratio is 0.960. The
+    projection gave the same ratio and 48.9 h. Its step, 0.8895 s, was 1 ms higher only because it started from
+    option C's 0.9261 baseline. 16 A100s take 42.8 h; 1 node takes 169.4 h.
+  - **Why it matches:** the saving is 36.6 ms per optimizer step. Over 300 solver steps that is 0.122 ms each,
+    exactly the in-tile C2R probe's figure (job 7853317). So nothing else in o1.2 changed.
+  - **Checks:**
+    - The in-situ gate passes: 2.718e-7 / 6.315e-7 at frames 1 / 4, against the if32 twin's 3.413e-7 / 7.645e-7.
+    - Both DLPack paths are `dlpack`.
+    - The losses are within 1e-4 of `tilerows_if25`'s at every epoch.
+    - Peak memory is 20.9 GiB.
+  - **Changed:** `table_o12_solvers.py` now carries the measured row (source 7853365) instead of the projection.
+  - **Run setup:** from snapshot `sqg_profile/src_o12inrow_0f9fdd9d`. Prereg `o12run/PREDICTIONS_o12_inrow.md`,
+    committed first at 0f9fdd9d. Scorer: `score_o12_inrow.py --res SQG/analysis/results/polaris_o12tr_7853365`.
+    The PBS log is in `sqg_profile/logs/`.
+  - **Next:** admission. That means gates A/B/E/D for `tilerows_inrow_if25`, since its rounding differs from
+    `tilerows_if25`'s by 6.7e-8 rel at 40 steps. Gate D runs on capacity, so it is the user's call.
 
 - **2026-11-16** — **SQG: in-tile C2R, the Warp built-ins audit's "up to ~13%" item (candidate 1): WORTH. Debug
   job 7853317 (failures=0): 1.482 vs 1.594 ms/step (−7.0%) at production cuFFT, G32 / GIF pass, 15/15 predictions
