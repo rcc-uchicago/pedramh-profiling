@@ -1,0 +1,114 @@
+#!/bin/bash -l
+#PBS -N sqg_inrow
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# run_inrow_polaris.pbs -- the in-tile C2R step (inrow_step.InRow) vs the tile-row step and the JAX steps, one A100
+# (GPU 0). Predictions + gates: SQG/analysis/opt/inrow/PREDICTIONS_inrow.md (first). Beside run_tilerows_polaris.pbs.
+#   python3 SQG/analysis/opt/stability/snapshot_src.py <snap>                    (from the repo root: freeze the code)
+#   qsub -v INROW_SRC=<snap> -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ \
+#        SQG/analysis/opt/inrow/run_inrow_polaris.pbs
+# 0. test_inrow_math.py + test_tilerows_math.py.  1. inrow_probe.py --tag prod (production cuFFT: deciding).
+# 2. inrow_probe.py --tag cufft114 (cuFFT 11.4.1 preloaded, as job 7840376: report only; skipped if < 10 min remain).
+# End token (every exit path): IR_JOB_DONE failures=N. Results -> SQG/analysis/results/polaris_inrow_<jobid>/.
+set -eo pipefail
+FAILURES=0
+DONE_PRINTED=0
+fail() { echo "ERROR $*"; FAILURES=$((FAILURES + 1)); }
+finish() {
+    rc=$?
+    if [ "$DONE_PRINTED" -eq 0 ]; then
+        [ "$rc" -ne 0 ] && { echo "ERROR IR_JOB_EXIT rc=$rc"; FAILURES=$((FAILURES + 1)); }
+        echo "IR_JOB_DONE failures=$FAILURES"
+    fi
+}
+trap finish EXIT
+cd "${PBS_O_WORKDIR}"
+REPO="${PBS_O_WORKDIR}"
+SRC="${INROW_SRC:-${REPO}}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${SRC}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+export PYTHONUNBUFFERED=1
+WARP_PATH="${WARP_PATH:-${MEMBER_ROOT}/pylibs/warp-1.17.0}"
+NVMATH_PATH="${NVMATH_PATH:-${MEMBER_ROOT}/pylibs/nvmath-1.0.0}"
+TK=/soft/compilers/cudatoolkit/cuda-12.9.1/lib64
+export WARP_CACHE_PATH="${MEMBER_ROOT}/tmp/warp_cache_${JOB}"
+T0=$(date +%s)
+END=$(( T0 + 52 * 60 ))
+OUT="${MEMBER_ROOT}/sqg_profile/inrow_${JOB}"
+RES="${REPO}/SQG/analysis/results/polaris_inrow_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT" "$WARP_CACHE_PATH"
+cd "$SRC"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+if [ "$SRC" != "$REPO" ]; then
+    sha256sum -c --quiet MANIFEST.sha256 || { echo "ERROR IR_SNAPSHOT_MANIFEST"; exit 4; }
+    cp MANIFEST.sha256 GIT_HEAD "$OUT"/
+fi
+HERE=SQG/analysis/opt/inrow
+echo "=== run_inrow on $(hostname) job $JOB: $(date '+%F %T') src=$SRC ==="
+nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee "$OUT/gpu.csv"
+sha256sum "$HERE"/*.py "$HERE"/PREDICTIONS_inrow.md SQG/analysis/opt/tilerows/tilerows_step.py | tee "$OUT/sha256.txt"
+for d in "$WARP_PATH/warp" "$NVMATH_PATH/nvmath"; do
+    [ -d "$d" ] || { echo "ERROR IR_LIB_MISSING $d"; exit 5; }
+done
+LABEL_TAIL="_frozen_ring_NU_B_v2_nu0.0002_B1_mu1_kf3.5_dkf0.5_seed1_N4096_dt5e-06_Tstart0_Tspin20_Tprod1100_save0.0025_pair0.02"
+CKPT="${SQG_TRAINING_ROOT}/trainingdata_m01${LABEL_TAIL}/checkpoint/ckpt_t0100.00.npz"
+[ -s "$CKPT" ] || { echo "ERROR IR_CKPT_NOT_STAGED $CKPT"; exit 5; }
+
+# ---- 0. math tests --------------------------------------------------------------------------------------------------
+"$PY" "$HERE/test_inrow_math.py" 2>&1 | tee "$OUT/test_inrow_math.log" || fail INROW_MATH_TEST
+grep -q "INROW_MATH_TEST_OK" "$OUT/test_inrow_math.log" || fail INROW_MATH_TEST_NO_TOKEN
+"$PY" SQG/analysis/opt/tilerows/test_tilerows_math.py 2>&1 | tee "$OUT/test_tilerows_math.log" || fail TR_MATH_TEST
+grep -q "TILEROWS_MATH_TEST_OK" "$OUT/test_tilerows_math.log" || fail TR_MATH_TEST_NO_TOKEN
+
+# ---- 1-2. the probe, production cuFFT then cuFFT 11.4.1 -------------------------------------------------------------
+probe() {                                              # $1 tag, $2 LD_PRELOAD, $3 deadline (epoch s)
+    set +e
+    LD_PRELOAD="$2" "$PY" "$HERE/inrow_probe.py" --out "$OUT" --tag "$1" --ckpt "1:${CKPT}" \
+        --warp-path "$WARP_PATH" --nvmath-path "$NVMATH_PATH" --deadline "$3" > "$OUT/inrow_probe_$1.log" 2>&1
+    rc=$?
+    set -e
+    [ "$rc" = "0" ] || fail "IR_PROBE_RC tag=$1 rc=$rc"
+    grep -q "IR_PROBE_DONE failures=0" "$OUT/inrow_probe_$1.log" || fail "IR_PROBE_NOT_CLEAN tag=$1"
+    grep -E "^(IR_|ERROR)" "$OUT/inrow_probe_$1.log" || true
+}
+if [ "$FAILURES" = "0" ]; then
+    echo "=== pass prod (production cuFFT): $(date '+%F %T')"
+    probe prod "" $(( T0 + 36 * 60 ))
+    if [ $(( END - $(date +%s) )) -gt 600 ]; then
+        echo "=== pass cufft114 (cuFFT 11.4.1 preloaded, report only): $(date '+%F %T')"
+        probe cufft114 "$TK/libnvJitLink.so.12:$TK/libcufft.so.11" "$END"
+    else
+        echo "IR_PASS_SKIPPED cufft114 (less than 10 min left)"
+    fi
+    "$PY" "$HERE/score_inrow.py" "$OUT/inrow_probe_prod.json" 2>&1 | tee "$OUT/score_inrow.log" || fail IR_SCORE
+else
+    echo "ERROR IR_PROBE_SKIPPED (math tests failed)"
+fi
+
+for f in "$OUT"/inrow_probe_*.json "$OUT"/*.log "$OUT"/gpu.csv "$OUT"/sha256.txt "$OUT"/MANIFEST.sha256 "$OUT"/GIT_HEAD; do
+    if [ -e "$f" ]; then cp "$f" "$RES"/ || fail "IR_COPY $f"; fi
+done
+echo "=== end $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+DONE_PRINTED=1
+echo "IR_JOB_DONE failures=$FAILURES"
