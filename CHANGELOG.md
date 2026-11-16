@@ -126,8 +126,9 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     - CUDA graph: 1.467 vs 1.578 ms. The cuFFT 11.4.1 pass gives ratio 0.927.
   - **Do not re-try:** W's FFT before θ's in that kernel. It is bit-identical but 8.8% slower (register pressure).
     Block 512 is slower too.
-  - **o1.2 projection (not measured):** 300 solver steps per optimizer step → ≈ −34 ms of 0.926 s (−3.6%). The
-    14-A100 schedule goes 50.9 → ≈ 49 h.
+  - **o1.2 projection (not measured; `inrow/project_o12_inrow.py`):** the IF arms save 0.122 ms per solver step ×
+    300 per optimizer step, so 0.926 → ≈ 0.890 s (−4.0%). The 14-A100 schedule (o1.2's global batch 224) goes
+    50.9 → **48.9 h** (196 node-h); 16 A100s 42.8 h; 1 node 169.6 h.
   - **Owed:** the o1.2 arm and its timing (debug), then gates A/B/E/D (D on capacity = the user's call).
   - **Run setup:** from snapshot `sqg_profile/src_inrow_0d1ac0ed`.
   - **Design** (`SQG/analysis/opt/inrow/inrow_step.py`):

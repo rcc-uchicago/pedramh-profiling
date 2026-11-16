@@ -3139,9 +3139,18 @@ step, at the same accuracy. That sits at the audit estimate's middle (−0.11 of
 - P9 WORTH (0.5) and P10 ≤ 0.93 (0.3) both hit. The ratio, 0.9295, cleared P10's 0.93 by 0.0005.
 - P11: the row kernel took 0.418 ms, inside 0.33–0.45.
 
-**What it means for o1.2** *(projection, not measured)*:
-- `tilerows_if25` runs 12 frames × 25 = 300 solver steps per optimizer step. At −0.112 ms each that is −34 ms of
-  0.926 s (option C, F): ≈ 0.892 s/step (−3.6%), and the 14-A100 schedule 50.9 → ≈ 49.0 h.
+**What it means for o1.2** *(projection, not measured; `inrow/project_o12_inrow.py`)*:
+- `tilerows_if25` runs 12 frames × 25 = 300 solver steps per optimizer step. The IF arms' saving is 0.122 ms per
+  step (1.592 → 1.470), so −37 ms of 0.926 s (option C, F): ≈ 0.890 s/step (−4.0%). The rest is option C's
+  `o12_extrapolate.py` formula, unchanged.
+
+  | configuration | `tilerows_if25` (F, measured pieces) | `tilerows_inrow_if25` (projected) |
+  |---|---|---|
+  | 14 A100s (4 nodes, o1.2's global batch 224) | 50.9 h | **48.9 h** (196 node-h) |
+  | 16 A100s (4 nodes) | 44.6 h | 42.8 h |
+  | 4 A100s (1 node) | 176.6 h | 169.6 h |
+
+  The lean32ek-numerics arms' saving (0.112 ms) gives 49.1 h; cuFFT 11.4.1 gives 49.0 h.
 - The ML step (≈ 0.42 s) is now about half of o1.2's step, so solver gains shrink at the o1.2 level.
 - **Next (prereg):** a `tilerows_inrow_if25` arm in `o12run/tilerows_advance.py`, timed inside o1.2 with option C's
   harness on debug. Then the full gate battery A/B/E/D, because the rounding differs from `tilerows_if25`'s
