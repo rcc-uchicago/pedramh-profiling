@@ -144,8 +144,8 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   - **Probe 1 failure:** `test_mixprec.py`'s GPU-only branch re-viewed a strided slice as uint32. Fixed (test only;
     rules unchanged) and its numpy lines exercised on the login node with emulated torch rounding.
     - Snapshot `sqg_profile/src_mixprec_8b3e5dbb` is ready.
-    - Not resubmitted: `debug` (7859334) and `debug-scaling` (7859333) each held another session's waiting job, and
-      capacity needs the user's go-ahead.
+    - **Resubmitted as debug 7859359** (the user's go-ahead, once 7859334 was running). Score with
+      `score_mixprec.py --p1 SQG/analysis/results/polaris_mpab_7859359 --p2 SQG/analysis/results/polaris_o12tr_7854382`.
   - **Also:** `table_trgateD.py` gains `--job / --doses / --pattern`; its defaults reproduce job 7843532's tables
     byte for byte.
   - **Results:** `polaris_trgateD_7854209/` (logs, histories, summaries, score, tables), `polaris_o12tr_7854382/`,
