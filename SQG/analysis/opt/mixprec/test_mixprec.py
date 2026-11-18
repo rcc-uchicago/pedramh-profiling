@@ -61,6 +61,12 @@ def test_numpy():
     assert abs(MP.projected_ms(fr, 1.47) - 0.3675) < 1e-12
 
 
+def bits(a):
+    """The bit pattern of a complex64 array as uint32 (copied contiguous first: numpy cannot re-view a strided slice
+    as a smaller dtype -- job 7854381 died on exactly that, in this GPU-only branch)."""
+    return np.ascontiguousarray(a, dtype=np.complex64).view(np.uint32)
+
+
 def test_torch():
     import torch
     if not torch.cuda.is_available():
@@ -74,12 +80,12 @@ def test_torch():
         idx = torch.as_tensor(np.arange(0, C, 2), device="cuda")
         MP.torch_round_cols_(X, idx, fmt)
         got = X.cpu().numpy()
-        assert np.array_equal(got[:, 1::2].view(np.uint32), z[:, 1::2].view(np.uint32)), f"{fmt}: untouched columns"
+        assert np.array_equal(bits(got[:, 1::2]), bits(z[:, 1::2])), f"{fmt}: untouched columns"
         sel = z[:, 0::2]
         r = np.stack([sel.real, sel.imag], 1)                          # (R, 2, m): np_round's column = last axis
         want = MP.np_round(r, fmt)
         want = (want[:, 0] + 1j * want[:, 1]).astype(np.complex64)
-        assert np.array_equal(got[:, 0::2].view(np.uint32), want.view(np.uint32)), f"{fmt}: torch != numpy"
+        assert np.array_equal(bits(got[:, 0::2]), bits(want)), f"{fmt}: torch != numpy"
     b = MP.buckets(torch.as_tensor(np.linspace(1e-30, 1.0, 100), device="cuda").double(), 1.0)
     assert b.dtype == torch.int64 and int(b.max()) == 2 and int(b[-1]) == 0
     return f"ok ({torch.__version__})"
