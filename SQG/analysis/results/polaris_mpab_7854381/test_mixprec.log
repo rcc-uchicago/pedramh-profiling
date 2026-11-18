@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_mixprec_ee51c7f4/SQG/analysis/opt/mixprec/test_mixprec.py", line 94, in <module>
+    main()
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_mixprec_ee51c7f4/SQG/analysis/opt/mixprec/test_mixprec.py", line 90, in main
+    print(f"MIXPREC_TEST_OK torch={test_torch() if 'torch' in sys.argv[1:] or os.environ.get('MIXPREC_TORCH') else 'not run'}")
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_mixprec_ee51c7f4/SQG/analysis/opt/mixprec/test_mixprec.py", line 77, in test_torch
+    assert np.array_equal(got[:, 1::2].view(np.uint32), z[:, 1::2].view(np.uint32)), f"{fmt}: untouched columns"
+ValueError: To change to a dtype of a different size, the last axis must be contiguous

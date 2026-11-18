@@ -3171,3 +3171,89 @@ the projection (`inrow/project_o12_inrow.py`).
 - **Next: admission.** The full gate battery A/B/E/D for `tilerows_inrow_if25` is needed, because its rounding
   differs from `tilerows_if25`'s (6.7e-8 rel at 40 steps, the size of float32 FFT rounding). Gate D runs on
   capacity, so it is the user's call.
+
+## J. Gates A, B, E and D for `tilerows_inrow_if25` (jobs 7854208, 7854210, 7854209; 2026-11-16 to 11-18)
+
+The user asked: "okay run it on capacity for gates A-D".
+- **Rules:** the `tilerows_if25` battery's gates, thresholds and production reference, unchanged
+  (`tilegates/PREDICTIONS_gates_inrow.md`, committed first at 29eeca11). `tilerows_if25` ran beside the candidate as
+  the reported arm.
+- **Queues:** A/B and D on capacity (it allows 2 queued and 1 running job per project); E on debug-scaling.
+- **D's doses were read when it started** from A/B's results (`doses_from_trab.py`, same rule):
+  R = 1.0798 → **930 / 9,300**.
+
+**Verdicts.** Every job ended `failures=0`.
+
+| gate | `tilerows_inrow_if25` | `tilerows_if25`, same job (A/B, E) or Part XVII H (D) |
+|---|---|---|
+| A/B validity | V_frames 64/64, sealed 72/72, floor matches | same |
+| A | **PASS**, max Var(e)/A_b 5.29e-7 | PASS, 5.27e-7 |
+| B | **NOT_PASS on detection only**: B3 in k2-4 (4/6 shells) and k4-8 (1/20 shells, 0.050 vs 0.035); B1 / B2 / power hold everywhere (tightest bias 1/96 of T_b) | k2-4 only |
+| bias size R (vs `lean32ek`) | 1.0798 | 1.1643 |
+| E | **PASS_E**, max \|s\| SPE 1.971e-5, VIE 2.400e-6; 1.659 ms/step | PASS_E, 1.959e-5 / 2.397e-6; 1.699 ms/step |
+| D (best.pt) | **PASS_D, 62× margin** (tightest k8-16, 15–20 TU) | PASS_D, 25× |
+| D (last.pt) | PASS_D, 72× margin (k8-16, 10–15 TU) | PASS_D, 23× |
+
+**Gate D detail** (`table_trgateD.py --job polaris_trgateD_7854209 --doses 930,9300 --pattern
+bias_pattern_tilerows_inrow_if25.json`; tables in the results dir):
+- **No overfitting:** final / min val ≤ 1.0031 in every arm (limit 1.10). No rollout blew up.
+- **The positive control has power:** |D_9300| > N in 47/90 cells (best) and 52/90 (last).
+- **Cost:** training took 100,750 s; the job took 101,654 s (28.2 h on one node).
+- **Caveat (as Part XVII H):** N comes from one α = 0 seed pair, and same-seed training is not bitwise reproducible.
+  So N understates the noise, which makes the rule stricter, and a PASS stays valid. The margins of two jobs
+  (62× / 72× here, 25× / 23× there) are not directly comparable.
+
+**Other findings.**
+- The `tilerows_if25` re-run reproduces job 7841299's gate A/B dicts exactly, and job 7841269's energy numbers
+  digit for digit.
+- Accuracy against ref160 is 0.974–1.026× `tilerows_if25`'s.
+- The in-row bias estimate is 7% smaller (rms B̂ 2.06e-7 vs 2.22e-7).
+
+**Scored** (`score_gates_inrow.py`): **13 confirmed, 4 refuted.**
+- A4 and A5 assumed the same B3 bands as `tilerows_if25`; the extra k4-8 shell refutes both.
+- A6 (R within ±2%) and A7 (doses 860) were refuted by R's −7%.
+
+**What it means.** `tilerows_inrow_if25` meets the same bar `tilerows_if25` met: A PASS, B detection-only, E PASS_E,
+D PASS_D. Admitting it to generate o1.2's training data is the user's call. It saves 7% per solver step (Part XVII
+I): 48.9 h against 50.9 h on 14 A100s.
+
+## K. Mixed precision with `tilerows_inrow_if25` (jobs 7854382, 7854381; 2026-11-16)
+
+The user asked about adaptive mixed precision, "as it chooses between types but avoids error and has been applied
+in Cholesky factorization", then: "yes do both probes, use tilerows_inrow_if25 as the solves for these probes".
+Prereg: `mixprec/PREDICTIONS_mixprec.md` (ee51c7f4). Nothing is admitted by these probes.
+
+**Probe 2: the network's precision inside o1.2** (debug-scaling 7854382, `O12TR_JOB_DONE failures=0`). The knobs are
+option C's (batch 16, 4 × 30 steps); the solver is `tilerows_inrow_if25`; `O12_PREC` is set through two
+line-count-keeping patches.
+
+| network | s / opt step | vs ieee | peak GPU memory | 1 node, 4 A100 (h) | 14 A100s (h) |
+|---|---|---|---|---|---|
+| ieee (o1.2's strict FP32) | 0.8888 | — | 20.9 GiB | 170.4 | 49.2 |
+| tf32 (matmul + cuDNN conv) | 0.8088 | **−9.0%** | 21.0 GiB | 154.3 | 44.6 |
+| bf16 autocast (training forward) | 0.7882 | **−11.3%** | 12.2 GiB | 150.4 | 43.5 |
+
+- The ieee arm re-measures job 7853365 to 0.03% (0.8888 vs 0.8885).
+- **The ML step's own share:** a frame of solver work is s_frame ≈ 0.0387 s, 12 per optimizer step, so the ML step
+  ≈ s_step − 12 s_frame. That is 0.424 s (ieee), 0.345 s (tf32, **−19%**) and 0.325 s (bf16, **−23%**). This is an
+  estimate: it assumes the solver and the network run serially (the split behind Part XVII I's "≈ 0.42 s").
+- **Why not more:** the UViT step is not dominated by tensor-core GEMMs. Depthwise convolutions, norms and
+  elementwise work are memory-bound, so tensor cores' 8× (TF32) to 16× (bf16) peak shows up as ~20%.
+- **Information only:** the losses over 120 steps match ieee to the 3rd–4th digit.
+- **Scored:** 5 confirmed, **M2 refuted.** M2 asked for the bf16 forward's output dtype to be `bfloat16`; it logged
+  float32. The model returns `x + net(x)` with x in float32, so the sum promotes to float32 whatever net computes.
+  The check could not show bf16, a flaw in the prediction's design. bf16 *was* active: peak memory fell from 20.9 to
+  12.2 GiB. The prediction stays refuted as written.
+- **The user's call:** any of these changes the trained model, and o1.2 pins strict FP32 on purpose. They would need
+  a training-outcome comparison, not these gates.
+
+**Probe 1: 16-bit storage in the solver** (debug 7854381): **died in its stage-0 self-test, no arm ran**
+(`MPAB_JOB_DONE failures=3`).
+- **Cause:** a bug in `test_mixprec.py`'s GPU branch. `got[:, 1::2].view(np.uint32)` re-views a strided complex64
+  slice as a smaller dtype, and numpy refuses. That branch needs CUDA, so the login-node run never reached it.
+- **Fix, test only** (8b3e5dbb): `bits()` copies to a contiguous array first. The GPU branch's numpy lines now pass
+  on the login node with the torch rounding emulated.
+- **Lesson** (second time, after gate D's bdcaab2f): exercise a GPU-only test branch before the job; emulate its
+  numpy lines when the login node has no GPU.
+- **Status:** snapshot `src_mixprec_8b3e5dbb` is ready. Both debug queues held another session's waiting jobs at
+  this writing, so it is not resubmitted yet.

@@ -1,0 +1,552 @@
+{
+ "formula": "see module docstring",
+ "ddp_xnode_s": 0.005,
+ "solvers": {
+  "tilerows_inrow_if25": {
+   "parsed": {
+    "knobs": {
+     "BUF": 16384.0,
+     "BATCH": 16.0,
+     "N_EPOCH": 4.0,
+     "N_VAL": 64.0,
+     "STEPS_PER_EPOCH": 30.0,
+     "START_PAIRS": 600.0
+    },
+    "epochs": [
+     {
+      "epoch": 0,
+      "train": 0.0861,
+      "val": 0.059,
+      "persistence": 0.0776,
+      "s_step": 0.991,
+      "seconds": 30
+     },
+     {
+      "epoch": 1,
+      "train": 0.0634,
+      "val": 0.0575,
+      "persistence": 0.0776,
+      "s_step": 0.889,
+      "seconds": 27
+     },
+     {
+      "epoch": 2,
+      "train": 0.057,
+      "val": 0.0587,
+      "persistence": 0.0776,
+      "s_step": 0.889,
+      "seconds": 27
+     },
+     {
+      "epoch": 3,
+      "train": 0.0548,
+      "val": 0.0583,
+      "persistence": 0.0776,
+      "s_step": 0.889,
+      "seconds": 27
+     }
+    ],
+    "o12_epochs": [
+     {
+      "epoch": 0.0,
+      "steps": 30.0,
+      "step_median": 0.8885,
+      "step_p10": 0.888,
+      "step_p90": 0.8891,
+      "train_s": 29.7,
+      "val_s": 0.58,
+      "save_last_s": 0.76,
+      "solver": "tilerows_inrow_if25"
+     },
+     {
+      "epoch": 1.0,
+      "steps": 30.0,
+      "step_median": 0.8886,
+      "step_p10": 0.888,
+      "step_p90": 0.8891,
+      "train_s": 26.7,
+      "val_s": 0.29,
+      "save_last_s": 0.87,
+      "solver": "tilerows_inrow_if25"
+     },
+     {
+      "epoch": 2.0,
+      "steps": 30.0,
+      "step_median": 0.8888,
+      "step_p10": 0.8883,
+      "step_p90": 0.8894,
+      "train_s": 26.7,
+      "val_s": 0.29,
+      "save_last_s": 0.74,
+      "solver": "tilerows_inrow_if25"
+     },
+     {
+      "epoch": 3.0,
+      "steps": 30.0,
+      "step_median": 0.8889,
+      "step_p10": 0.8882,
+      "step_p90": 0.8894,
+      "train_s": 26.7,
+      "val_s": 0.29,
+      "save_last_s": 0.74,
+      "solver": "tilerows_inrow_if25"
+     }
+    ],
+    "saves_best": [
+     0.71,
+     0.71
+    ],
+    "resumes": [],
+    "world_size": 4,
+    "device": "NVIDIA A100-SXM4-40GB",
+    "fill": {
+     "pairs": 621.0,
+     "frames": 721.0,
+     "seconds": 43.7,
+     "load_s": 2.7,
+     "s_per_frame_steady": 0.03876,
+     "solver": "tilerows_inrow_if25"
+    },
+    "bitwise": {
+     "solver": "tilerows_inrow_if25",
+     "frames_per_rank": 4.0,
+     "max_abs_diff": 0.2156,
+     "verdict": "INFO"
+    },
+    "filled": {
+     "pairs": 621,
+     "segments": 1,
+     "seconds": 44
+    },
+    "params": 40.81,
+    "peak": 20.9,
+    "best_val": 0.0575,
+    "phases": {
+     "solver": "tilerows_inrow_if25",
+     "startup_to_fill_done_s": 95.6,
+     "total_s": 212.2
+    },
+    "run_done": true
+   },
+   "pieces": {
+    "s_step": 0.8888,
+    "s_step_o12_epoch": 0.889,
+    "s_frame": 0.03876,
+    "t_load": 2.7,
+    "t_val": 0.29,
+    "t_save_last": 0.74,
+    "t_save_best": 0.71,
+    "batch": 16.0,
+    "world_size": 4,
+    "n_val_run": 64.0,
+    "t_init": 51.89999999999999,
+    "val_batches_run": 1
+   },
+   "projections": {
+    "1 node, 4 GPUs, batch 16": {
+     "steps": 683500,
+     "terms_s": {
+      "init": 51.89999999999999,
+      "fill": 766.4270400000001,
+      "steps": 607494.8,
+      "epoch_overhead": 652.5,
+      "segment_loads": 4430.700000000001
+     },
+     "hours": 170.38786862222221,
+     "node_hours": 170.38786862222221,
+     "gpu_hours": 681.5514744888889
+    },
+    "4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)": {
+     "steps": 195250,
+     "terms_s": {
+      "init": 51.89999999999999,
+      "fill": 766.4270400000001,
+      "steps": 174514.45,
+      "epoch_overhead": 435.0,
+      "segment_loads": 1266.3000000000002
+     },
+     "hours": 49.17613251111111,
+     "node_hours": 196.70453004444445,
+     "gpu_hours": 688.4658551555556
+    },
+    "4 nodes, 16 GPUs, batch 16": {
+     "steps": 170750,
+     "terms_s": {
+      "init": 51.89999999999999,
+      "fill": 766.4270400000001,
+      "steps": 152616.35,
+      "epoch_overhead": 435.0,
+      "segment_loads": 1107.0
+     },
+     "hours": 43.049076955555556,
+     "node_hours": 172.19630782222222,
+     "gpu_hours": 688.7852312888889
+    }
+   }
+  },
+  "tilerows_inrow_if25_tf32": {
+   "parsed": {
+    "knobs": {
+     "BUF": 16384.0,
+     "BATCH": 16.0,
+     "N_EPOCH": 4.0,
+     "N_VAL": 64.0,
+     "STEPS_PER_EPOCH": 30.0,
+     "START_PAIRS": 600.0
+    },
+    "epochs": [
+     {
+      "epoch": 0,
+      "train": 0.0861,
+      "val": 0.059,
+      "persistence": 0.0776,
+      "s_step": 0.839,
+      "seconds": 26
+     },
+     {
+      "epoch": 1,
+      "train": 0.0634,
+      "val": 0.0575,
+      "persistence": 0.0776,
+      "s_step": 0.81,
+      "seconds": 25
+     },
+     {
+      "epoch": 2,
+      "train": 0.057,
+      "val": 0.0587,
+      "persistence": 0.0776,
+      "s_step": 0.809,
+      "seconds": 25
+     },
+     {
+      "epoch": 3,
+      "train": 0.0548,
+      "val": 0.0582,
+      "persistence": 0.0776,
+      "s_step": 0.809,
+      "seconds": 24
+     }
+    ],
+    "o12_epochs": [
+     {
+      "epoch": 0.0,
+      "steps": 30.0,
+      "step_median": 0.8087,
+      "step_p10": 0.8082,
+      "step_p90": 0.8098,
+      "train_s": 25.2,
+      "val_s": 0.47,
+      "save_last_s": 0.78,
+      "solver": "tilerows_inrow_if25"
+     },
+     {
+      "epoch": 1.0,
+      "steps": 30.0,
+      "step_median": 0.8088,
+      "step_p10": 0.8081,
+      "step_p90": 0.8093,
+      "train_s": 24.3,
+      "val_s": 0.23,
+      "save_last_s": 0.76,
+      "solver": "tilerows_inrow_if25"
+     },
+     {
+      "epoch": 2.0,
+      "steps": 30.0,
+      "step_median": 0.8092,
+      "step_p10": 0.8086,
+      "step_p90": 0.8097,
+      "train_s": 24.3,
+      "val_s": 0.23,
+      "save_last_s": 0.77,
+      "solver": "tilerows_inrow_if25"
+     },
+     {
+      "epoch": 3.0,
+      "steps": 30.0,
+      "step_median": 0.8088,
+      "step_p10": 0.808,
+      "step_p90": 0.8096,
+      "train_s": 24.3,
+      "val_s": 0.23,
+      "save_last_s": 0.76,
+      "solver": "tilerows_inrow_if25"
+     }
+    ],
+    "saves_best": [
+     0.87,
+     0.72
+    ],
+    "resumes": [],
+    "world_size": 4,
+    "device": "NVIDIA A100-SXM4-40GB",
+    "fill": {
+     "pairs": 621.0,
+     "frames": 721.0,
+     "seconds": 33.2,
+     "load_s": 0.7,
+     "s_per_frame_steady": 0.03868,
+     "solver": "tilerows_inrow_if25"
+    },
+    "bitwise": {
+     "solver": "tilerows_inrow_if25",
+     "frames_per_rank": 4.0,
+     "max_abs_diff": 0.2156,
+     "verdict": "INFO"
+    },
+    "filled": {
+     "pairs": 621,
+     "segments": 1,
+     "seconds": 33
+    },
+    "params": 40.81,
+    "peak": 21.0,
+    "best_val": 0.0575,
+    "phases": {
+     "solver": "tilerows_inrow_if25",
+     "startup_to_fill_done_s": 45.9,
+     "total_s": 150.3
+    },
+    "run_done": true
+   },
+   "pieces": {
+    "s_step": 0.8088,
+    "s_step_o12_epoch": 0.809,
+    "s_frame": 0.03868,
+    "t_load": 0.7,
+    "t_val": 0.23,
+    "t_save_last": 0.76,
+    "t_save_best": 0.7949999999999999,
+    "batch": 16.0,
+    "world_size": 4,
+    "n_val_run": 64.0,
+    "t_init": 12.699999999999996,
+    "val_batches_run": 1
+   },
+   "projections": {
+    "1 node, 4 GPUs, batch 16": {
+     "steps": 683500,
+     "terms_s": {
+      "init": 12.699999999999996,
+      "fill": 762.85072,
+      "steps": 552814.7999999999,
+      "epoch_overhead": 618.75,
+      "segment_loads": 1148.6999999999998
+     },
+     "hours": 154.26605575555553,
+     "node_hours": 154.26605575555553,
+     "gpu_hours": 617.0642230222221
+    },
+    "4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)": {
+     "steps": 195250,
+     "terms_s": {
+      "init": 12.699999999999996,
+      "fill": 762.85072,
+      "steps": 158894.44999999998,
+      "epoch_overhead": 446.25,
+      "segment_loads": 328.29999999999995
+     },
+     "hours": 44.567930755555544,
+     "node_hours": 178.27172302222218,
+     "gpu_hours": 623.9510305777776
+    },
+    "4 nodes, 16 GPUs, batch 16": {
+     "steps": 170750,
+     "terms_s": {
+      "init": 12.699999999999996,
+      "fill": 762.85072,
+      "steps": 138956.35,
+      "epoch_overhead": 446.25,
+      "segment_loads": 287.0
+     },
+     "hours": 39.018097422222226,
+     "node_hours": 156.0723896888889,
+     "gpu_hours": 624.2895587555556
+    }
+   }
+  },
+  "tilerows_inrow_if25_bf16": {
+   "parsed": {
+    "knobs": {
+     "BUF": 16384.0,
+     "BATCH": 16.0,
+     "N_EPOCH": 4.0,
+     "N_VAL": 64.0,
+     "STEPS_PER_EPOCH": 30.0,
+     "START_PAIRS": 600.0
+    },
+    "epochs": [
+     {
+      "epoch": 0,
+      "train": 0.0862,
+      "val": 0.059,
+      "persistence": 0.0776,
+      "s_step": 0.835,
+      "seconds": 26
+     },
+     {
+      "epoch": 1,
+      "train": 0.0636,
+      "val": 0.0575,
+      "persistence": 0.0776,
+      "s_step": 0.789,
+      "seconds": 24
+     },
+     {
+      "epoch": 2,
+      "train": 0.0572,
+      "val": 0.0585,
+      "persistence": 0.0776,
+      "s_step": 0.788,
+      "seconds": 24
+     },
+     {
+      "epoch": 3,
+      "train": 0.0549,
+      "val": 0.0581,
+      "persistence": 0.0776,
+      "s_step": 0.788,
+      "seconds": 24
+     }
+    ],
+    "o12_epochs": [
+     {
+      "epoch": 0.0,
+      "steps": 30.0,
+      "step_median": 0.7881,
+      "step_p10": 0.7875,
+      "step_p90": 0.7889,
+      "train_s": 25.0,
+      "val_s": 0.59,
+      "save_last_s": 0.77,
+      "solver": "tilerows_inrow_if25"
+     },
+     {
+      "epoch": 1.0,
+      "steps": 30.0,
+      "step_median": 0.7885,
+      "step_p10": 0.7877,
+      "step_p90": 0.7896,
+      "train_s": 23.7,
+      "val_s": 0.28,
+      "save_last_s": 0.77,
+      "solver": "tilerows_inrow_if25"
+     },
+     {
+      "epoch": 2.0,
+      "steps": 30.0,
+      "step_median": 0.7882,
+      "step_p10": 0.7875,
+      "step_p90": 0.7888,
+      "train_s": 23.7,
+      "val_s": 0.28,
+      "save_last_s": 0.74,
+      "solver": "tilerows_inrow_if25"
+     },
+     {
+      "epoch": 3.0,
+      "steps": 30.0,
+      "step_median": 0.788,
+      "step_p10": 0.7875,
+      "step_p90": 0.789,
+      "train_s": 23.6,
+      "val_s": 0.28,
+      "save_last_s": 0.74,
+      "solver": "tilerows_inrow_if25"
+     }
+    ],
+    "saves_best": [
+     0.85,
+     0.71
+    ],
+    "resumes": [],
+    "world_size": 4,
+    "device": "NVIDIA A100-SXM4-40GB",
+    "fill": {
+     "pairs": 621.0,
+     "frames": 721.0,
+     "seconds": 33.1,
+     "load_s": 0.7,
+     "s_per_frame_steady": 0.03858,
+     "solver": "tilerows_inrow_if25"
+    },
+    "bitwise": {
+     "solver": "tilerows_inrow_if25",
+     "frames_per_rank": 4.0,
+     "max_abs_diff": 0.2156,
+     "verdict": "INFO"
+    },
+    "filled": {
+     "pairs": 621,
+     "segments": 1,
+     "seconds": 33
+    },
+    "params": 40.81,
+    "peak": 12.2,
+    "best_val": 0.0575,
+    "phases": {
+     "solver": "tilerows_inrow_if25",
+     "startup_to_fill_done_s": 44.7,
+     "total_s": 147.2
+    },
+    "run_done": true
+   },
+   "pieces": {
+    "s_step": 0.7882,
+    "s_step_o12_epoch": 0.788,
+    "s_frame": 0.03858,
+    "t_load": 0.7,
+    "t_val": 0.28,
+    "t_save_last": 0.74,
+    "t_save_best": 0.78,
+    "batch": 16.0,
+    "world_size": 4,
+    "n_val_run": 64.0,
+    "t_init": 11.600000000000001,
+    "val_batches_run": 1
+   },
+   "projections": {
+    "1 node, 4 GPUs, batch 16": {
+     "steps": 683500,
+     "terms_s": {
+      "init": 11.600000000000001,
+      "fill": 760.8803200000001,
+      "steps": 538734.7,
+      "epoch_overhead": 660.0,
+      "segment_loads": 1148.6999999999998
+     },
+     "hours": 150.36552231111108,
+     "node_hours": 150.36552231111108,
+     "gpu_hours": 601.4620892444443
+    },
+    "4 nodes, 14 GPUs, batch 16 (o1.2's global batch 224)": {
+     "steps": 195250,
+     "terms_s": {
+      "init": 11.600000000000001,
+      "fill": 760.8803200000001,
+      "steps": 154872.30000000002,
+      "epoch_overhead": 450.0,
+      "segment_loads": 328.29999999999995
+     },
+     "hours": 43.450855644444445,
+     "node_hours": 173.80342257777778,
+     "gpu_hours": 608.3119790222222
+    },
+    "4 nodes, 16 GPUs, batch 16": {
+     "steps": 170750,
+     "terms_s": {
+      "init": 11.600000000000001,
+      "fill": 760.8803200000001,
+      "steps": 135438.9,
+      "epoch_overhead": 450.0,
+      "segment_loads": 287.0
+     },
+     "hours": 38.04121675555555,
+     "node_hours": 152.1648670222222,
+     "gpu_hours": 608.6594680888888
+    }
+   }
+  }
+ }
+}

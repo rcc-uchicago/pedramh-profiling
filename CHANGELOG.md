@@ -114,6 +114,43 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-18** — **SQG: `tilerows_inrow_if25` passes the full gate battery: gate D capacity job 7854209
+  (`DOSE_JOB_DONE failures=0`) is PASS_D on best.pt (62× margin) and last.pt (72×). With A PASS, B detection-only and
+  E PASS_E (11-16), the battery scores 13 confirmed / 4 refuted. Mixed-precision probe 2 (7854382): tf32 −9.0%,
+  bf16 −11.3% of o1.2's step. Probe 1 (7854381) died in its own self-test; fixed (8b3e5dbb), awaiting a queue slot.
+  Notes Part XVII J, K.**
+  - **Gate D** (doses 930 / 9,300, read from A/B's results when it started):
+    - tightest window k8-16, real effect ≤ 1/62 of 0.1 N (best) and 1/72 (last);
+    - no overfitting (final / min ≤ 1.0031); no rollout blew up; the 9,300 positive control drifts in 47/90 and
+      52/90 cells;
+    - 28.2 h on one node.
+    - `tilerows_if25`'s margins were 25× / 23×. N comes from one seed pair, so the two jobs' margins are not
+      directly comparable (Part XVII H's caveat).
+  - **Scored** (`score_gates_inrow.py`): 13 confirmed; refuted A4–A7 (the extra k4-8 B3 shell; R −7% → doses 930).
+    **Admitting `tilerows_inrow_if25` is the user's call**: it saves 7% per solver step, 48.9 h vs 50.9 h on 14 A100s.
+  - **Probe 2** (`O12_PREC`, solver `tilerows_inrow_if25`, 4 A100s, batch 16):
+
+    | network | s / step | 1 node (h) | 14 A100s (h) |
+    |---|---|---|---|
+    | ieee (o1.2's own) | 0.8888 | 170.4 | 49.2 |
+    | tf32 | 0.8088 (−9.0%) | 154.3 | 44.6 |
+    | bf16 autocast | 0.7882 (−11.3%) | 150.4 | 43.5 |
+
+    - The ML step alone shrinks ~19% (tf32) and ~23% (bf16), an estimate from s_step − 12 s_frame. The UViT step is
+      mostly memory-bound work, not tensor-core GEMMs.
+    - Scored 5 confirmed, **M2 refuted**: its dtype check could not show bf16 (`x + net(x)` promotes to float32).
+      bf16 was active: peak memory 20.9 → 12.2 GiB.
+    - Adopting tf32 / bf16 changes the trained model: the user's call, behind a training-outcome comparison.
+  - **Probe 1 failure:** `test_mixprec.py`'s GPU-only branch re-viewed a strided slice as uint32. Fixed (test only;
+    rules unchanged) and its numpy lines exercised on the login node with emulated torch rounding.
+    - Snapshot `sqg_profile/src_mixprec_8b3e5dbb` is ready.
+    - Not resubmitted: `debug` (7859334) and `debug-scaling` (7859333) each held another session's waiting job, and
+      capacity needs the user's go-ahead.
+  - **Also:** `table_trgateD.py` gains `--job / --doses / --pattern`; its defaults reproduce job 7843532's tables
+    byte for byte.
+  - **Results:** `polaris_trgateD_7854209/` (logs, histories, summaries, score, tables), `polaris_o12tr_7854382/`,
+    `polaris_mpab_7854381/` (the failing self-test log and the PBS output).
+
 - **2026-11-16** — **SQG: `inrow/inrow_step.py` (the `tilerows_inrow_if25` solver) fully documented. No code change:
   the docstring-stripped AST is identical to the previous commit's.** The user asked for docstrings and comments on
   what each line and function does, the maths, and which kernel represents it.
@@ -134,7 +171,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     once.
   - `test_inrow_math.py` passes. Queued jobs run from their own snapshots, so none is affected.
 
-- **2026-11-16 (in progress)** — **SQG: mixed-precision probes with `tilerows_inrow_if25`. Probe 1 (16-bit storage
+- **2026-11-16 (probe 2 done, probe 1 failed and fixed; see the 2026-11-18 entry)** — **SQG: mixed-precision probes with `tilerows_inrow_if25`. Probe 1 (16-bit storage
   in the solver) = debug 7854381; probe 2 (the network's precision in o1.2) = debug-scaling 7854382. Snapshot
   `sqg_profile/src_mixprec_ee51c7f4`.**
   - **Ask:** the user asked about "adaptive mixed precision … applied in cholesky factorization". My reading: the
@@ -161,7 +198,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     - Login checks: `test_mixprec.py` (numpy part), `test_o12run.py` (36 patches), `test_tilerows_advance.py`, and
       `analyze_mixprec.py` on job 7854208 (64/64 V_wrap against itself, PASS).
 
-- **2026-11-16 (in progress)** — **SQG: gates A, B, E and D for `tilerows_inrow_if25`. Jobs: A/B 7854208
+- **2026-11-16 (done 2026-11-18; see that entry)** — **SQG: gates A, B, E and D for `tilerows_inrow_if25`. Jobs: A/B 7854208
   (capacity), D 7854209 (capacity, held on A/B), E 7854210 (debug-scaling). Snapshot
   `sqg_profile/src_trgates_inrow_29eeca11`.** The user asked: "okay run it on capacity for gates A-D".
   - **Interim, A/B and E done (both `failures=0`): A PASS, B NOT_PASS on detection only, E PASS_E. 10 confirmed /

@@ -3,8 +3,10 @@ dose_summary.json / history files. Standard library; python >= 3.6.
 
   python3 table_trgateD.py            # drift / overfit / absorption tables, best and last
   python3 table_trgateD.py --cross    # post hoc: alpha = 0 seed-1 arm of job 7835786 vs this job's arms
+  python3 table_trgateD.py --job polaris_trgateD_7854209 --doses 930,9300 --pattern bias_pattern_tilerows_inrow_if25.json
+                                      # the same tables for tilerows_inrow_if25 (2026-11-18; defaults = job 7843532)
 
-dose_summary.json's keys delta_1000 / delta_10000 hold the 860 / 8,600 arms in this job.
+dose_summary.json's keys delta_1000 / delta_10000 hold the low / high dose arms (860 / 8,600 in job 7843532).
 """
 import argparse
 import json
@@ -16,6 +18,15 @@ RES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "resu
 TR, XV = os.path.join(RES, "polaris_trgateD_7843532"), os.path.join(RES, "polaris_gateD_7835786")
 LO, HI = 860.0, 8600.0
 ARMS = ["a0_sA", "a0_sB", "a860_sA", "a8600_sA"]
+PAT = "bias_pattern_tilerows_if25.json"
+
+
+def configure(job, doses, pattern):
+    """Point the tables at another gate D job (results dir name, 'lo,hi' doses as its arms are named, pattern)."""
+    global TR, LO, HI, ARMS, PAT
+    lo, hi = doses.split(",")
+    TR, LO, HI, PAT = os.path.join(RES, job), float(lo), float(hi), pattern
+    ARMS = ["a0_sA", "a0_sB", f"a{lo}_sA", f"a{hi}_sA"]
 
 
 def rng(v, f="{:+.3f}"):
@@ -27,13 +38,14 @@ def summary(job, which):
 
 
 def tables():
-    pat = json.load(open(os.path.join(TR, "bias_pattern_tilerows_if25.json")))
+    pat = json.load(open(os.path.join(TR, PAT)))
     asign = {f"k{a}-{b}": ("+" if x > 0 else "-") for (a, b), x in zip(pat["bands"], pat["alpha"])}
     for which in ("best", "last"):
         d = summary(TR, which)
         print(f"===== {which}: verdict {d['verdict']}")
-        print("| quantity | R_0A | N(w) | D_860 | D_8600 | |D_8600|>N | |D_860|>N | max real | max real/(0.1N) |"
-              " D_8600 +/- | D_8600/D_860 (median) | alpha_b |")
+        lo, hi = f"D_{LO:g}", f"D_{HI:g}"
+        print(f"| quantity | R_0A | N(w) | {lo} | {hi} | |{hi}|>N | |{lo}|>N | max real | max real/(0.1N) |"
+              f" {hi} +/- | {hi}/{lo} (median) | alpha_b |")
         tot_hi = tot_lo = cells = 0
         worst = (0.0, None)
         for q, ws in d["drift"].items():
@@ -55,7 +67,7 @@ def tables():
             print(f"| {q} | {rng([w['R_ref'] for w in ws])} | {rng(N, '{:.3f}')} | {rng(dl)} | {rng(dh)} |"
                   f" {nh}/{len(ws)} | {nl}/{len(ws)} | {max(re):.1e} | {max(rat):.3f} | {pos}/{len(ws) - pos} |"
                   f" {statistics.median(lin):+.1f} | {asign.get(q, '')} |")
-        print(f"cells |D_8600|>N {tot_hi}/{cells}; |D_860|>N {tot_lo}/{cells}; tightest {worst[1]}: "
+        print(f"cells |{hi}|>N {tot_hi}/{cells}; |{lo}|>N {tot_lo}/{cells}; tightest {worst[1]}: "
               f"real/(0.1N) {worst[0]:.4f} = {1 / worst[0]:.0f}x margin")
         for k, v in d["overfit"].items():
             print(f"overfit {k}: val_min {v['val_min']:.6f} @ {v['val_min_step']}, final/min {v['final_over_min']:.4f}, "
@@ -69,7 +81,7 @@ def tables():
         vs[a] = h[-1]["val_clean"]
         print(f"{a}: {len(s)} val intervals, mean s/step {statistics.mean(s):.4f}")
     print(f"final val_clean vs a0_sA: seed {vs['a0_sB'] / vs['a0_sA'] - 1:+.4f}, "
-          f"860 {vs['a860_sA'] / vs['a0_sA'] - 1:+.4f}, 8600 {vs['a8600_sA'] / vs['a0_sA'] - 1:+.4f}")
+          f"{LO:g} {vs[ARMS[2]] / vs['a0_sA'] - 1:+.4f}, {HI:g} {vs[ARMS[3]] / vs['a0_sA'] - 1:+.4f}")
 
 
 def cross():
@@ -96,4 +108,9 @@ def cross():
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--cross", action="store_true")
-    cross() if ap.parse_args().cross else tables()
+    ap.add_argument("--job", default="polaris_trgateD_7843532", help="results dir name of the gate D job")
+    ap.add_argument("--doses", default="860,8600", help="low,high dose as the arms are named (a<lo>_sA, a<hi>_sA)")
+    ap.add_argument("--pattern", default=PAT, help="the job's bias pattern file name")
+    a = ap.parse_args()
+    configure(a.job, a.doses, a.pattern)
+    cross() if a.cross else tables()

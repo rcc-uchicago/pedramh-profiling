@@ -1,0 +1,2 @@
+ROLLOUT_DONE arm=a9300_sA which=best ckpt_step=180000 steps=2500 ics=16 blown=0 first_blow=-1 seconds=362 -> /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/gateD_inrow_v1/a9300_sA/rollout_best.npz
+ROLLOUT_DONE arm=a9300_sA which=last ckpt_step=195250 steps=2500 ics=16 blown=0 first_blow=-1 seconds=341 -> /eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/gateD_inrow_v1/a9300_sA/rollout_last.npz
