@@ -1,0 +1,44 @@
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A100-SXM4-40GB" (39 GiB, sm_80, mempool enabled)
+   Kernel cache:
+     /lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/mpab_7859359/warp_cache_w1/1.17.0
+O12_TR_SCHEME tilerows_inrow_if25@none kind=tri if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_inrow_if25@none mode=concat timing=0
+O12_TR_SCHEME tilerows_inrow_if25@bf16_all kind=tri if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_inrow_if25@bf16_all mode=concat timing=0
+O12_TR_SCHEME tilerows_inrow_if25@fp16_all kind=tri if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_inrow_if25@fp16_all mode=concat timing=0
+O12_TR_SCHEME tilerows_inrow_if25@fp16_kx128 kind=tri if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_inrow_if25@fp16_kx128 mode=concat timing=0
+O12_TR_SCHEME tilerows_inrow_if25@ad1 kind=tri if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_inrow_if25@ad1 mode=concat timing=0
+O12_TR_SCHEME tilerows_inrow_if25@ad32 kind=tri if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_inrow_if25@ad32 mode=concat timing=0
+O12_TR_SCHEME tilerows_inrow_if25@ad1024 kind=tri if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_inrow_if25@ad1024 mode=concat timing=0
+TRAB_STATE w=1 s=0 member=2 t=100.00 SPE=48.3487 CFL_DT=0.264
+O12_TR_PATH tilerows_inrow_if25@none jax_to_torch=dlpack
+Module kernels__locals__build_w_9dd358db 9dd358d load on device 'cuda:0' took 1868.65 ms  (compiled)
+Module kernels__locals__halve0_ed64cc50 ed64cc5 load on device 'cuda:0' took 137.58 ms  (compiled)
+Module kernels__locals__rows_ir_d3ea3211 d3ea321 load on device 'cuda:0' took 6377.21 ms  (compiled)
+Module kernels__locals__update_60223117 6022311 load on device 'cuda:0' took 198.78 ms  (compiled)
+O12_TR_PATH tilerows_inrow_if25@none torch_to_jax=dlpack
+O12_TR_PATH tilerows_inrow_if25@bf16_all jax_to_torch=dlpack
+ERROR TRAB_CRASHED TypeError: 'NoneType' object is not callable
+Traceback (most recent call last):
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_mixprec_8b3e5dbb/SQG/analysis/opt/tilegates/tr_pairs.py", line 205, in <module>
+    main()
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_mixprec_8b3e5dbb/SQG/analysis/opt/tilegates/tr_pairs.py", line 170, in main
+    sub_v, af_v, _ = run_frames(adv[arm], s)
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_mixprec_8b3e5dbb/SQG/analysis/opt/tilegates/tr_pairs.py", line 139, in run_frames
+    s = f(s)
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_mixprec_8b3e5dbb/SQG/analysis/opt/o12run/tilerows_advance.py", line 307, in advance
+    solver.run(steps)
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_mixprec_8b3e5dbb/SQG/analysis/opt/inrow/inrow_step.py", line 412, in run
+    op()
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_mixprec_8b3e5dbb/SQG/analysis/opt/mixprec/mixprec.py", line 156, in <lambda>
+    out.append((f"q_{AFTER[name]}", (lambda a=AFTER[name]: self.q(a))))
+TypeError: 'NoneType' object is not callable

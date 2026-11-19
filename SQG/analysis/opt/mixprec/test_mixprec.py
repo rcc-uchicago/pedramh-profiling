@@ -61,6 +61,34 @@ def test_numpy():
     assert abs(MP.projected_ms(fr, 1.47) - 0.3675) < 1e-12
 
 
+def test_no_shadowing():
+    """InRowQ's methods and attributes must not reuse a name InRow assigns on self, or the instance attribute hides
+    the method: job 7859359 died on InRow's `self.q = None` (theta_phys's buffer) hiding InRowQ.q, the rounding
+    called after every op. Static (ast), so it runs on the login node; `ops` is the one intended override."""
+    import ast
+
+    def self_attrs(cls):
+        return {t.attr for n in ast.walk(cls) if isinstance(n, (ast.Assign, ast.AugAssign, ast.AnnAssign))
+                for t in (n.targets if isinstance(n, ast.Assign) else [n.target])
+                if isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name) and t.value.id == "self"}
+
+    def find_class(path, name):
+        tree = ast.parse(open(path).read())
+        return next(n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == name)
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    base = find_class(os.path.join(os.path.dirname(here), "inrow", "inrow_step.py"), "InRow")
+    sub = find_class(os.path.join(here, "mixprec.py"), "InRowQ")
+    base_attrs = self_attrs(base)
+    base_methods = {n.name for n in base.body if isinstance(n, ast.FunctionDef)}
+    sub_methods = {n.name for n in sub.body if isinstance(n, ast.FunctionDef)} - {"__init__"}
+    hidden = sub_methods & base_attrs
+    assert not hidden, f"InRowQ methods hidden by InRow instance attributes: {sorted(hidden)}"
+    clobbered = self_attrs(sub) & (base_attrs | base_methods)
+    assert not clobbered, f"InRowQ overwrites InRow names: {sorted(clobbered)}"
+    assert sub_methods & base_methods == {"ops"}, sorted(sub_methods & base_methods)
+
+
 def bits(a):
     """The bit pattern of a complex64 array as uint32 (copied contiguous first: numpy cannot re-view a strided slice
     as a smaller dtype -- job 7854381 died on exactly that, in this GPU-only branch)."""
@@ -93,6 +121,7 @@ def test_torch():
 
 def main():
     test_numpy()
+    test_no_shadowing()
     print(f"MIXPREC_TEST_OK torch={test_torch() if 'torch' in sys.argv[1:] or os.environ.get('MIXPREC_TORCH') else 'not run'}")
 
 

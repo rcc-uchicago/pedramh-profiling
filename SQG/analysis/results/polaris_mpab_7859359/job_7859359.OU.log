@@ -1,0 +1,62 @@
+=== run_mixprec_ab on x3015c0s25b1n0 job 7859359: 2026-11-18 07:26:11 src=/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_mixprec_8b3e5dbb arms=tilerows_inrow_if25@none+tilerows_inrow_if25@bf16_all+tilerows_inrow_if25@fp16_all+tilerows_inrow_if25@fp16_kx128+tilerows_inrow_if25@ad1+tilerows_inrow_if25@ad32+tilerows_inrow_if25@ad1024 ===
+index, name, driver_version, memory.total [MiB]
+0, NVIDIA A100-SXM4-40GB, 580.65.06, 40960 MiB
+1, NVIDIA A100-SXM4-40GB, 580.65.06, 40960 MiB
+2, NVIDIA A100-SXM4-40GB, 580.65.06, 40960 MiB
+3, NVIDIA A100-SXM4-40GB, 580.65.06, 40960 MiB
+616d4d6ca2a53621cb251cdff77e12eec974ad857ac92db1d55a177edae60236  SQG/analysis/opt/mixprec/analyze_mixprec.py
+35bf646bcae02125786d48fe485b8865e7cd92c49803d073ab921d279706c54b  SQG/analysis/opt/mixprec/mixprec.py
+75d683ce26f18f7c75cbd97d8f5e635fecccafa3699e6bc74fe2cdbb8831cad0  SQG/analysis/opt/mixprec/score_mixprec.py
+6b109f8918ead16d953d9ec0d98362ce5557d69a725159a869a9f93bc89ff2a2  SQG/analysis/opt/mixprec/test_mixprec.py
+78d68890e1b87c4f62a417c8757855c83ca7e4f168b8d2623a5087c0bcd2f7ff  SQG/analysis/opt/mixprec/PREDICTIONS_mixprec.md
+2a0dedd6c69b60a7886723b3e80cc7e7cad9c0b45e4230966399c1ca377f65a7  SQG/analysis/opt/tilegates/doses_from_trab.py
+8948b24a1aa4cc3632d1b7483238803cedc51d7ac6320ef6e26430e079c259e6  SQG/analysis/opt/tilegates/gates_ab_tr.py
+45d2db3be3327fe1bbe71ba6e38a4cfc9e7bf6ee9f6928fc2d4d3ac6712ac5c3  SQG/analysis/opt/tilegates/score_gates_inrow.py
+87ec4454fee7f46b06a2489a7fbfc092fc3de36dc2dbe060974b8dad1206a8e2  SQG/analysis/opt/tilegates/score_gates_tilerows.py
+70795df7b8ee64a8478d8b77855135faf2695241b521c4d1c2dea5d54dab8b50  SQG/analysis/opt/tilegates/table_trgateD.py
+841e4c276765b83555de51d3693a2a60ea7165f06a0648a4173382d0f6544608  SQG/analysis/opt/tilegates/tr_pairs.py
+9503ef893ec341bfc76055a5cad00575eb9c78dcda517410f56dbb97a144bc5b  SQG/analysis/opt/o12run/tilerows_advance.py
+O12_TR_TEST_OK schemes=4 frame grid exact; wiring consistent (python 3.10.22)
+MIXPREC_TEST_OK torch=ok (2.3.1+cu121)
+ERROR MPAB_WORKER_RC w=0
+ERROR MPAB_WORKER_NO_TOKEN w=0
+TRAB_STATE w=0 s=0 member=1 t=100.00 SPE=46.0198 CFL_DT=0.237
+ERROR TRAB_CRASHED TypeError: 'NoneType' object is not callable
+ERROR MPAB_WORKER_RC w=1
+ERROR MPAB_WORKER_NO_TOKEN w=1
+TRAB_STATE w=1 s=0 member=2 t=100.00 SPE=48.3487 CFL_DT=0.264
+ERROR TRAB_CRASHED TypeError: 'NoneType' object is not callable
+ERROR MPAB_WORKER_RC w=2
+ERROR MPAB_WORKER_NO_TOKEN w=2
+TRAB_STATE w=2 s=0 member=3 t=100.00 SPE=36.1188 CFL_DT=0.245
+ERROR TRAB_CRASHED TypeError: 'NoneType' object is not callable
+ERROR MPAB_WORKER_RC w=3
+ERROR MPAB_WORKER_NO_TOKEN w=3
+TRAB_STATE w=3 s=0 member=4 t=100.00 SPE=23.9838 CFL_DT=0.257
+ERROR TRAB_CRASHED TypeError: 'NoneType' object is not callable
+=== workers done 2026-11-18 07:28:27 (136 s)
+TRAB_VALID lean_u1 regenerated == stored: False (0 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_VERDICT valid=False tilerows_inrow_if25@none: gate_A=FAIL gate_B=None
+TRAB_VALID lean_u1 regenerated == stored: False (0 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_VERDICT valid=False tilerows_inrow_if25@bf16_all: gate_A=FAIL gate_B=None
+TRAB_VALID lean_u1 regenerated == stored: False (0 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_VERDICT valid=False tilerows_inrow_if25@fp16_all: gate_A=FAIL gate_B=None
+TRAB_VALID lean_u1 regenerated == stored: False (0 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_VERDICT valid=False tilerows_inrow_if25@fp16_kx128: gate_A=FAIL gate_B=None
+TRAB_VALID lean_u1 regenerated == stored: False (0 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_VERDICT valid=False tilerows_inrow_if25@ad1: gate_A=FAIL gate_B=None
+TRAB_VALID lean_u1 regenerated == stored: False (0 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_VERDICT valid=False tilerows_inrow_if25@ad32: gate_A=FAIL gate_B=None
+TRAB_VALID lean_u1 regenerated == stored: False (0 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_VERDICT valid=False tilerows_inrow_if25@ad1024: gate_A=FAIL gate_B=None
+MIXPREC_VWRAP tilerows_inrow_if25@none == job 7854208's tilerows_inrow_if25: 0/0 pairs bitwise
+Traceback (most recent call last):
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_mixprec_8b3e5dbb/SQG/analysis/opt/mixprec/analyze_mixprec.py", line 140, in <module>
+    main()
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_mixprec_8b3e5dbb/SQG/analysis/opt/mixprec/analyze_mixprec.py", line 117, in main
+    gb = j["gate_B"][arm]
+KeyError: 'tilerows_inrow_if25@none'
+ERROR MPAB_SUMMARY_RC
+ERROR MPAB_SUMMARY_NO_TOKEN
+=== end 2026-11-18 07:28:41 (150 s)
+MPAB_JOB_DONE failures=10

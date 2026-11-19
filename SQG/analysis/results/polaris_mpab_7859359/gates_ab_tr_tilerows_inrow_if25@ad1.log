@@ -1,0 +1,5 @@
+TRAB_DATA pairs=64 with new arms=0 states=16
+TRAB_VALID lean_u1 regenerated == stored: False (0 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_FLOOR protocol table MATCHES
+TRAB_VERDICT valid=False tilerows_inrow_if25@ad1: gate_A=FAIL gate_B=None
+GATES_AB_TR_DONE -> /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/results/polaris_mpab_7859359/tilerows_inrow_if25@ad1/gates_ab_tr.json

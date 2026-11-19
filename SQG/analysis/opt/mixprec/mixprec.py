@@ -124,7 +124,7 @@ def make_solver(tables, h, *, if_mode, policy, block_dim=256):
             return {"W_spec": self.W, "W_mix": self.W, "TH": self.TH, "Z_mix": self.Z, "Z_spec": self.Z,
                     "T": self.T[self.slot[0]]}[a]                       # T: the slot update() just wrote
 
-        def q(self, a):
+        def round_point(self, a):                                    # not `q`: InRow's self.q (theta_phys) hid it
             X = self.array(a)
             lay = self.layout[a]
             idx, _ = self.lay[lay]
@@ -153,7 +153,7 @@ def make_solver(tables, h, *, if_mode, policy, block_dim=256):
             for name, op in base:
                 out.append((name, op))
                 if name in AFTER:
-                    out.append((f"q_{AFTER[name]}", (lambda a=AFTER[name]: self.q(a))))
+                    out.append((f"q_{AFTER[name]}", (lambda a=AFTER[name]: self.round_point(a))))
             return out
 
     s = InRowQ()

@@ -1,0 +1,33 @@
+{
+ "ref": "tilerows_inrow_if25@none",
+ "step_ms": 1.47,
+ "V_wrap": {
+  "equal": 0,
+  "pairs": 0,
+  "ok": false
+ },
+ "arms": {
+  "tilerows_inrow_if25@none": {
+   "class": "INVALID"
+  },
+  "tilerows_inrow_if25@bf16_all": {
+   "class": "INVALID"
+  },
+  "tilerows_inrow_if25@fp16_all": {
+   "class": "INVALID"
+  },
+  "tilerows_inrow_if25@fp16_kx128": {
+   "class": "INVALID"
+  },
+  "tilerows_inrow_if25@ad1": {
+   "class": "INVALID"
+  },
+  "tilerows_inrow_if25@ad32": {
+   "class": "INVALID"
+  },
+  "tilerows_inrow_if25@ad1024": {
+   "class": "INVALID"
+  }
+ },
+ "best_pass_prize_ms": 0.0
+}

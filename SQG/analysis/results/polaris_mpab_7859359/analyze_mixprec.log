@@ -1,0 +1,7 @@
+MIXPREC_VWRAP tilerows_inrow_if25@none == job 7854208's tilerows_inrow_if25: 0/0 pairs bitwise
+Traceback (most recent call last):
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_mixprec_8b3e5dbb/SQG/analysis/opt/mixprec/analyze_mixprec.py", line 140, in <module>
+    main()
+  File "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_mixprec_8b3e5dbb/SQG/analysis/opt/mixprec/analyze_mixprec.py", line 117, in main
+    gb = j["gate_B"][arm]
+KeyError: 'tilerows_inrow_if25@none'

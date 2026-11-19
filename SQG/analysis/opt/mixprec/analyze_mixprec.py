@@ -108,6 +108,10 @@ def main():
             continue
         j = J[arm]
         cls, ratio = classify(j, arm, ref_size)
+        if cls == "INVALID":                                         # no gate-B dict for the arm (job 7859359)
+            out["arms"][arm] = {"class": cls}
+            print(f"MIXPREC_ARM {arm} INVALID", flush=True)
+            continue
         pol = arm.partition("@")[2]
         f = fr.get(pol, {})
         f16 = float(np.mean([f[x]["f16"] for x in MP.POINTS])) if all(x in f for x in MP.POINTS) else 0.0
