@@ -1,0 +1,84 @@
+TRAB_DATA pairs=64 with new arms=64 states=16
+TRAB_VALID lean_u1 regenerated == stored: True (64 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_FLOOR protocol table MATCHES
+GATE_A tilerows_inrow_if25@none (64 pairs) PASS: Var(e)/A_b k1-2=5.29e-07 k2-4=4.39e-07 k4-8=3.76e-07 k8-16=3.48e-07 k16-32=3.45e-07 k32-64=2.86e-07 k64-128=1.66e-07 k128-182=1.34e-07
+GATE_A tilerows_inrow_if25@bf16_all (64 pairs) FAIL: Var(e)/A_b k1-2=7.69e-02 k2-4=6.91e-02 k4-8=8.21e-02 k8-16=4.81e-02 k16-32=3.40e-02 k32-64=2.17e-02 k64-128=9.21e-03 k128-182=5.24e-03
+GATE_A tilerows_inrow_if25@fp16_all (64 pairs) PASS: Var(e)/A_b k1-2=5.66e-04 k2-4=4.68e-04 k4-8=4.69e-04 k8-16=3.58e-04 k16-32=2.53e-04 k32-64=1.63e-04 k64-128=6.92e-05 k128-182=3.90e-05
+GATE_A tilerows_inrow_if25@fp16_kx128 (64 pairs) PASS: Var(e)/A_b k1-2=5.65e-07 k2-4=4.90e-07 k4-8=4.25e-07 k8-16=4.03e-07 k16-32=3.96e-07 k32-64=3.30e-07 k64-128=1.95e-07 k128-182=1.60e-07
+GATE_A tilerows_inrow_if25@ad1 (64 pairs) PASS: Var(e)/A_b k1-2=5.29e-07 k2-4=4.39e-07 k4-8=3.75e-07 k8-16=3.48e-07 k16-32=3.45e-07 k32-64=2.86e-07 k64-128=1.66e-07 k128-182=1.34e-07
+GATE_A tilerows_inrow_if25@ad32 (64 pairs) PASS: Var(e)/A_b k1-2=5.32e-07 k2-4=4.39e-07 k4-8=3.76e-07 k8-16=3.48e-07 k16-32=3.45e-07 k32-64=2.86e-07 k64-128=1.66e-07 k128-182=1.34e-07
+GATE_A tilerows_inrow_if25@ad1024 (64 pairs) PASS: Var(e)/A_b k1-2=6.73e-07 k2-4=5.69e-07 k4-8=5.05e-07 k8-16=4.81e-07 k16-32=4.73e-07 k32-64=3.98e-07 k64-128=2.30e-07 k128-182=1.85e-07
+GATE_B tilerows_inrow_if25@none NOT_PASS: k1-2=PASS k2-4=FAIL_FLOOR k4-8=FAIL_FLOOR k8-16=PASS k16-32=PASS k32-64=PASS k64-128=PASS k128-182=PASS
+    k    1-2: T_b 1.20e-03 | B_x -4.23e-06 B_d -1.76e-06 (z -1.1 / -0.5) | learnable 0.00e+00 | shells 0.000 of 2 (B3 n/a)
+    k    2-4: T_b 4.40e-04 | B_x -4.56e-06 B_d -2.86e-07 (z -15.6 / -0.4) | learnable 4.45e-06 | shells 0.667 of 6 (limit 0.060)
+    k    4-8: T_b 7.12e-04 | B_x -1.15e-06 B_d -5.91e-07 (z -6.0 / -1.6) | learnable 1.40e-06 | shells 0.050 of 20 (limit 0.035)
+    k   8-16: T_b 1.88e-03 | B_x -3.19e-07 B_d -3.41e-07 (z -2.9 / -1.4) | learnable 5.14e-07 | shells 0.000 of 68 (limit 0.021)
+    k  16-32: T_b 4.74e-03 | B_x -2.57e-08 B_d -1.95e-07 (z -0.3 / -1.9) | learnable 0.00e+00 | shells 0.008 of 240 (limit 0.013)
+    k  32-64: T_b 1.32e-02 | B_x -4.51e-07 B_d -2.50e-07 (z -4.7 / -2.3) | learnable 0.00e+00 | shells 0.001 of 860 (limit 0.009)
+    k 64-128: T_b 4.12e-02 | B_x -6.08e-07 B_d -4.09e-07 (z -1.6 / -0.9) | learnable 1.69e-06 | shells 0.004 of 3160 (limit 0.007)
+    k128-182: T_b 7.30e-02 | B_x -1.33e-06 B_d -1.21e-06 (z -1.0 / -0.9) | learnable 2.73e-06 | shells 0.007 of 1565 (limit 0.008)
+GATE_B tilerows_inrow_if25@bf16_all NOT_PASS: k1-2=INCONCLUSIVE k2-4=INCONCLUSIVE k4-8=PASS k8-16=PASS k16-32=PASS k32-64=PASS k64-128=PASS k128-182=PASS
+    k    1-2: T_b 1.20e-03 | B_x +3.16e-04 B_d -2.59e-03 (z +0.4 / -2.4) | learnable 3.00e-03 | shells 0.000 of 2 (B3 n/a)
+    k    2-4: T_b 4.40e-04 | B_x +5.00e-05 B_d +1.38e-04 (z +0.3 / +0.6) | learnable 0.00e+00 | shells 0.000 of 6 (limit 0.060)
+    k    4-8: T_b 7.12e-04 | B_x -1.35e-04 B_d +3.71e-05 (z -1.0 / +0.2) | learnable 0.00e+00 | shells 0.000 of 20 (limit 0.035)
+    k   8-16: T_b 1.88e-03 | B_x -1.46e-04 B_d -2.00e-04 (z -2.9 / -2.9) | learnable 2.27e-04 | shells 0.015 of 68 (limit 0.021)
+    k  16-32: T_b 4.74e-03 | B_x -1.20e-04 B_d -2.44e-04 (z -3.5 / -5.1) | learnable 2.33e-04 | shells 0.013 of 240 (limit 0.013)
+    k  32-64: T_b 1.32e-02 | B_x -1.19e-04 B_d -1.87e-04 (z -3.6 / -4.6) | learnable 2.05e-04 | shells 0.003 of 860 (limit 0.009)
+    k 64-128: T_b 4.12e-02 | B_x -2.79e-04 B_d -4.00e-04 (z -6.1 / -10.6) | learnable 4.43e-04 | shells 0.007 of 3160 (limit 0.007)
+    k128-182: T_b 7.30e-02 | B_x -7.42e-06 B_d -1.60e-04 (z -0.1 / -2.1) | learnable 0.00e+00 | shells 0.003 of 1565 (limit 0.008)
+GATE_B tilerows_inrow_if25@fp16_all PASS: k1-2=PASS k2-4=PASS k4-8=PASS k8-16=PASS k16-32=PASS k32-64=PASS k64-128=PASS k128-182=PASS
+    k    1-2: T_b 1.20e-03 | B_x +7.61e-05 B_d -1.19e-04 (z +0.9 / -1.5) | learnable 8.00e-05 | shells 0.000 of 2 (B3 n/a)
+    k    2-4: T_b 4.40e-04 | B_x +5.15e-05 B_d -8.32e-07 (z +2.3 / -0.0) | learnable 6.83e-05 | shells 0.000 of 6 (limit 0.060)
+    k    4-8: T_b 7.12e-04 | B_x +6.99e-06 B_d +6.17e-06 (z +1.0 / +1.1) | learnable 2.18e-05 | shells 0.000 of 20 (limit 0.035)
+    k   8-16: T_b 1.88e-03 | B_x -3.63e-06 B_d -8.62e-06 (z -0.8 / -2.2) | learnable 0.00e+00 | shells 0.000 of 68 (limit 0.021)
+    k  16-32: T_b 4.74e-03 | B_x +1.36e-06 B_d +1.58e-06 (z +0.6 / +0.5) | learnable 0.00e+00 | shells 0.013 of 240 (limit 0.013)
+    k  32-64: T_b 1.32e-02 | B_x -5.65e-06 B_d -2.72e-06 (z -2.8 / -1.4) | learnable 0.00e+00 | shells 0.003 of 860 (limit 0.009)
+    k 64-128: T_b 4.12e-02 | B_x -3.92e-06 B_d -4.29e-06 (z -1.2 / -1.3) | learnable 0.00e+00 | shells 0.003 of 3160 (limit 0.007)
+    k128-182: T_b 7.30e-02 | B_x -6.76e-06 B_d -6.20e-06 (z -0.8 / -0.7) | learnable 3.55e-05 | shells 0.004 of 1565 (limit 0.008)
+GATE_B tilerows_inrow_if25@fp16_kx128 NOT_PASS: k1-2=PASS k2-4=FAIL_FLOOR k4-8=FAIL_FLOOR k8-16=PASS k16-32=PASS k32-64=PASS k64-128=PASS k128-182=PASS
+    k    1-2: T_b 1.20e-03 | B_x -2.70e-06 B_d -1.30e-06 (z -0.6 / -0.3) | learnable 0.00e+00 | shells 0.000 of 2 (B3 n/a)
+    k    2-4: T_b 4.40e-04 | B_x -4.11e-06 B_d -7.62e-07 (z -16.4 / -1.1) | learnable 4.06e-06 | shells 0.667 of 6 (limit 0.060)
+    k    4-8: T_b 7.12e-04 | B_x -1.04e-06 B_d -7.14e-07 (z -4.9 / -1.9) | learnable 1.26e-06 | shells 0.050 of 20 (limit 0.035)
+    k   8-16: T_b 1.88e-03 | B_x -2.58e-07 B_d -3.00e-07 (z -2.0 / -1.2) | learnable 5.14e-07 | shells 0.015 of 68 (limit 0.021)
+    k  16-32: T_b 4.74e-03 | B_x +2.40e-09 B_d -1.88e-07 (z +0.0 / -1.6) | learnable 2.35e-07 | shells 0.008 of 240 (limit 0.013)
+    k  32-64: T_b 1.32e-02 | B_x -4.07e-07 B_d -1.88e-07 (z -3.9 / -1.5) | learnable 0.00e+00 | shells 0.002 of 860 (limit 0.009)
+    k 64-128: T_b 4.12e-02 | B_x -5.98e-07 B_d -4.06e-07 (z -1.6 / -0.9) | learnable 1.83e-06 | shells 0.003 of 3160 (limit 0.007)
+    k128-182: T_b 7.30e-02 | B_x -1.22e-06 B_d -1.04e-06 (z -0.9 / -0.7) | learnable 3.08e-06 | shells 0.005 of 1565 (limit 0.008)
+GATE_B tilerows_inrow_if25@ad1 NOT_PASS: k1-2=PASS k2-4=FAIL_FLOOR k4-8=FAIL_FLOOR k8-16=PASS k16-32=PASS k32-64=PASS k64-128=PASS k128-182=PASS
+    k    1-2: T_b 1.20e-03 | B_x -4.18e-06 B_d -1.75e-06 (z -1.1 / -0.5) | learnable 0.00e+00 | shells 0.000 of 2 (B3 n/a)
+    k    2-4: T_b 4.40e-04 | B_x -4.55e-06 B_d -2.85e-07 (z -15.7 / -0.4) | learnable 4.44e-06 | shells 0.667 of 6 (limit 0.060)
+    k    4-8: T_b 7.12e-04 | B_x -1.15e-06 B_d -5.89e-07 (z -6.0 / -1.6) | learnable 1.40e-06 | shells 0.050 of 20 (limit 0.035)
+    k   8-16: T_b 1.88e-03 | B_x -3.17e-07 B_d -3.41e-07 (z -2.9 / -1.4) | learnable 5.19e-07 | shells 0.000 of 68 (limit 0.021)
+    k  16-32: T_b 4.74e-03 | B_x -2.68e-08 B_d -1.95e-07 (z -0.3 / -1.9) | learnable 0.00e+00 | shells 0.008 of 240 (limit 0.013)
+    k  32-64: T_b 1.32e-02 | B_x -4.51e-07 B_d -2.49e-07 (z -4.7 / -2.3) | learnable 0.00e+00 | shells 0.001 of 860 (limit 0.009)
+    k 64-128: T_b 4.12e-02 | B_x -6.09e-07 B_d -4.09e-07 (z -1.6 / -0.9) | learnable 1.70e-06 | shells 0.004 of 3160 (limit 0.007)
+    k128-182: T_b 7.30e-02 | B_x -1.33e-06 B_d -1.21e-06 (z -1.0 / -0.9) | learnable 2.73e-06 | shells 0.007 of 1565 (limit 0.008)
+GATE_B tilerows_inrow_if25@ad32 NOT_PASS: k1-2=PASS k2-4=FAIL_FLOOR k4-8=FAIL_FLOOR k8-16=PASS k16-32=PASS k32-64=PASS k64-128=PASS k128-182=PASS
+    k    1-2: T_b 1.20e-03 | B_x -4.37e-06 B_d -1.52e-06 (z -1.1 / -0.4) | learnable 0.00e+00 | shells 0.000 of 2 (B3 n/a)
+    k    2-4: T_b 4.40e-04 | B_x -4.55e-06 B_d -3.03e-07 (z -15.4 / -0.5) | learnable 4.44e-06 | shells 0.667 of 6 (limit 0.060)
+    k    4-8: T_b 7.12e-04 | B_x -1.15e-06 B_d -5.87e-07 (z -5.9 / -1.6) | learnable 1.39e-06 | shells 0.050 of 20 (limit 0.035)
+    k   8-16: T_b 1.88e-03 | B_x -3.13e-07 B_d -3.35e-07 (z -2.9 / -1.4) | learnable 4.98e-07 | shells 0.000 of 68 (limit 0.021)
+    k  16-32: T_b 4.74e-03 | B_x -2.63e-08 B_d -1.96e-07 (z -0.3 / -1.9) | learnable 0.00e+00 | shells 0.008 of 240 (limit 0.013)
+    k  32-64: T_b 1.32e-02 | B_x -4.50e-07 B_d -2.52e-07 (z -4.7 / -2.3) | learnable 0.00e+00 | shells 0.002 of 860 (limit 0.009)
+    k 64-128: T_b 4.12e-02 | B_x -6.09e-07 B_d -4.06e-07 (z -1.6 / -0.9) | learnable 1.70e-06 | shells 0.004 of 3160 (limit 0.007)
+    k128-182: T_b 7.30e-02 | B_x -1.33e-06 B_d -1.22e-06 (z -1.0 / -0.9) | learnable 2.71e-06 | shells 0.008 of 1565 (limit 0.008)
+GATE_B tilerows_inrow_if25@ad1024 NOT_PASS: k1-2=PASS k2-4=FAIL_FLOOR k4-8=PASS k8-16=PASS k16-32=PASS k32-64=PASS k64-128=PASS k128-182=PASS
+    k    1-2: T_b 1.20e-03 | B_x -5.75e-06 B_d +3.96e-08 (z -1.3 / +0.0) | learnable 0.00e+00 | shells 0.000 of 2 (B3 n/a)
+    k    2-4: T_b 4.40e-04 | B_x -4.22e-06 B_d -6.60e-08 (z -9.2 / -0.1) | learnable 3.95e-06 | shells 0.667 of 6 (limit 0.060)
+    k    4-8: T_b 7.12e-04 | B_x -8.94e-07 B_d -4.80e-07 (z -4.5 / -1.2) | learnable 1.39e-06 | shells 0.000 of 20 (limit 0.035)
+    k   8-16: T_b 1.88e-03 | B_x -3.55e-07 B_d -2.06e-07 (z -2.5 / -0.7) | learnable 3.61e-07 | shells 0.000 of 68 (limit 0.021)
+    k  16-32: T_b 4.74e-03 | B_x +1.29e-07 B_d -1.64e-07 (z +1.1 / -2.0) | learnable 0.00e+00 | shells 0.000 of 240 (limit 0.013)
+    k  32-64: T_b 1.32e-02 | B_x -4.38e-07 B_d -2.24e-07 (z -3.2 / -1.9) | learnable 0.00e+00 | shells 0.000 of 860 (limit 0.009)
+    k 64-128: T_b 4.12e-02 | B_x -5.45e-07 B_d -3.43e-07 (z -1.2 / -0.8) | learnable 1.75e-06 | shells 0.004 of 3160 (limit 0.007)
+    k128-182: T_b 7.30e-02 | B_x -1.61e-06 B_d -1.50e-06 (z -1.2 / -1.1) | learnable 4.20e-06 | shells 0.006 of 1565 (limit 0.008)
+TRAB_ACC        lean_u1 vs ref160 (median of 16 first pairs): k1-2=5.75e-05 k2-4=1.81e-05 k4-8=1.42e-05 k8-16=2.14e-05 k16-32=3.11e-05 k32-64=5.67e-05 k64-128=1.39e-04 k128-182=2.13e-04
+TRAB_ACC tilerows_inrow_if25@none vs ref160 (median of 16 first pairs): k1-2=1.51e-05 k2-4=6.98e-06 k4-8=4.57e-06 k8-16=5.58e-06 k16-32=6.46e-06 k32-64=1.03e-05 k64-128=2.07e-05 k128-182=2.72e-05
+TRAB_ACC tilerows_inrow_if25@bf16_all vs ref160 (median of 16 first pairs): k1-2=2.48e-02 k2-4=8.85e-03 k4-8=7.88e-03 k8-16=9.62e-03 k16-32=1.19e-02 k32-64=1.91e-02 k64-128=3.68e-02 k128-182=4.78e-02
+TRAB_ACC tilerows_inrow_if25@fp16_all vs ref160 (median of 16 first pairs): k1-2=2.12e-03 k2-4=7.33e-04 k4-8=6.29e-04 k8-16=7.43e-04 k16-32=1.01e-03 k32-64=1.55e-03 k64-128=3.01e-03 k128-182=3.95e-03
+TRAB_ACC tilerows_inrow_if25@fp16_kx128 vs ref160 (median of 16 first pairs): k1-2=2.61e-05 k2-4=1.03e-05 k4-8=7.73e-06 k8-16=1.16e-05 k16-32=1.63e-05 k32-64=3.00e-05 k64-128=7.16e-05 k128-182=1.15e-04
+TRAB_ACC tilerows_inrow_if25@ad1 vs ref160 (median of 16 first pairs): k1-2=1.49e-05 k2-4=6.88e-06 k4-8=4.60e-06 k8-16=5.54e-06 k16-32=6.43e-06 k32-64=1.03e-05 k64-128=2.07e-05 k128-182=2.72e-05
+TRAB_ACC tilerows_inrow_if25@ad32 vs ref160 (median of 16 first pairs): k1-2=1.48e-05 k2-4=7.06e-06 k4-8=4.62e-06 k8-16=5.63e-06 k16-32=6.56e-06 k32-64=1.06e-05 k64-128=2.14e-05 k128-182=2.84e-05
+TRAB_ACC tilerows_inrow_if25@ad1024 vs ref160 (median of 16 first pairs): k1-2=3.52e-05 k2-4=1.41e-05 k4-8=1.22e-05 k8-16=1.71e-05 k16-32=2.44e-05 k32-64=4.62e-05 k64-128=1.11e-04 k128-182=1.61e-04
+TRAB_PATTERN /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/results/polaris_mpab_7862647/tilerows_inrow_if25@ad1/bias_pattern_tilerows_inrow_if25@ad1.json rms(B_hat) tr=2.060e-07 lean32ek=1.911e-07 size_ratio=1.078
+TRAB_VERDICT valid=True tilerows_inrow_if25@ad1: gate_A=PASS gate_B=NOT_PASS
+GATES_AB_TR_DONE -> /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/results/polaris_mpab_7862647/tilerows_inrow_if25@ad1/gates_ab_tr.json

@@ -114,6 +114,47 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-19** — **SQG: mixprec probe 1 finally ran (preemptable 7862647, `MPAB_JOB_DONE failures=0`, 2,417 s).
+  16-bit storage passes gates A/B for the high-k_x columns (`fp16_kx128`) and for the adaptive arms; whole-array bf16
+  fails and whole-array fp16 raises the bias 11×. Scored 8 confirmed / 3 refuted (file total 12 / 4). Also: the
+  three NVIDIA Warp skills, run on the project, find no material Warp opening left. Notes Part XVII K;
+  `opt/warp/WARP_SKILLS_REVIEW_2026-11-19.md`.**
+  - **Second failure first:** debug 7859359 (11-18) died on every rounding arm. `InRow.__init__`'s `self.q = None`
+    hid `InRowQ.q`.
+    - Fixed at 073c76cf: the method is now `round_point`. `test_no_shadowing` (ast, login-runnable) fails on the old
+      code. The analyzer reports INVALID arms instead of raising KeyError.
+    - No rule changed. The user then asked to "rerun and put it in preemptible".
+  - **Probe 1** (V1 / V2 hold: valid, and `@none` 64/64 bitwise against 7854208):
+
+    | arm | class | bias vs `@none` | error vs ref160 (× `@none`) | 16-bit share | prize bound / solver step |
+    |---|---|---|---|---|---|
+    | `bf16_all` | FAIL_AB (gate A 8.2e-2) | 295× | 1,861× | 1.00 | — |
+    | `fp16_all` | BIAS_UP (B "passes" only because noise rose 31×) | 11.4× | 157× | 1.00 | — |
+    | `fp16_kx128` | **PASS** | 0.93× | 4.2× (still 0.45–0.57× `lean_u1`) | 0.91 | ≤ 0.666 ms (45%) |
+    | `ad1` | PASS | 1.00× | 1.01× | 0.01 | ≤ 0.010 ms |
+    | `ad32` | PASS | 1.00× | 1.04× | 0.42 | ≤ 0.308 ms (21%) |
+    | `ad1024` | **PASS** | 0.93× | 5.9× | 0.80 | ≤ 0.585 ms (40%) |
+
+    - Refuted: P3 (`fp16_kx128` would not pass), P6 (`ad1024` would not pass), and P8 (best PASS prize ≤ 5%).
+    - **The prize is an upper bound:** all traffic halved, fp32 compute. At the o1.2 level it is ≤ 0.200 s of a
+      0.889 s step for `fp16_kx128`.
+    - **Unknown:** how much is realisable. The cuFFT column passes (47% of the step) have no block-floating-point
+      storage mode.
+    - **Nothing is admitted:** a real 16-bit-storage kernel plus gates A/B/E/D is the user's call.
+  - **Warp skills** (NVIDIA/skills @ 4fbbff39, installed in `~/.claude/skills/`; run statically on existing results,
+    no code change):
+    - **compile time:** ~8 s cold per worker (`rows_ir` 3.4–6.4 s), 0.4–1.4% of a debug job. Backward codegen is
+      already off the right way, with no identity churn.
+    - **debug-gradients:** not applicable (no `wp.Tape`; Warp is forward-only).
+    - **warp-eval:** of one o1.2 step, the Warp kernels are 26% (already Warp). cuFFT columns are 24% (gate C;
+      Warp tile columns measured 2× slower), the UViT 48% (gate C), and frame glue 2.3% (gate F, ≤ 1.023×).
+  - **Results:**
+    - `polaris_mpab_7862647/` (+ `mixprec_summary.json`, score below);
+    - `polaris_mpab_7859359/` (the crash, all arms INVALID);
+    - `opt/warp/warp_compile_census.py` regenerates the compile table.
+  - **Score:** `python3 SQG/analysis/opt/mixprec/score_mixprec.py --p1 SQG/analysis/results/polaris_mpab_7862647 --p2
+    SQG/analysis/results/polaris_o12tr_7854382`.
+
 - **2026-11-18** — **SQG: `tilerows_inrow_if25` passes the full gate battery: gate D capacity job 7854209
   (`DOSE_JOB_DONE failures=0`) is PASS_D on best.pt (62× margin) and last.pt (72×). With A PASS, B detection-only and
   E PASS_E (11-16), the battery scores 13 confirmed / 4 refuted. Mixed-precision probe 2 (7854382): tf32 −9.0%,

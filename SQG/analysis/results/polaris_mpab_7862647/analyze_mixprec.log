@@ -1,0 +1,9 @@
+MIXPREC_VWRAP tilerows_inrow_if25@none == job 7854208's tilerows_inrow_if25: 64/64 pairs bitwise
+MIXPREC_ARM tilerows_inrow_if25@none PASS gateA_max=5.29e-07 bias_vs_ref=1.000 max|B|/T=1.04e-02 acc_ratio=1.000 f16=0.000 prize<=0.000 ms (0.0%)
+MIXPREC_ARM tilerows_inrow_if25@bf16_all FAIL_AB gateA_max=8.21e-02 bias_vs_ref=294.624 max|B|/T=2.16e+00 acc_ratio=1861.295 f16=1.000 prize<=0.735 ms (50.0%)
+MIXPREC_ARM tilerows_inrow_if25@fp16_all BIAS_UP gateA_max=5.66e-04 bias_vs_ref=11.415 max|B|/T=1.17e-01 acc_ratio=156.598 f16=1.000 prize<=0.735 ms (50.0%)
+MIXPREC_ARM tilerows_inrow_if25@fp16_kx128 PASS gateA_max=5.65e-07 bias_vs_ref=0.928 max|B|/T=9.34e-03 acc_ratio=4.235 f16=0.906 prize<=0.666 ms (45.3%)
+MIXPREC_ARM tilerows_inrow_if25@ad1 PASS gateA_max=5.29e-07 bias_vs_ref=0.999 max|B|/T=1.04e-02 acc_ratio=1.007 f16=0.013 prize<=0.010 ms (0.7%)
+MIXPREC_ARM tilerows_inrow_if25@ad32 PASS gateA_max=5.32e-07 bias_vs_ref=0.998 max|B|/T=1.03e-02 acc_ratio=1.041 f16=0.420 prize<=0.308 ms (21.0%)
+MIXPREC_ARM tilerows_inrow_if25@ad1024 PASS gateA_max=6.73e-07 bias_vs_ref=0.929 max|B|/T=9.61e-03 acc_ratio=5.912 f16=0.796 prize<=0.585 ms (39.8%)
+MIXPREC_DONE V_wrap=True best PASS prize <= 0.666 ms -> /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/results/polaris_mpab_7862647/mixprec_summary.json

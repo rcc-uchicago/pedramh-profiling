@@ -3255,5 +3255,57 @@ line-count-keeping patches.
   on the login node with the torch rounding emulated.
 - **Lesson** (second time, after gate D's bdcaab2f): exercise a GPU-only test branch before the job; emulate its
   numpy lines when the login node has no GPU.
-- **Status:** snapshot `src_mixprec_8b3e5dbb` is ready. Both debug queues held another session's waiting jobs at
-  this writing, so it is not resubmitted yet.
+- **Second failure** (debug 7859359, 2026-11-18, `failures=10`). The self-tests passed and the `@none` arm ran, then
+  every worker died on the first rounding arm: `TypeError: 'NoneType' object is not callable`.
+  - `InRow.__init__` sets `self.q = None` (`theta_phys()`'s buffer), and that instance attribute hid `InRowQ`'s
+    rounding method `q`.
+  - Fixed at 073c76cf: the method is now `round_point`. `test_no_shadowing` (ast, login-runnable) fails on the old
+    code and passes now. The analyzer reports INVALID arms instead of raising KeyError.
+  - No rule changed.
+
+**Probe 1 results** (preemptable 7862647, 2026-11-19, the user's go-ahead; snapshot `src_mixprec_073c76cf`;
+2,417 s; `MPAB_JOB_DONE failures=0`).
+- **Valid:** V_frames 64/64 bitwise, V_sealed, V_floor.
+- **V_wrap:** `@none` reproduces job 7854208's `tilerows_inrow_if25` frames, 64/64 pairs bitwise.
+
+| arm | class | gate A max Var/A_b | gate B | bias size vs `@none` | max \|B\|/T_b | error vs ref160, max over bands (× `@none`) | 16-bit share of kept columns | prize bound, ms / solver step |
+|---|---|---|---|---|---|---|---|---|
+| `@none` | PASS (reference) | 5.29e-7 | B3 only, k2-4 + k4-8 | 1.00 | 0.010 | 1.00 | 0 | 0 |
+| `bf16_all` | **FAIL_AB** | **8.2e-2 (FAIL)** | k1-4 INCONCLUSIVE | 295 | **2.16** | 1,861 | 1.000 (all bf16) | (0.735) |
+| `fp16_all` | **BIAS_UP** | 5.66e-4 | PASS in every band (see below) | **11.4** | 0.117 | 157 | 1.000 | (0.735) |
+| `fp16_kx128` | **PASS** | 5.65e-7 | B3 only, k2-4 + k4-8 | 0.93 | 0.009 | 4.2 | 0.906 | **0.666 (45.3%)** |
+| `ad1` | PASS | 5.29e-7 | B3 only, k2-4 + k4-8 | 1.00 | 0.010 | 1.01 | 0.013 | 0.010 (0.7%) |
+| `ad32` | PASS | 5.32e-7 | B3 only, k2-4 + k4-8 | 1.00 | 0.010 | 1.04 | 0.420 (bf16 0.13) | 0.308 (21.0%) |
+| `ad1024` | **PASS** | 6.73e-7 | B3 only, k2-4 | 0.93 | 0.010 | 5.9 | 0.796 (bf16 0.57) | 0.585 (39.8%) |
+
+- **`fp16_all`'s gate-B "PASS" is lost power, not less bias.**
+  - Its k2-4 bias is +5.15e-5: 11× `@none`'s −4.56e-6, of opposite sign, and 11.7% of T_b.
+  - Its noise rose 31× (5.44e-5 vs 1.76e-6), so B3 finds no significant shell.
+  - The prereg's size rule catches it (BIAS_UP, size 12.3 vs 1.08).
+- **`fp16_kx128` is the practical arm.**
+  - It is a static policy: fp16 with a per-column scale for |k_x| > 128, about 91% of the kept columns.
+  - Its bias pattern is indistinguishable from `@none`'s (size ratio 1.002 vs 1.080), and its gate-B pattern is
+    identical.
+  - Its error against ref160 is 4.2× `@none`'s, yet still 0.45–0.57× `lean_u1`'s in every band. The IF time-stepping
+    error, not rounding, dominates the distance to ref160.
+  - `ad1024` is similar, at 0.61–0.86× `lean_u1`.
+- **The adaptive rule spares the tendency T.**
+  - The adaptive arms choose almost the same fractions for all five FFT-side arrays (W, TH, Z: 0.50 at τ = 32).
+  - They keep T in float32 (0.000 at τ = 1 and 32, 0.329 at τ = 1,024).
+- **The prize is an upper bound, not a projection.** It is 0.5 × mean 16-bit fraction × 1.470 ms, as if 16-bit
+  storage halved all of the step's traffic with fp32 compute.
+  - Per o1.2 optimizer step (× 300 solver steps): `fp16_kx128` ≤ 0.200 s (≤ 22.5% of 0.889 s), `ad32` ≤ 0.092 s
+    (10.4%).
+  - **Unknown:** how much is realisable. The cuFFT column passes (47% of the step) have no per-column
+    block-floating-point storage mode, and the per-column scale needs a max reduction the bound does not charge.
+  - **Hypothesis, not measured:** Warp tile column FFTs, 2× slower than cuFFT at fp32 (7840069), would read half
+    the bytes with 16-bit storage.
+- **Scored** (`score_mixprec.py`): probe 1 has **8 confirmed, 3 refuted.** The refuted three:
+  - P3 (`fp16_kx128` not PASS, P = 0.6);
+  - P6 (`ad1024` not PASS, 0.55);
+  - P8 (best PASS prize ≤ 5%, 0.7; measured 45.3%).
+
+  With probe 2, the file scores 12 confirmed / 4 refuted / 0 unscored.
+- **What it means** (prereg): nothing is admitted. A PASS means a real 16-bit-storage kernel is worth building
+  (`fp16_kx128` first: static, no data-dependent sync) and would then need the full gate battery A/B/E/D. Building it
+  is the user's call.

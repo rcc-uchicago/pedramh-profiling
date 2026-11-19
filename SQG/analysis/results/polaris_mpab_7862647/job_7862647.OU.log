@@ -1,0 +1,95 @@
+=== run_mixprec_ab on x3211c0s19b1n0 job 7862647: 2026-11-19 09:00:04 src=/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/src_mixprec_073c76cf arms=tilerows_inrow_if25@none+tilerows_inrow_if25@bf16_all+tilerows_inrow_if25@fp16_all+tilerows_inrow_if25@fp16_kx128+tilerows_inrow_if25@ad1+tilerows_inrow_if25@ad32+tilerows_inrow_if25@ad1024 ===
+index, name, driver_version, memory.total [MiB]
+0, NVIDIA A100-SXM4-40GB, 580.65.06, 40960 MiB
+1, NVIDIA A100-SXM4-40GB, 580.65.06, 40960 MiB
+2, NVIDIA A100-SXM4-40GB, 580.65.06, 40960 MiB
+3, NVIDIA A100-SXM4-40GB, 580.65.06, 40960 MiB
+d03217d5ce22049cd9d3c067fdc9960e372538ccb21bd2c70f5009065d4ae546  SQG/analysis/opt/mixprec/analyze_mixprec.py
+1c4783ed84dee61a0583a3659df496cc188c7a11ee87aa6d26d3fe35ebf91cd7  SQG/analysis/opt/mixprec/mixprec.py
+75d683ce26f18f7c75cbd97d8f5e635fecccafa3699e6bc74fe2cdbb8831cad0  SQG/analysis/opt/mixprec/score_mixprec.py
+26738811cf9c3ee9204fee593e9be2a8f05486ce2ffe4aec3efe902656fe8551  SQG/analysis/opt/mixprec/test_mixprec.py
+78d68890e1b87c4f62a417c8757855c83ca7e4f168b8d2623a5087c0bcd2f7ff  SQG/analysis/opt/mixprec/PREDICTIONS_mixprec.md
+2a0dedd6c69b60a7886723b3e80cc7e7cad9c0b45e4230966399c1ca377f65a7  SQG/analysis/opt/tilegates/doses_from_trab.py
+8948b24a1aa4cc3632d1b7483238803cedc51d7ac6320ef6e26430e079c259e6  SQG/analysis/opt/tilegates/gates_ab_tr.py
+45d2db3be3327fe1bbe71ba6e38a4cfc9e7bf6ee9f6928fc2d4d3ac6712ac5c3  SQG/analysis/opt/tilegates/score_gates_inrow.py
+87ec4454fee7f46b06a2489a7fbfc092fc3de36dc2dbe060974b8dad1206a8e2  SQG/analysis/opt/tilegates/score_gates_tilerows.py
+082ba8b0ee2705136bdd2d9d8373969de3856d8f53196e1274b1678a1438083d  SQG/analysis/opt/tilegates/table_trgateD.py
+841e4c276765b83555de51d3693a2a60ea7165f06a0648a4173382d0f6544608  SQG/analysis/opt/tilegates/tr_pairs.py
+9503ef893ec341bfc76055a5cad00575eb9c78dcda517410f56dbb97a144bc5b  SQG/analysis/opt/o12run/tilerows_advance.py
+O12_TR_TEST_OK schemes=4 frame grid exact; wiring consistent (python 3.10.22)
+MIXPREC_TEST_OK torch=ok (2.3.1+cu121)
+TRAB_STATE w=0 s=0 member=1 t=100.00 SPE=46.0198 CFL_DT=0.237
+TRAB_STATE w=0 s=1 member=2 t=200.00 SPE=43.5177 CFL_DT=0.235
+TRAB_STATE w=0 s=2 member=3 t=300.00 SPE=32.0677 CFL_DT=0.375
+TRAB_STATE w=0 s=3 member=4 t=400.00 SPE=32.9233 CFL_DT=0.199
+TRAB_WORKER_DONE w=0 pairs=16 lean_u1_bitwise_all=True wall=2314s
+TRAB_STATE w=1 s=0 member=2 t=100.00 SPE=48.3487 CFL_DT=0.264
+TRAB_STATE w=1 s=1 member=3 t=200.00 SPE=32.3878 CFL_DT=0.252
+TRAB_STATE w=1 s=2 member=4 t=300.00 SPE=25.6833 CFL_DT=0.184
+TRAB_STATE w=1 s=3 member=1 t=400.00 SPE=46.2766 CFL_DT=0.249
+TRAB_WORKER_DONE w=1 pairs=16 lean_u1_bitwise_all=True wall=2307s
+TRAB_STATE w=2 s=0 member=3 t=100.00 SPE=36.1188 CFL_DT=0.245
+TRAB_STATE w=2 s=1 member=4 t=200.00 SPE=41.021 CFL_DT=0.258
+TRAB_STATE w=2 s=2 member=1 t=300.00 SPE=36.5915 CFL_DT=0.224
+TRAB_STATE w=2 s=3 member=2 t=400.00 SPE=35.7916 CFL_DT=0.182
+TRAB_WORKER_DONE w=2 pairs=16 lean_u1_bitwise_all=True wall=2307s
+TRAB_STATE w=3 s=0 member=4 t=100.00 SPE=23.9838 CFL_DT=0.257
+TRAB_STATE w=3 s=1 member=1 t=200.00 SPE=33.8761 CFL_DT=0.208
+TRAB_STATE w=3 s=2 member=2 t=300.00 SPE=38.3584 CFL_DT=0.216
+TRAB_STATE w=3 s=3 member=3 t=400.00 SPE=34.9527 CFL_DT=0.213
+TRAB_WORKER_DONE w=3 pairs=16 lean_u1_bitwise_all=True wall=2306s
+=== workers done 2026-11-19 09:39:22 (2358 s)
+TRAB_VALID lean_u1 regenerated == stored: True (64 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_PATTERN /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/results/polaris_mpab_7862647/tilerows_inrow_if25@none/bias_pattern_tilerows_inrow_if25@none.json rms(B_hat) tr=2.063e-07 lean32ek=1.911e-07 size_ratio=1.08
+TRAB_VERDICT valid=True tilerows_inrow_if25@none: gate_A=PASS gate_B=NOT_PASS
+TRAB_VALID lean_u1 regenerated == stored: True (64 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_PATTERN /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/results/polaris_mpab_7862647/tilerows_inrow_if25@bf16_all/bias_pattern_tilerows_inrow_if25@bf16_all.json rms(B_hat) tr=6.078e-05 lean32ek=1.911e-07 size_ratio=318.1
+TRAB_VERDICT valid=True tilerows_inrow_if25@bf16_all: gate_A=FAIL gate_B=NOT_PASS
+TRAB_VALID lean_u1 regenerated == stored: True (64 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_PATTERN /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/results/polaris_mpab_7862647/tilerows_inrow_if25@fp16_all/bias_pattern_tilerows_inrow_if25@fp16_all.json rms(B_hat) tr=2.355e-06 lean32ek=1.911e-07 size_ratio=12.33
+TRAB_VERDICT valid=True tilerows_inrow_if25@fp16_all: gate_A=PASS gate_B=PASS
+TRAB_VALID lean_u1 regenerated == stored: True (64 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_PATTERN /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/results/polaris_mpab_7862647/tilerows_inrow_if25@fp16_kx128/bias_pattern_tilerows_inrow_if25@fp16_kx128.json rms(B_hat) tr=1.914e-07 lean32ek=1.911e-07 size_ratio=1.002
+TRAB_VERDICT valid=True tilerows_inrow_if25@fp16_kx128: gate_A=PASS gate_B=NOT_PASS
+TRAB_VALID lean_u1 regenerated == stored: True (64 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_PATTERN /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/results/polaris_mpab_7862647/tilerows_inrow_if25@ad1/bias_pattern_tilerows_inrow_if25@ad1.json rms(B_hat) tr=2.060e-07 lean32ek=1.911e-07 size_ratio=1.078
+TRAB_VERDICT valid=True tilerows_inrow_if25@ad1: gate_A=PASS gate_B=NOT_PASS
+TRAB_VALID lean_u1 regenerated == stored: True (64 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_PATTERN /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/results/polaris_mpab_7862647/tilerows_inrow_if25@ad32/bias_pattern_tilerows_inrow_if25@ad32.json rms(B_hat) tr=2.059e-07 lean32ek=1.911e-07 size_ratio=1.078
+TRAB_VERDICT valid=True tilerows_inrow_if25@ad32: gate_A=PASS gate_B=NOT_PASS
+TRAB_VALID lean_u1 regenerated == stored: True (64 pairs); sealed sha True; lean32ek stats reproduced 72/72 -> True
+TRAB_PATTERN /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/results/polaris_mpab_7862647/tilerows_inrow_if25@ad1024/bias_pattern_tilerows_inrow_if25@ad1024.json rms(B_hat) tr=1.917e-07 lean32ek=1.911e-07 size_ratio=1.003
+TRAB_VERDICT valid=True tilerows_inrow_if25@ad1024: gate_A=PASS gate_B=NOT_PASS
+GATE_A tilerows_inrow_if25@none (64 pairs) PASS: Var(e)/A_b k1-2=5.29e-07 k2-4=4.39e-07 k4-8=3.76e-07 k8-16=3.48e-07 k16-32=3.45e-07 k32-64=2.86e-07 k64-128=1.66e-07 k128-182=1.34e-07
+GATE_A tilerows_inrow_if25@bf16_all (64 pairs) FAIL: Var(e)/A_b k1-2=7.69e-02 k2-4=6.91e-02 k4-8=8.21e-02 k8-16=4.81e-02 k16-32=3.40e-02 k32-64=2.17e-02 k64-128=9.21e-03 k128-182=5.24e-03
+GATE_A tilerows_inrow_if25@fp16_all (64 pairs) PASS: Var(e)/A_b k1-2=5.66e-04 k2-4=4.68e-04 k4-8=4.69e-04 k8-16=3.58e-04 k16-32=2.53e-04 k32-64=1.63e-04 k64-128=6.92e-05 k128-182=3.90e-05
+GATE_A tilerows_inrow_if25@fp16_kx128 (64 pairs) PASS: Var(e)/A_b k1-2=5.65e-07 k2-4=4.90e-07 k4-8=4.25e-07 k8-16=4.03e-07 k16-32=3.96e-07 k32-64=3.30e-07 k64-128=1.95e-07 k128-182=1.60e-07
+GATE_A tilerows_inrow_if25@ad1 (64 pairs) PASS: Var(e)/A_b k1-2=5.29e-07 k2-4=4.39e-07 k4-8=3.75e-07 k8-16=3.48e-07 k16-32=3.45e-07 k32-64=2.86e-07 k64-128=1.66e-07 k128-182=1.34e-07
+GATE_A tilerows_inrow_if25@ad32 (64 pairs) PASS: Var(e)/A_b k1-2=5.32e-07 k2-4=4.39e-07 k4-8=3.76e-07 k8-16=3.48e-07 k16-32=3.45e-07 k32-64=2.86e-07 k64-128=1.66e-07 k128-182=1.34e-07
+GATE_A tilerows_inrow_if25@ad1024 (64 pairs) PASS: Var(e)/A_b k1-2=6.73e-07 k2-4=5.69e-07 k4-8=5.05e-07 k8-16=4.81e-07 k16-32=4.73e-07 k32-64=3.98e-07 k64-128=2.30e-07 k128-182=1.85e-07
+GATE_B tilerows_inrow_if25@none NOT_PASS: k1-2=PASS k2-4=FAIL_FLOOR k4-8=FAIL_FLOOR k8-16=PASS k16-32=PASS k32-64=PASS k64-128=PASS k128-182=PASS
+GATE_B tilerows_inrow_if25@bf16_all NOT_PASS: k1-2=INCONCLUSIVE k2-4=INCONCLUSIVE k4-8=PASS k8-16=PASS k16-32=PASS k32-64=PASS k64-128=PASS k128-182=PASS
+GATE_B tilerows_inrow_if25@fp16_all PASS: k1-2=PASS k2-4=PASS k4-8=PASS k8-16=PASS k16-32=PASS k32-64=PASS k64-128=PASS k128-182=PASS
+GATE_B tilerows_inrow_if25@fp16_kx128 NOT_PASS: k1-2=PASS k2-4=FAIL_FLOOR k4-8=FAIL_FLOOR k8-16=PASS k16-32=PASS k32-64=PASS k64-128=PASS k128-182=PASS
+GATE_B tilerows_inrow_if25@ad1 NOT_PASS: k1-2=PASS k2-4=FAIL_FLOOR k4-8=FAIL_FLOOR k8-16=PASS k16-32=PASS k32-64=PASS k64-128=PASS k128-182=PASS
+GATE_B tilerows_inrow_if25@ad32 NOT_PASS: k1-2=PASS k2-4=FAIL_FLOOR k4-8=FAIL_FLOOR k8-16=PASS k16-32=PASS k32-64=PASS k64-128=PASS k128-182=PASS
+GATE_B tilerows_inrow_if25@ad1024 NOT_PASS: k1-2=PASS k2-4=FAIL_FLOOR k4-8=PASS k8-16=PASS k16-32=PASS k32-64=PASS k64-128=PASS k128-182=PASS
+TRAB_ACC        lean_u1 vs ref160 (median of 16 first pairs): k1-2=5.75e-05 k2-4=1.81e-05 k4-8=1.42e-05 k8-16=2.14e-05 k16-32=3.11e-05 k32-64=5.67e-05 k64-128=1.39e-04 k128-182=2.13e-04
+TRAB_ACC tilerows_inrow_if25@none vs ref160 (median of 16 first pairs): k1-2=1.51e-05 k2-4=6.98e-06 k4-8=4.57e-06 k8-16=5.58e-06 k16-32=6.46e-06 k32-64=1.03e-05 k64-128=2.07e-05 k128-182=2.72e-05
+TRAB_ACC tilerows_inrow_if25@bf16_all vs ref160 (median of 16 first pairs): k1-2=2.48e-02 k2-4=8.85e-03 k4-8=7.88e-03 k8-16=9.62e-03 k16-32=1.19e-02 k32-64=1.91e-02 k64-128=3.68e-02 k128-182=4.78e-02
+TRAB_ACC tilerows_inrow_if25@fp16_all vs ref160 (median of 16 first pairs): k1-2=2.12e-03 k2-4=7.33e-04 k4-8=6.29e-04 k8-16=7.43e-04 k16-32=1.01e-03 k32-64=1.55e-03 k64-128=3.01e-03 k128-182=3.95e-03
+TRAB_ACC tilerows_inrow_if25@fp16_kx128 vs ref160 (median of 16 first pairs): k1-2=2.61e-05 k2-4=1.03e-05 k4-8=7.73e-06 k8-16=1.16e-05 k16-32=1.63e-05 k32-64=3.00e-05 k64-128=7.16e-05 k128-182=1.15e-04
+TRAB_ACC tilerows_inrow_if25@ad1 vs ref160 (median of 16 first pairs): k1-2=1.49e-05 k2-4=6.88e-06 k4-8=4.60e-06 k8-16=5.54e-06 k16-32=6.43e-06 k32-64=1.03e-05 k64-128=2.07e-05 k128-182=2.72e-05
+TRAB_ACC tilerows_inrow_if25@ad32 vs ref160 (median of 16 first pairs): k1-2=1.48e-05 k2-4=7.06e-06 k4-8=4.62e-06 k8-16=5.63e-06 k16-32=6.56e-06 k32-64=1.06e-05 k64-128=2.14e-05 k128-182=2.84e-05
+TRAB_ACC tilerows_inrow_if25@ad1024 vs ref160 (median of 16 first pairs): k1-2=3.52e-05 k2-4=1.41e-05 k4-8=1.22e-05 k8-16=1.71e-05 k16-32=2.44e-05 k32-64=4.62e-05 k64-128=1.11e-04 k128-182=1.61e-04
+MIXPREC_VWRAP tilerows_inrow_if25@none == job 7854208's tilerows_inrow_if25: 64/64 pairs bitwise
+MIXPREC_ARM tilerows_inrow_if25@none PASS gateA_max=5.29e-07 bias_vs_ref=1.000 max|B|/T=1.04e-02 acc_ratio=1.000 f16=0.000 prize<=0.000 ms (0.0%)
+MIXPREC_ARM tilerows_inrow_if25@bf16_all FAIL_AB gateA_max=8.21e-02 bias_vs_ref=294.624 max|B|/T=2.16e+00 acc_ratio=1861.295 f16=1.000 prize<=0.735 ms (50.0%)
+MIXPREC_ARM tilerows_inrow_if25@fp16_all BIAS_UP gateA_max=5.66e-04 bias_vs_ref=11.415 max|B|/T=1.17e-01 acc_ratio=156.598 f16=1.000 prize<=0.735 ms (50.0%)
+MIXPREC_ARM tilerows_inrow_if25@fp16_kx128 PASS gateA_max=5.65e-07 bias_vs_ref=0.928 max|B|/T=9.34e-03 acc_ratio=4.235 f16=0.906 prize<=0.666 ms (45.3%)
+MIXPREC_ARM tilerows_inrow_if25@ad1 PASS gateA_max=5.29e-07 bias_vs_ref=0.999 max|B|/T=1.04e-02 acc_ratio=1.007 f16=0.013 prize<=0.010 ms (0.7%)
+MIXPREC_ARM tilerows_inrow_if25@ad32 PASS gateA_max=5.32e-07 bias_vs_ref=0.998 max|B|/T=1.03e-02 acc_ratio=1.041 f16=0.420 prize<=0.308 ms (21.0%)
+MIXPREC_ARM tilerows_inrow_if25@ad1024 PASS gateA_max=6.73e-07 bias_vs_ref=0.929 max|B|/T=9.61e-03 acc_ratio=5.912 f16=0.796 prize<=0.585 ms (39.8%)
+MIXPREC_DONE V_wrap=True best PASS prize <= 0.666 ms -> /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/sqg-polaris-profiling/SQG/analysis/results/polaris_mpab_7862647/mixprec_summary.json
+=== end 2026-11-19 09:40:21 (2417 s)
+MPAB_JOB_DONE failures=0

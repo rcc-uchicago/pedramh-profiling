@@ -1,0 +1,60 @@
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A100-SXM4-40GB" (39 GiB, sm_80, mempool enabled)
+   Kernel cache:
+     /lus/eagle/projects/lighthouse-uchicago/members/mehta5/sqg_profile/mpab_7862647/warp_cache_w1/1.17.0
+O12_TR_SCHEME tilerows_inrow_if25@none kind=tri if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_inrow_if25@none mode=concat timing=0
+O12_TR_SCHEME tilerows_inrow_if25@bf16_all kind=tri if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_inrow_if25@bf16_all mode=concat timing=0
+O12_TR_SCHEME tilerows_inrow_if25@fp16_all kind=tri if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_inrow_if25@fp16_all mode=concat timing=0
+O12_TR_SCHEME tilerows_inrow_if25@fp16_kx128 kind=tri if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_inrow_if25@fp16_kx128 mode=concat timing=0
+O12_TR_SCHEME tilerows_inrow_if25@ad1 kind=tri if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_inrow_if25@ad1 mode=concat timing=0
+O12_TR_SCHEME tilerows_inrow_if25@ad32 kind=tri if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_inrow_if25@ad32 mode=concat timing=0
+O12_TR_SCHEME tilerows_inrow_if25@ad1024 kind=tri if=1 steps_per_frame=25 h=8.000000e-06 edec_err=1.16e-10
+O12_TR_EXPAND tilerows_inrow_if25@ad1024 mode=concat timing=0
+TRAB_STATE w=1 s=0 member=2 t=100.00 SPE=48.3487 CFL_DT=0.264
+O12_TR_PATH tilerows_inrow_if25@none jax_to_torch=dlpack
+Module kernels__locals__build_w_9dd358db 9dd358d load on device 'cuda:0' took 1088.45 ms  (compiled)
+Module kernels__locals__halve0_ed64cc50 ed64cc5 load on device 'cuda:0' took 114.86 ms  (compiled)
+Module kernels__locals__rows_ir_d3ea3211 d3ea321 load on device 'cuda:0' took 5470.15 ms  (compiled)
+Module kernels__locals__update_60223117 6022311 load on device 'cuda:0' took 198.19 ms  (compiled)
+O12_TR_PATH tilerows_inrow_if25@none torch_to_jax=dlpack
+O12_TR_PATH tilerows_inrow_if25@bf16_all jax_to_torch=dlpack
+O12_TR_PATH tilerows_inrow_if25@bf16_all torch_to_jax=dlpack
+O12_TR_PATH tilerows_inrow_if25@fp16_all jax_to_torch=dlpack
+O12_TR_PATH tilerows_inrow_if25@fp16_all torch_to_jax=dlpack
+O12_TR_PATH tilerows_inrow_if25@fp16_kx128 jax_to_torch=dlpack
+O12_TR_PATH tilerows_inrow_if25@fp16_kx128 torch_to_jax=dlpack
+O12_TR_PATH tilerows_inrow_if25@ad1 jax_to_torch=dlpack
+O12_TR_PATH tilerows_inrow_if25@ad1 torch_to_jax=dlpack
+O12_TR_PATH tilerows_inrow_if25@ad32 jax_to_torch=dlpack
+O12_TR_PATH tilerows_inrow_if25@ad32 torch_to_jax=dlpack
+O12_TR_PATH tilerows_inrow_if25@ad1024 jax_to_torch=dlpack
+O12_TR_PATH tilerows_inrow_if25@ad1024 torch_to_jax=dlpack
+TRAB_PAIR w=1 s=0 p=0 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 11.14, 'tilerows_inrow_if25@bf16_all': 10.85, 'tilerows_inrow_if25@fp16_all': 16.77, 'tilerows_inrow_if25@fp16_kx128': 15.42, 'tilerows_inrow_if25@ad1': 9.47, 'tilerows_inrow_if25@ad32': 14.74, 'tilerows_inrow_if25@ad1024': 16.35, 'ref160': 111.68} (233 s)
+TRAB_PAIR w=1 s=0 p=1 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 3.78, 'tilerows_inrow_if25@bf16_all': 10.66, 'tilerows_inrow_if25@fp16_all': 16.57, 'tilerows_inrow_if25@fp16_kx128': 15.24, 'tilerows_inrow_if25@ad1': 10.02, 'tilerows_inrow_if25@ad32': 14.41, 'tilerows_inrow_if25@ad1024': 16.15} (113 s)
+TRAB_PAIR w=1 s=0 p=2 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 3.78, 'tilerows_inrow_if25@bf16_all': 10.66, 'tilerows_inrow_if25@fp16_all': 16.57, 'tilerows_inrow_if25@fp16_kx128': 15.24, 'tilerows_inrow_if25@ad1': 10.78, 'tilerows_inrow_if25@ad32': 14.36, 'tilerows_inrow_if25@ad1024': 16.19} (113 s)
+TRAB_PAIR w=1 s=0 p=3 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 3.78, 'tilerows_inrow_if25@bf16_all': 10.66, 'tilerows_inrow_if25@fp16_all': 16.57, 'tilerows_inrow_if25@fp16_kx128': 15.23, 'tilerows_inrow_if25@ad1': 9.65, 'tilerows_inrow_if25@ad32': 14.46, 'tilerows_inrow_if25@ad1024': 16.19} (112 s)
+TRAB_STATE w=1 s=1 member=3 t=200.00 SPE=32.3878 CFL_DT=0.252
+TRAB_PAIR w=1 s=1 p=0 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 3.78, 'tilerows_inrow_if25@bf16_all': 10.66, 'tilerows_inrow_if25@fp16_all': 16.57, 'tilerows_inrow_if25@fp16_kx128': 15.23, 'tilerows_inrow_if25@ad1': 10.08, 'tilerows_inrow_if25@ad32': 14.43, 'tilerows_inrow_if25@ad1024': 16.12, 'ref160': 110.81} (224 s)
+TRAB_PAIR w=1 s=1 p=1 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 3.78, 'tilerows_inrow_if25@bf16_all': 10.66, 'tilerows_inrow_if25@fp16_all': 16.57, 'tilerows_inrow_if25@fp16_kx128': 15.24, 'tilerows_inrow_if25@ad1': 9.43, 'tilerows_inrow_if25@ad32': 14.53, 'tilerows_inrow_if25@ad1024': 16.06} (112 s)
+TRAB_PAIR w=1 s=1 p=2 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 3.78, 'tilerows_inrow_if25@bf16_all': 10.66, 'tilerows_inrow_if25@fp16_all': 16.57, 'tilerows_inrow_if25@fp16_kx128': 15.24, 'tilerows_inrow_if25@ad1': 10.11, 'tilerows_inrow_if25@ad32': 14.58, 'tilerows_inrow_if25@ad1024': 16.03} (113 s)
+TRAB_PAIR w=1 s=1 p=3 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 3.78, 'tilerows_inrow_if25@bf16_all': 10.66, 'tilerows_inrow_if25@fp16_all': 16.57, 'tilerows_inrow_if25@fp16_kx128': 15.24, 'tilerows_inrow_if25@ad1': 10.81, 'tilerows_inrow_if25@ad32': 14.57, 'tilerows_inrow_if25@ad1024': 16.18} (114 s)
+TRAB_STATE w=1 s=2 member=4 t=300.00 SPE=25.6833 CFL_DT=0.184
+TRAB_PAIR w=1 s=2 p=0 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 3.78, 'tilerows_inrow_if25@bf16_all': 10.65, 'tilerows_inrow_if25@fp16_all': 16.57, 'tilerows_inrow_if25@fp16_kx128': 15.24, 'tilerows_inrow_if25@ad1': 10.1, 'tilerows_inrow_if25@ad32': 14.02, 'tilerows_inrow_if25@ad1024': 16.39, 'ref160': 110.82} (223 s)
+TRAB_PAIR w=1 s=2 p=1 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 3.78, 'tilerows_inrow_if25@bf16_all': 10.66, 'tilerows_inrow_if25@fp16_all': 16.57, 'tilerows_inrow_if25@fp16_kx128': 15.24, 'tilerows_inrow_if25@ad1': 9.22, 'tilerows_inrow_if25@ad32': 14.1, 'tilerows_inrow_if25@ad1024': 16.17} (112 s)
+TRAB_PAIR w=1 s=2 p=2 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 3.78, 'tilerows_inrow_if25@bf16_all': 10.66, 'tilerows_inrow_if25@fp16_all': 16.57, 'tilerows_inrow_if25@fp16_kx128': 15.24, 'tilerows_inrow_if25@ad1': 8.86, 'tilerows_inrow_if25@ad32': 14.2, 'tilerows_inrow_if25@ad1024': 16.2} (111 s)
+TRAB_PAIR w=1 s=2 p=3 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 3.78, 'tilerows_inrow_if25@bf16_all': 10.66, 'tilerows_inrow_if25@fp16_all': 16.57, 'tilerows_inrow_if25@fp16_kx128': 15.23, 'tilerows_inrow_if25@ad1': 8.89, 'tilerows_inrow_if25@ad32': 14.17, 'tilerows_inrow_if25@ad1024': 16.32} (111 s)
+TRAB_STATE w=1 s=3 member=1 t=400.00 SPE=46.2766 CFL_DT=0.249
+TRAB_PAIR w=1 s=3 p=0 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 3.78, 'tilerows_inrow_if25@bf16_all': 10.66, 'tilerows_inrow_if25@fp16_all': 16.57, 'tilerows_inrow_if25@fp16_kx128': 15.24, 'tilerows_inrow_if25@ad1': 9.57, 'tilerows_inrow_if25@ad32': 14.11, 'tilerows_inrow_if25@ad1024': 16.31, 'ref160': 110.78} (223 s)
+TRAB_PAIR w=1 s=3 p=1 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 3.78, 'tilerows_inrow_if25@bf16_all': 10.66, 'tilerows_inrow_if25@fp16_all': 16.57, 'tilerows_inrow_if25@fp16_kx128': 15.23, 'tilerows_inrow_if25@ad1': 10.09, 'tilerows_inrow_if25@ad32': 14.06, 'tilerows_inrow_if25@ad1024': 16.33} (112 s)
+TRAB_PAIR w=1 s=3 p=2 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 3.78, 'tilerows_inrow_if25@bf16_all': 10.66, 'tilerows_inrow_if25@fp16_all': 16.57, 'tilerows_inrow_if25@fp16_kx128': 15.24, 'tilerows_inrow_if25@ad1': 9.14, 'tilerows_inrow_if25@ad32': 14.05, 'tilerows_inrow_if25@ad1024': 16.34} (112 s)
+TRAB_PAIR w=1 s=3 p=3 lean_u1==7824121 True arms_s={'tilerows_inrow_if25@none': 3.78, 'tilerows_inrow_if25@bf16_all': 10.66, 'tilerows_inrow_if25@fp16_all': 16.57, 'tilerows_inrow_if25@fp16_kx128': 15.24, 'tilerows_inrow_if25@ad1': 8.69, 'tilerows_inrow_if25@ad32': 14.03, 'tilerows_inrow_if25@ad1024': 16.39} (111 s)
+TRAB_WORKER_DONE w=1 pairs=16 lean_u1_bitwise_all=True wall=2307s
