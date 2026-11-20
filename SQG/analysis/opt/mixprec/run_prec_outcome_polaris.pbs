@@ -1,0 +1,149 @@
+#!/bin/bash -l
+#PBS -N sqg_prec
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=30:00:00
+#PBS -j oe
+#PBS -r y
+# run_prec_outcome_polaris.pbs -- the training-outcome comparison of bf16 (or tf32) against ieee
+# (PREDICTIONS_prec_outcome.md, written first). The user (2026-11-20) asked for the cheapest option on the preemptable
+# queue: "a training-outcome comparison of bf16 (or tf32) against ieee".
+#   python3 SQG/analysis/opt/stability/snapshot_src.py <snap>                    (from the repo root: freeze the code)
+#   qsub -v PREC_SRC=<snap> -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ \
+#        SQG/analysis/opt/mixprec/run_prec_outcome_polaris.pbs                   [-v ...,PREC_CAND=tf32,RUN_NAME=...]
+# Four candidate arms, gate D's dose-0 training (gateD/train_dose.py --prec $PREC_CAND), one per GPU: seeds 1, 1, 2, 2.
+# The ieee side is not retrained: it is gate D's six dose-0 arms (jobs 7835786, 7843532, 7854209), the same code and
+# frames. Stages, each resumable (a preemption rerun continues the arms from last.pt):
+#   0 test_prec_outcome.py --gpu (PREC_TEST_OK: set_precision, 20-step ieee/bf16 runs, resume, mismatch, rollout)
+#   1 the frames (16 complete segments) and the six ieee arms (history + best/last rollouts) are there
+#   2 train_dose.py x 4 arms (195,250 steps, batch 16; o1.2's network, loss, optimiser, OneCycle)
+#   3 rollout_dose.py best + last per arm (strict fp32 inference for every arm)
+#   4 analyze_prec.py best (decides) + last (reported)
+# End token (every exit path): PREC_JOB_DONE failures=N. Results -> SQG/analysis/results/polaris_prec_<jobid>/
+# (logs, histories, configs, summaries); checkpoints and rollout npz stay in $MEMBER_ROOT/sqg_profile/<RUN_NAME>/.
+set -eo pipefail
+FAILURES=0
+DONE_PRINTED=0
+fail() { echo "ERROR $*"; FAILURES=$((FAILURES + 1)); }
+finish() {
+    rc=$?
+    if [ "$DONE_PRINTED" -eq 0 ]; then
+        [ "$rc" -ne 0 ] && { echo "ERROR PREC_JOB_EXIT rc=$rc"; FAILURES=$((FAILURES + 1)); }
+        echo "PREC_JOB_DONE failures=$FAILURES"
+    fi
+}
+trap finish EXIT
+cd "${PBS_O_WORKDIR}"
+REPO="${PBS_O_WORKDIR}"
+SRC="${PREC_SRC:-${REPO}}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${SRC}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+JOB="${PBS_JOBID%%.*}"
+# ------------------------------------------------------------------------------------------------------------------
+export PYTHONUNBUFFERED=1
+GATED=SQG/analysis/opt/gateD
+HERE=SQG/analysis/opt/mixprec
+PREC_CAND="${PREC_CAND:-bf16}"
+case "$PREC_CAND" in bf16|tf32) ;; *) echo "ERROR PREC_CAND=$PREC_CAND (bf16 | tf32)"; exit 5 ;; esac
+SP="${MEMBER_ROOT}/sqg_profile"
+RUN_NAME="${RUN_NAME:-prec_${PREC_CAND}_v1}"
+RUN="${SP}/${RUN_NAME}"
+FRAMES="${FRAMES:-${SP}/gateD_frames}"
+REFS=("${SP}/gateD_v1/a0_sA" "${SP}/gateD_v1/a0_sB" "${SP}/gateD_tr_v1/a0_sA" "${SP}/gateD_tr_v1/a0_sB"
+      "${SP}/gateD_inrow_v1/a0_sA" "${SP}/gateD_inrow_v1/a0_sB")
+ARMS=("${PREC_CAND}_sA_r1" "${PREC_CAND}_sA_r2" "${PREC_CAND}_sB_r1" "${PREC_CAND}_sB_r2")
+SEED=(1 1 2 2)
+STEPS=195250; VAL_EVERY=2500; CKPT_EVERY=2500; RSTEPS=2500; N_IC=16; N_VAL=512
+RES="${REPO}/SQG/analysis/results/polaris_prec_${JOB}"
+mkdir -p "$RUN" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+cd "$SRC"
+if [ "$SRC" != "$REPO" ]; then
+    sha256sum -c --quiet MANIFEST.sha256 || { echo "ERROR PREC_SNAPSHOT_MANIFEST"; exit 4; }
+    cp MANIFEST.sha256 GIT_HEAD "$RUN"/
+fi
+T0=$(date +%s)
+echo "=== run_prec_outcome on $(hostname) job $JOB: $(date '+%F %T') prec=$PREC_CAND run=$RUN frames=$FRAMES src=$SRC ==="
+echo "rerun=${PBS_RUN_COUNT:-?} (a preemption rerun resumes each arm from last.pt)"
+nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv | tee "$RUN/gpu.csv"
+
+# ---- 0. tests ----------------------------------------------------------------------------------------------------
+CUDA_VISIBLE_DEVICES=0 "$PY" "$HERE/test_prec_outcome.py" --gpu --frames "$FRAMES" --run "$RUN/selftest" 2>&1 \
+    | tee "$RUN/test_prec.log" || fail PREC_TEST
+grep -q "PREC_TEST_OK" "$RUN/test_prec.log" || fail PREC_TEST_NO_TOKEN
+[ "$FAILURES" = "0" ] || exit 6
+
+# ---- 1. inputs ---------------------------------------------------------------------------------------------------
+n_seg=$(ls "$FRAMES"/m0?_t*.npy 2>/dev/null | grep -vc '\.tmp\.npy$' || true)
+[ "$n_seg" = "16" ] || fail "PREC_FRAMES $n_seg of 16 segments in $FRAMES"
+for r in "${REFS[@]}"; do
+    for f in history.json config.json rollout_best.npz rollout_last.npz; do
+        [ -s "$r/$f" ] || fail "PREC_REF_MISSING $r/$f"
+    done
+done
+[ "$FAILURES" = "0" ] || exit 7
+
+# ---- 2. four candidate arms, one per GPU ---------------------------------------------------------------------
+pids=()
+for g in 0 1 2 3; do
+    CUDA_VISIBLE_DEVICES=$g "$PY" "$GATED/train_dose.py" --frames "$FRAMES" --out "$RUN/${ARMS[$g]}" --alpha 0 \
+        --seed "${SEED[$g]}" --steps "$STEPS" --val-every "$VAL_EVERY" --ckpt-every "$CKPT_EVERY" --n-val "$N_VAL" \
+        --prec "$PREC_CAND" >> "$RUN/${ARMS[$g]}.log" 2>&1 &
+    pids+=($!)
+done
+for g in 0 1 2 3; do
+    wait "${pids[$g]}" || fail "TRAIN_RC arm=${ARMS[$g]}"
+    grep -q "DOSE_ARM_DONE" "$RUN/${ARMS[$g]}.log" || fail "TRAIN_NO_TOKEN arm=${ARMS[$g]}"
+    grep -E "^(DOSE_ARM |DOSE_RESUME|PREC_FORWARD|DOSE_ARM_DONE|ERROR)" "$RUN/${ARMS[$g]}.log" | tail -n 5 || true
+    grep -E "^DOSE_VAL" "$RUN/${ARMS[$g]}.log" | tail -n 2 || true
+done
+echo "=== training done $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+[ "$FAILURES" = "0" ] || exit 8
+
+# ---- 3. rollouts (best + last), one GPU per arm, strict fp32 ---------------------------------------------------
+pids=()
+for g in 0 1 2 3; do
+    ( for which in best last; do
+        CUDA_VISIBLE_DEVICES=$g "$PY" "$GATED/rollout_dose.py" --frames "$FRAMES" --arm "$RUN/${ARMS[$g]}" \
+            --which $which --steps "$RSTEPS" --n-ic "$N_IC" --n-val "$N_VAL" || exit 1
+      done ) >> "$RUN/rollout_${ARMS[$g]}.log" 2>&1 &
+    pids+=($!)
+done
+for g in 0 1 2 3; do
+    wait "${pids[$g]}" || fail "ROLLOUT_RC arm=${ARMS[$g]}"
+    [ "$(grep -c ROLLOUT_DONE "$RUN/rollout_${ARMS[$g]}.log")" -ge 2 ] || fail "ROLLOUT_NO_TOKEN arm=${ARMS[$g]}"
+    grep -E "^(ROLLOUT_DONE|ERROR)" "$RUN/rollout_${ARMS[$g]}.log" | tail -n 2 || true
+done
+
+# ---- 4. analysis ----------------------------------------------------------------------------------------------
+CANDS=()
+for arm in "${ARMS[@]}"; do CANDS+=("$RUN/$arm"); done
+for which in best last; do
+    "$PY" "$HERE/analyze_prec.py" --ref "${REFS[@]}" --cand "${CANDS[@]}" --prec "$PREC_CAND" --frames "$FRAMES" \
+        --out "$RES/$which" --which $which 2>&1 | tee "$RUN/analyze_${which}.log" || fail "ANALYSIS_RC which=$which"
+    grep -q "PREC_ANALYSIS_DONE" "$RUN/analyze_${which}.log" || fail "ANALYSIS_NO_TOKEN which=$which"
+done
+
+for f in "$RUN"/*.log "$RUN"/gpu.csv; do [ -e "$f" ] && cp "$f" "$RES"/; done
+for arm in "${ARMS[@]}"; do
+    for f in history.json config.json; do [ -e "$RUN/$arm/$f" ] && cp "$RUN/$arm/$f" "$RES/${arm}_$f"; done
+done
+echo "=== end $(date '+%F %T') ($(( $(date +%s) - T0 )) s)"
+DONE_PRINTED=1
+echo "PREC_JOB_DONE failures=$FAILURES"
