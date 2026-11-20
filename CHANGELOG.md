@@ -114,6 +114,41 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-20** — **SQG: bf16-vs-ieee training-outcome comparison built, tested on the login node and queued as
+  preemptable 7870569 (1 node, 30 h, rerunnable; snapshot `sqg_profile/src_prec_0c8a516d`). Prereg
+  `SQG/analysis/opt/mixprec/PREDICTIONS_prec_outcome.md` committed first (0c8a516d). Not yet run.**
+  - **Ask:** "build and test a Cheapest: a training-outcome comparison of bf16 (or tf32) against ieee. bf16 is the
+    better candidate: −11% time and 42% less memory. on the preemptible queue". Probe 2 (Part XVII K) had left
+    adoption behind exactly this comparison.
+  - **Why it is cheap:** gate D's three jobs already trained six dose-0 ieee arms with o1.2's network, loss,
+    optimiser and OneCycle (195,250 steps, batch 16), on the same frames, with best/last rollouts on disk.
+    - `train_dose.py`, `rollout_dose.py` and `model_UViT.py` are unchanged since 22b8617c.
+    - Their configs are identical across jobs, persistence bit for bit.
+    - So only four bf16 arms (seeds 1, 1, 2, 2) train: one node, ~18–23 h.
+  - **Harness:**
+    - `train_dose.py --prec ieee|tf32|bf16` = `O12_PREC`. The default keeps gate D's ops and RNG order.
+    - bf16 autocasts the training forward + loss; weights, AdamW and validation stay fp32.
+    - A first-step Conv/Linear dtype census proves bf16 is on. Probe 2's M2 could not see it.
+    - Val rows log peak memory, and a precision-mismatch resume is refused.
+    - All rollouts are strict-fp32 inference.
+  - **Rule** (`analyze_prec.py`): an exact seed-stratified permutation test on best val (100 splits) plus a
+    family-wise max test over the 90 rollout cells. Verdicts: PASS_P if |Δ| ≤ σ_ref (≈1% of val) and nothing is
+    detected; else INCONCLUSIVE / WORSE / BETTER / ROLLOUT_DIFFERS / UNSTABLE / INVALID.
+  - **Power** (`power_prec.py`): it sees 2–3% shifts (WORSE 0.70 / 0.96) but not ≤ 1% ones (PASS_P 0.47 at 1σ).
+  - **ieee-only harness check:** each job's ieee pair as the candidate against the other four gives PASS_P, PASS_P
+    and INCONCLUSIVE. Job 7854209's pair is +1.41% (+1.88 sd), the highest at both seeds. A per-job effect cannot
+    be separated from bf16 in this one-job design; that is a stated limit.
+  - **Caught before submission:**
+    - the first census hook was a lambda returning `census.setdefault(...)`, a str, which would have replaced every
+      Conv/Linear output. Now a function, with an ast guard that fails on the old form;
+    - a finished arm's preemption rerun would have dropped `forward_census` (→ INVALID). It is now carried over
+      from last.pt, and the GPU self-test covers it.
+  - **GPU branch not run before submission:** the debug slot is held by 7862526. Stage 0 of the job runs it
+    (`PREC_TEST_OK`) before any long training, so a failure there costs minutes.
+  - **Read when done:** `PREC_JOB_DONE failures=0`, then `PREC_ANALYSIS_DONE verdict=` in
+    `SQG/analysis/results/polaris_prec_7870569/analyze_best.log`. Score the 12 predictions and write notes
+    Part XVII L. tf32 is the same job with `-v PREC_CAND=tf32,RUN_NAME=prec_tf32_v1`.
+
 - **2026-11-19** — **SQG: mixprec probe 1 finally ran (preemptable 7862647, `MPAB_JOB_DONE failures=0`, 2,417 s).
   16-bit storage passes gates A/B for the high-k_x columns (`fp16_kx128`) and for the adaptive arms; whole-array bf16
   fails and whole-array fp16 raises the bias 11×. Scored 8 confirmed / 3 refuted (file total 12 / 4). Also: the
